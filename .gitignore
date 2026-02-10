@@ -1,0 +1,17 @@
+# 1. まず全ファイルを無視
+/*
+
+# 2. フォルダ構造を許可（中身はまだ無視）
+!/Source/
+!/Config/
+
+# 3. 必要なファイル形式だけを許可
+!/.gitignore
+!/*.uproject
+!/Source/**/*.cpp
+!/Source/**/*.h
+!/Source/**/*.cs
+!/Config/**/*.ini
+
+# 4. Git 自体の管理ファイルは無視しない
+!.gitignore
