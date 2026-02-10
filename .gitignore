@@ -15,3 +15,7 @@
 
 # 4. Git 自体の管理ファイルは無視しない
 !.gitignore
+
+!/Content/Core/
+!/Content/Core/**/*.uasset
+!/Content/Core/**/*.umap
