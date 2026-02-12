@@ -57,6 +57,8 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Input")
 	UInputAction* MouseLookAction;
 
+	
+
 	/** ズーム操作用の入力アクション（Enhanced Input用） */
 	UPROPERTY(EditAnywhere, Category = "Input")
 	class UInputAction* ZoomAction;

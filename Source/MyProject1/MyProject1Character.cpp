@@ -132,6 +132,8 @@ void AMyProject1Character::SetupPlayerInputComponent(UInputComponent* PlayerInpu
 			EnhancedInputComponent->BindAction(ZoomAction, ETriggerEvent::Triggered, this, &AMyProject1Character::ZoomCamera);
 		}
 
+		
+
 		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Started, this, &AMyProject1Character::OnToggleMenuPressed);
 
 	}
@@ -441,7 +443,7 @@ void AMyProject1Character::Tick(float DeltaTime)
 		bIsAutoAttacking = false;
 		return;
 	}
-
+	
 	// --- 2. エリア離脱（ナビメッシュ外）の判定 ---
 	UNavigationSystemV1* NavSys = FNavigationSystem::GetCurrent<UNavigationSystemV1>(GetWorld());
 	if (NavSys && CurrentTarget)
@@ -459,7 +461,7 @@ void AMyProject1Character::Tick(float DeltaTime)
 			return;
 		}
 	}
-
+	
 	// --- 3. 追跡・戦闘時の速度設定 ---
 	// ターゲットがいるので、速度を「追いかけ速度（速い）」に変更する
 	if (GetCharacterMovement() && GetCharacterMovement()->MaxWalkSpeed != ChaseRunSpeed)
