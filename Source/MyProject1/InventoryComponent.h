@@ -63,6 +63,13 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Inventory")
 	FOnInventoryUpdated OnInventoryUpdated;
 
+
+	UPROPERTY(BlueprintReadWrite, Category = "Inventory|UI")
+	bool bIsItemActionMenuOpen = false;
+
+	UFUNCTION(BlueprintCallable, Category = "Inventory|UI")
+	void SetItemActionMenuState(bool bIsOpen);
+
 public:
 	// --- 機能関数 ---
 

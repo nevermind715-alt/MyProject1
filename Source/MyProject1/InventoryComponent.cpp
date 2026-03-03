@@ -344,3 +344,8 @@ bool UInventoryComponent::GetItemDataBP(FName ItemID, FItemData& OutData)
 	return false; // 見つからなければ false
 }
 
+
+void UInventoryComponent::SetItemActionMenuState(bool bIsOpen)
+{
+	bIsItemActionMenuOpen = bIsOpen;
+}
