@@ -124,7 +124,18 @@ struct FCharacterStats
 	float Mental = 1.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats")
-	float Enargy = 1.0f;
+	float Energy = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats")
+	float MaxEnergy = 100.0f; // 疲労度の限界値
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats")
+	float BaseEnergy = 0.0f; // 蓄積疲労度（休息してもこれ以上は回復しない値）
+
+	// --- 予備・カスタムステータス枠 ---
+	// 好きな名前（FName）と数値（float）を自由にペアにして追加できるリスト
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats|Extra")
+	TMap<FName, float> ExtraStats;
 
 
 	// --- レベル・経験値の追加 ---
@@ -265,4 +276,82 @@ struct FInventorySlot
 	// 何個持っているか？
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory")
 	int32 Quantity;
+};
+
+// --- クエストの種類 ---
+UENUM(BlueprintType)
+enum class EQuestType : uint8
+{
+	Kill        UMETA(DisplayName = "討伐クエスト"),
+	Gather      UMETA(DisplayName = "収集クエスト"),
+	Delivery    UMETA(DisplayName = "お使い・会話クエスト")
+};
+
+// --- クエストの進行状態 ---
+UENUM(BlueprintType)
+enum class EQuestStatus : uint8
+{
+	NotStarted          UMETA(DisplayName = "未受注"),
+	InProgress          UMETA(DisplayName = "進行中"),
+	ObjectiveCleared    UMETA(DisplayName = "条件達成（報告待ち）"),
+	Completed           UMETA(DisplayName = "完了（報酬受取済）")
+};
+
+// --- クエストの基本データ（データテーブル用） ---
+USTRUCT(BlueprintType)
+struct FQuestData : public FTableRowBase
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Info")
+	FText QuestName;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Info")
+	FText Description;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Objective")
+	EQuestType QuestType = EQuestType::Kill;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Objective")
+	FName TargetID;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Objective")
+	int32 RequiredAmount = 1;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Reward")
+	int32 RewardExperience = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Reward")
+	int32 RewardGil = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Reward")
+	FName RewardItemID;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Reward")
+	int32 RewardItemAmount = 0;
+};
+
+// --- プレイヤーが保持するクエスト進行データ ---
+USTRUCT(BlueprintType)
+struct FQuestProgress
+{
+	GENERATED_BODY()
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Quest|Progress")
+	FName QuestID;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Quest|Progress")
+	EQuestStatus Status = EQuestStatus::NotStarted;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Quest|Progress")
+	int32 CurrentAmount = 0;
+
+	FQuestProgress() {}
+
+	FQuestProgress(FName InQuestID)
+	{
+		QuestID = InQuestID;
+		Status = EQuestStatus::InProgress;
+		CurrentAmount = 0;
+	}
 };

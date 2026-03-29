@@ -23,6 +23,7 @@
 #include "NavigationSystem.h"
 #include "MyProject1HUD.h"
 #include "Blueprint/UserWidget.h"
+#include "QuestComponent.h"
 
 AMyProject1Character::AMyProject1Character()
 {
@@ -77,6 +78,7 @@ AMyProject1Character::AMyProject1Character()
 	// are set in the derived blueprint asset named ThirdPersonCharacter (to avoid direct content references in C++)
 
 	InventoryComp = CreateDefaultSubobject<UInventoryComponent>(TEXT("InventoryComp"));
+	QuestComp = CreateDefaultSubobject<UQuestComponent>(TEXT("QuestComp"));
 
 }
 
@@ -106,6 +108,8 @@ void AMyProject1Character::BeginPlay()
 		GetWorldTimerManager().SetTimer(TimerHandle_AutoRecovery, this, &AMyProject1Character::HandleAutoRecovery, AutoRecoveryInterval, true);
 	}
 
+	// 疲労度の計算を「1秒に1回」のペースで自動実行する
+	GetWorldTimerManager().SetTimer(TimerHandle_FatigueUpdate, this, &AMyProject1Character::HandleFatigueTick, 1.0f, true);
 }
 
 void AMyProject1Character::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -171,6 +175,17 @@ void AMyProject1Character::ToggleCombatMode()
 		bIsAutoAttacking = false;
 		bIsPreparingAttack = false;
 		OnReceiveLogMessage(TEXT("戦闘解除"), ELogMessageType::System);
+
+		if (APlayerController* PC = Cast<APlayerController>(GetController()))
+		{
+			if (AMyProject1HUD* HUD = Cast<AMyProject1HUD>(PC->GetHUD()))
+			{
+				if (HUD->CommandMenuWidget && HUD->CommandMenuWidget->IsInViewport())
+				{
+					HUD->ToggleCommandMenu();
+				}
+			}
+		}
 	}
 	else if (CurrentTarget)
 	{
@@ -401,6 +416,8 @@ void AMyProject1Character::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
+	
+
 	// --- 追加：周囲の敵のHPバー表示ロジック ---
 	if (!IsPlayerControlled() && !IsDead()) // 自分がNPCで、かつ生きている場合
 	{
@@ -522,7 +539,7 @@ void AMyProject1Character::Tick(float DeltaTime)
 	if (bIsAutoAttacking)
 	{
 		// A. まず「攻撃間隔（リキャスト）」が溜まっているかチェック
-		if (CurrentTime - LastAttackTime >= AttackSpeed)
+		if (CurrentTime - LastAttackTime >= GetModifiedAttackSpeed())
 		{
 			// B. 次に「射程内」にいるかチェック
 			if (DistanceToTarget <= AttackRange)
@@ -650,6 +667,12 @@ float AMyProject1Character::TakeDamage(float DamageAmount, FDamageEvent const& D
 				// 計算した経験値を加算
 				Killer->AddExperience(FinalExp);
 
+				if (Killer->QuestComp)
+				{
+					// 倒した敵の「ジョブの行名（Goblinなど）」をターゲットIDとしてクエストに通知
+					Killer->QuestComp->UpdateKillObjective(FName(*this->MyStats.NPCName));
+				}
+
 				OnDeath();
 
 				// プレイヤー（Killer）に対して、ターゲットが死んだことを通知する
@@ -764,8 +787,17 @@ void AMyProject1Character::OnAttackHit()
 	AMyProject1Character* EnemyChar = Cast<AMyProject1Character>(CurrentTarget);
 	if (!EnemyChar) return;
 
+	// ★追加：計算直前に、現在の攻撃力を保存しておく
+	float OriginalAP = this->MyStats.AttackPower;
+
+	// ★追加：疲労度を加味した攻撃力で一時的に上書きする
+	this->MyStats.AttackPower = GetModifiedAttackPower();
+
 	// 1. ダメージ計算を実行
 	FDamageResult Result = URpgDamageCalculator::CalculateDamage(this->MyStats, EnemyChar->MyStats);
+
+	// ★追加：計算が終わったら、すぐに元の攻撃力に戻す（UI等に影響を出さないため）
+	this->MyStats.AttackPower = OriginalAP;
 
 	// 2. 判定に基づいてSEを選択
 	USoundBase* SoundToPlay = nullptr;
@@ -930,6 +962,9 @@ void AMyProject1Character::StartAutoAttack()
 		bIsPreparingAttack = true;
 		StartAttackTimestamp = GetWorld()->GetTimeSeconds();
 
+		// ★ 追加：オートアタック開始時に疲労度を上げる
+		UpdateEnergy(FatigueIncreasePerAttack);
+
 		// ★ 追加1：抜刀アニメーションの再生
 		if (UnsheatheMontage)
 		{
@@ -986,7 +1021,7 @@ void AMyProject1Character::AddExperience(int32 Amount)
 
 	MyStats.CurrentXP += Amount;
 
-	FString ExpMsg = FString::Printf(TEXT("%dポイントの経験値を得た！"), Amount);
+	FString ExpMsg = FString::Printf(TEXT("%dポイントの経験値を獲得！"), Amount);
 	OnReceiveLogMessage(ExpMsg, ELogMessageType::ExpGain);
 
 	// 必要経験値を超えている間、レベルアップを繰り返す
@@ -1010,12 +1045,12 @@ void AMyProject1Character::LevelUp()
 	// ★重要：ステータスの再計算を ApplyJobData に任せる
 	ApplyJobData();
 
-	// 画面表示
-	if (GEngine)
-	{
-		FString Msg = FString::Printf(TEXT("LEVEL UP! New Level: %d"), MyStats.Level);
-		GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Yellow, Msg);
-	}
+	// NPCName（またはCharacterName）を使って、誰がレベルアップしたかを含める
+	FString SpeakerName = MyStats.NPCName.IsEmpty() ? CharacterName : MyStats.NPCName;
+	FString LevelUpMsg = FString::Printf(TEXT("%sはレベル%dに上がった！"), *SpeakerName, MyStats.Level);
+
+	// ログの種類はシステムメッセージとして送信
+	OnReceiveLogMessage(LevelUpMsg, ELogMessageType::System);
 }
 
 // --- 3. ジョブデータとレベルに基づいたステータス確定 ---
@@ -1092,7 +1127,7 @@ bool AMyProject1Character::TryPerformAutoAttack()
 	// 3. 完全に抜刀完了（bIsAutoAttacking == true）している時だけ攻撃処理へ
 	double CurrentTime = GetWorld()->GetTimeSeconds();
 
-	if (CurrentTime - LastAttackTime >= AttackSpeed)
+	if (CurrentTime - LastAttackTime >= GetModifiedAttackSpeed())
 	{
 		PerformAutoAttack();
 		LastAttackTime = CurrentTime;
@@ -1328,4 +1363,110 @@ void AMyProject1Character::HandleAutoRecovery()
 
 	// デバッグ用：回復したか確認したい場合のみコメントアウトを外す
 	// UE_LOG(LogTemp, Log, TEXT("Auto Recovered: %.1f"), RecoverAmount);
+}
+
+void AMyProject1Character::NotifyStatsChanged()
+{
+	// UI側で「聞く準備（Bind）」ができているか確認してから合図を送る
+	if (OnStatsUpdatedDelegate.IsBound())
+	{
+		OnStatsUpdatedDelegate.Broadcast();
+	}
+}
+
+void AMyProject1Character::UpdateEnergy(float Amount)
+{
+	if (IsDead() || !IsPlayerControlled()) return;
+
+	float OldEnergy = MyStats.Energy;
+
+	// Energyは「BaseEnergy(蓄積値)」から「MaxEnergy(100)」の範囲に制限する
+	MyStats.Energy = FMath::Clamp(MyStats.Energy + Amount, MyStats.BaseEnergy, MyStats.MaxEnergy);
+
+	// もし値が変動していたらUIに合図を送る
+	if (MyStats.Energy != OldEnergy)
+	{
+		NotifyStatsChanged();
+	}
+}
+
+void AMyProject1Character::HandleFatigueTick()
+{
+	if (IsDead() || !IsPlayerControlled()) return;
+
+	float OldEnergy = MyStats.Energy;
+
+	// 1. 蓄積疲労度の増加（1秒あたりの増加量）
+	float BaseIncreaseRate = 20.0f / InGameDayInRealSeconds;
+	MyStats.BaseEnergy = FMath::Clamp(MyStats.BaseEnergy + BaseIncreaseRate, 0.0f, MyStats.MaxEnergy);
+
+	// Energyが蓄積値を下回らないように強制的に押し上げる
+	if (MyStats.Energy < MyStats.BaseEnergy)
+	{
+		MyStats.Energy = MyStats.BaseEnergy;
+	}
+
+	// 2. 疲労度の自然変動
+	if (bIsAutoAttacking || bIsPreparingAttack)
+	{
+		// 抜刀中（エンゲージ中）：1秒あたりの疲労度を加算
+		MyStats.Energy = FMath::Clamp(MyStats.Energy + FatigueIncreasePerSec, MyStats.BaseEnergy, MyStats.MaxEnergy);
+	}
+	else
+	{
+		// 非戦闘中：最後に戦闘してから一定時間経ったら回復（減少）開始
+		double CurrentTime = GetWorld()->GetTimeSeconds();
+		if (CurrentTime - LastCombatTime >= AutoRecoveryStartDelay)
+		{
+			MyStats.Energy = FMath::Clamp(MyStats.Energy - FatigueDecreasePerSec, MyStats.BaseEnergy, MyStats.MaxEnergy);
+		}
+	}
+
+	// 今回の1秒間で値が少しでも変わっていたら、UIを1回だけ更新する
+	if (MyStats.Energy != OldEnergy)
+	{
+		NotifyStatsChanged();
+	}
+}
+
+// --- 疲労度を加味した攻撃力の計算 ---
+float AMyProject1Character::GetModifiedAttackPower() const
+{
+	float BaseAP = MyStats.AttackPower;
+
+	if (!IsPlayerControlled()) return BaseAP;
+
+	// ① まず一番重いペナルティ（90以上）をチェック
+	if (MyStats.Energy >= FatigueThreshold2)
+	{
+		// デバフ②：攻撃力10%ダウン
+		return BaseAP * (1.0f - FatigueAttackPenalty2);
+	}
+	// ② 次に中間のペナルティ（50以上〜90未満）をチェック
+	else if (MyStats.Energy >= FatigueThreshold1)
+	{
+		// デバフ①：攻撃力5%ダウン
+		return BaseAP * (1.0f - FatigueAttackPenalty1);
+	}
+
+	// 50未満ならそのままの攻撃力を返す
+	return BaseAP;
+}
+
+// --- 疲労度を加味した攻撃速度（間隔）の計算 ---
+float AMyProject1Character::GetModifiedAttackSpeed() const
+{
+	float BaseSpeed = AttackSpeed;
+
+	if (!IsPlayerControlled()) return BaseSpeed;
+
+	// AttackSpeedは「攻撃間隔（秒）」なので、数値を大きくすると攻撃が遅くなります
+	if (MyStats.Energy >= FatigueThreshold2)
+	{
+		// デバフ②：速度5%ダウン（＝攻撃間隔が5%長くなる）
+		return BaseSpeed * (1.0f + FatigueSpeedPenalty2);
+	}
+
+	// 90未満なら速度ペナルティ無し
+	return BaseSpeed;
 }

@@ -21,6 +21,7 @@ DECLARE_LOG_CATEGORY_EXTERN(LogTemplateCharacter, Log, All);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnHPChangedSignature, float, CurrentHP, float, MaxHP);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnLogScrollToBottomSignature);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnCharacterDeathSignature, AActor*, DeadActor);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnStatsUpdatedSignature);
 
 /**
  *  A simple player-controllable third person character
@@ -77,6 +78,12 @@ protected:
 	/** 定期的に呼ばれる回復関数 */
 	void HandleAutoRecovery();
 
+	/** 疲労度を1秒ごとに計算するためのタイマー */
+	FTimerHandle TimerHandle_FatigueUpdate;
+
+	/** 1秒ごとに呼ばれる疲労度計算関数 */
+	void HandleFatigueTick();
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Regeneration")
 	float AutoRecoveryStartDelay = 10.0f;
 
@@ -132,6 +139,64 @@ public:
 	// ★追加：UIに名前を通知するイベント
 	UFUNCTION(BlueprintImplementableEvent, Category = "UI")
 	void UpdateHealthWidgetName(const FString& NewName);
+
+	UPROPERTY(BlueprintAssignable, Category = "Combat|UI")
+	FOnStatsUpdatedSignature OnStatsUpdatedDelegate;
+
+	UFUNCTION(BlueprintCallable, Category = "Combat|Stats")
+	void NotifyStatsChanged();
+
+	// --- 疲労度（Energy）設定 ---
+
+	/** オートアタック1回ごとに増える疲労度 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Fatigue")
+	float FatigueIncreasePerAttack = 1.0f;
+
+	/** 戦闘中、1秒間にジワジワ増える疲労度 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Fatigue")
+	float FatigueIncreasePerSec = 0.5f;
+
+	/** 非戦闘中、1秒間に回復（減少）する疲労度 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Fatigue")
+	float FatigueDecreasePerSec = 2.0f;
+
+	/** ゲーム内の24時間が、現実世界の「何秒」に相当するか（例：1440秒＝24分） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Fatigue")
+	float InGameDayInRealSeconds = 1440.0f;
+
+	/** 疲労度を安全に増減させ、UIを更新する関数 */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Fatigue")
+	void UpdateEnergy(float Amount);
+
+	// --- 疲労度によるペナルティ設定 ---
+
+	/** 軽度の疲労（デバフ①）が始まる数値 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Fatigue Penalty")
+	float FatigueThreshold1 = 50.0f;
+
+	/** 重度の疲労（デバフ②）が始まる数値 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Fatigue Penalty")
+	float FatigueThreshold2 = 90.0f;
+
+	/** 軽度疲労時の攻撃力ダウン率（0.05 = 5%ダウン） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Fatigue Penalty")
+	float FatigueAttackPenalty1 = 0.05f;
+
+	/** 重度疲労時の攻撃力ダウン率（0.10 = 10%ダウン） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Fatigue Penalty")
+	float FatigueAttackPenalty2 = 0.10f;
+
+	/** 重度疲労時の攻撃速度ダウン率（0.05 = 間隔が5%延長されて遅くなる） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Fatigue Penalty")
+	float FatigueSpeedPenalty2 = 0.05f;
+
+	/** 現在の疲労度を加味した最終的な【攻撃力】を返す関数 */
+	UFUNCTION(BlueprintPure, Category = "Combat|Fatigue Penalty")
+	float GetModifiedAttackPower() const;
+
+	/** 現在の疲労度を加味した最終的な【攻撃間隔】を返す関数 */
+	UFUNCTION(BlueprintPure, Category = "Combat|Fatigue Penalty")
+	float GetModifiedAttackSpeed() const;
 
 	/** 武器を表示するためのコンポーネント（宣言のみにする） */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
@@ -497,5 +562,8 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Inventory")
 	class UInventoryComponent* InventoryComp;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Quest")
+	class UQuestComponent* QuestComp;
 
 };
