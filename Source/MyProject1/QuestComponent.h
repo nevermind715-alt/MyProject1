@@ -56,4 +56,11 @@ public:
 	/** データテーブルからクエスト情報を取得する */
 	UFUNCTION(BlueprintPure, Category = "Quest")
 	bool GetQuestData(FName QuestID, FQuestData& OutData);
+
+	// 追加: アイテムを入手した時にカウントを進める関数
+	UFUNCTION(BlueprintCallable, Category = "Quest")
+	void UpdateGatherObjective(FName ItemID, int32 AmountAdded);
+
+	// 追加: 受注時に、すでに所持しているアイテムをカウントする関数
+	void CheckInitialGatherProgress(FName QuestID);
 };

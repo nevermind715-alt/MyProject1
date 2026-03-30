@@ -62,6 +62,8 @@ bool UQuestComponent::AcceptQuest(FName QuestID)
 	FQuestProgress NewQuest(QuestID);
 	ActiveQuests.Add(NewQuest);
 
+	CheckInitialGatherProgress(QuestID);
+
 	// UIに通知
 	OnQuestUpdated.Broadcast(QuestID);
 
@@ -149,6 +151,19 @@ bool UQuestComponent::ReportQuest(FName QuestID)
 				AMyProject1Character* OwnerChar = Cast<AMyProject1Character>(GetOwner());
 				if (OwnerChar)
 				{
+					// ★ ここで InvComp を先に取得しておく！
+					UInventoryComponent* InvComp = OwnerChar->FindComponentByClass<UInventoryComponent>();
+					
+					if (Data.QuestType == EQuestType::Gather && InvComp)
+					{
+						// RemoveItem が失敗した（間違って捨ててしまって数が足りない等）場合は報告中断
+						if (!InvComp->RemoveItem(Data.TargetID, Data.RequiredAmount))
+						{
+							if (OwnerChar) OwnerChar->OnReceiveLogMessage(TEXT("アイテムが足りません。"), ELogMessageType::System);
+							return false;
+						}
+					}
+
 					// --- 報酬の付与 ---
 					// 1. 経験値
 					if (Data.RewardExperience > 0)
@@ -157,7 +172,6 @@ bool UQuestComponent::ReportQuest(FName QuestID)
 					}
 
 					// 2. ギル（インベントリを使用）
-					UInventoryComponent* InvComp = OwnerChar->FindComponentByClass<UInventoryComponent>();
 					if (InvComp)
 					{
 						if (Data.RewardGil > 0)
@@ -191,4 +205,67 @@ bool UQuestComponent::ReportQuest(FName QuestID)
 	}
 
 	return false;
+}
+
+void UQuestComponent::UpdateGatherObjective(FName ItemID, int32 AmountAdded)
+{
+	bool bUpdatedAny = false;
+	AMyProject1Character* OwnerChar = Cast<AMyProject1Character>(GetOwner());
+
+	for (FQuestProgress& Progress : ActiveQuests)
+	{
+		if (Progress.Status != EQuestStatus::InProgress) continue;
+
+		FQuestData Data;
+		if (GetQuestData(Progress.QuestID, Data))
+		{
+			// 収集クエストであり、対象アイテムが一致するか
+			if (Data.QuestType == EQuestType::Gather && Data.TargetID == ItemID)
+			{
+				Progress.CurrentAmount += AmountAdded;
+				bUpdatedAny = true;
+
+				if (Progress.CurrentAmount >= Data.RequiredAmount)
+				{
+					Progress.CurrentAmount = Data.RequiredAmount; // 上限で止める
+					Progress.Status = EQuestStatus::ObjectiveCleared; // 報告待ち状態へ
+
+					if (OwnerChar) {
+						FString LogMsg = FString::Printf(TEXT("クエスト「%s」のアイテムが集まった！"), *Data.QuestName.ToString());
+						OwnerChar->OnReceiveLogMessage(LogMsg, ELogMessageType::System);
+					}
+				}
+				else
+				{
+					// 途中経過のログ
+					if (OwnerChar) {
+						FString LogMsg = FString::Printf(TEXT("%sを手に入れた（%d / %d）"), *ItemID.ToString(), Progress.CurrentAmount, Data.RequiredAmount);
+						OwnerChar->OnReceiveLogMessage(LogMsg, ELogMessageType::Default);
+					}
+				}
+			}
+		}
+	}
+	if (bUpdatedAny) OnQuestUpdated.Broadcast(NAME_None);
+}
+
+void UQuestComponent::CheckInitialGatherProgress(FName QuestID)
+{
+	FQuestData Data;
+	if (GetQuestData(QuestID, Data) && Data.QuestType == EQuestType::Gather)
+	{
+		AMyProject1Character* OwnerChar = Cast<AMyProject1Character>(GetOwner());
+		UInventoryComponent* InvComp = OwnerChar ? OwnerChar->FindComponentByClass<UInventoryComponent>() : nullptr;
+
+		if (InvComp)
+		{
+			// インベントリから現在の所持数を取得
+			int32 CurrentCount = InvComp->GetItemQuantity(Data.TargetID);
+			if (CurrentCount > 0)
+			{
+				// すでに持っていれば、その分だけカウントを進める
+				UpdateGatherObjective(Data.TargetID, CurrentCount);
+			}
+		}
+	}
 }

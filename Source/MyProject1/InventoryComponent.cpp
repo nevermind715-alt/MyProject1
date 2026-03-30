@@ -5,6 +5,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "Sound/SoundBase.h"
 #include "MyProject1Character.h"
+#include "QuestComponent.h"
 
 #pragma execution_character_set("utf-8")
 
@@ -60,6 +61,13 @@ bool UInventoryComponent::AddItem(FName ItemID, int32 Amount)
 
 				if (RemainingAmount <= 0)
 				{
+					// ★ 追加：既存枠に綺麗に重なった場合もクエストに通知する
+					AMyProject1Character* OwnerChar = Cast<AMyProject1Character>(GetOwner());
+					if (OwnerChar && OwnerChar->QuestComp)
+					{
+						OwnerChar->QuestComp->UpdateGatherObjective(ItemID, AddCount);
+					}
+
 					// 全部入ったので終了
 					OnInventoryUpdated.Broadcast();
 					return true;
@@ -90,6 +98,18 @@ bool UInventoryComponent::AddItem(FName ItemID, int32 Amount)
 
 		InventoryContent.Add(NewSlot);
 		RemainingAmount -= AddCount;
+	}
+
+	// ★ ここを追加：カバンに入ったアイテムをクエスト側に通知する
+	AMyProject1Character* OwnerChar = Cast<AMyProject1Character>(GetOwner());
+	if (OwnerChar && OwnerChar->QuestComp)
+	{
+		// Amount から、カバンがいっぱいで入りきらなかった分(RemainingAmount)を引いた「実質的な取得数」を渡す
+		int32 ActuallyAdded = Amount - RemainingAmount;
+		if (ActuallyAdded > 0)
+		{
+			OwnerChar->QuestComp->UpdateGatherObjective(ItemID, ActuallyAdded);
+		}
 	}
 
 	// ここまで来たら完全に収納成功

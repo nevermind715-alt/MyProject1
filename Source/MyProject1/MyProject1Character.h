@@ -554,7 +554,7 @@ protected:
 	/** 自分を狙っている、または一番近い敵を探す内部関数 */
 	AActor* FindBestNextTarget();
 
-protected:
+public:
 #if WITH_EDITOR
 	// エディタでの値変更を検知する関数
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
