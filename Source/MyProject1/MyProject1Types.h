@@ -278,6 +278,59 @@ struct FInventorySlot
 	int32 Quantity;
 };
 
+// --- 会話アクションの種類 ---
+UENUM(BlueprintType)
+enum class EDialogActionType : uint8
+{
+	None            UMETA(DisplayName = "何もしない（次の会話へ）"),
+	AcceptQuest     UMETA(DisplayName = "クエストを受注する"),
+	ChangeFavor     UMETA(DisplayName = "好感度を変化させる"),
+	GiveItem        UMETA(DisplayName = "アイテムを渡す/奪う"),
+	Close           UMETA(DisplayName = "会話を終了する")
+};
+
+// --- 選択肢1つ分のデータ ---
+USTRUCT(BlueprintType)
+struct FDialogChoice
+{
+	GENERATED_BODY()
+
+	// 選択肢のテキスト（「わかった！」「断る」など）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog")
+	FString ChoiceText;
+
+	// 選んだ時に何をするか
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog")
+	EDialogActionType ActionType = EDialogActionType::None;
+
+	// アクションの引数（QuestIDの文字列や、好感度の増減数値など）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog")
+	FString ActionPayload;
+
+	// 次に飛ぶ会話のID（会話を続ける場合）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog")
+	FName NextDialogID;
+};
+
+// --- 会話全体のデータ（データテーブル用） ---
+USTRUCT(BlueprintType)
+struct FDialogData : public FTableRowBase
+{
+	GENERATED_BODY()
+
+	// 誰が喋っているか（空欄ならNPCの名前を使う想定）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog")
+	FString SpeakerName;
+
+	// セリフ本文
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (MultiLine = true))
+	FText DialogText;
+
+	// 選択肢のリスト（配列）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog")
+	TArray<FDialogChoice> Choices;
+};
+
 // --- クエストの種類 ---
 UENUM(BlueprintType)
 enum class EQuestType : uint8

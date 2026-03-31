@@ -24,6 +24,7 @@
 #include "MyProject1HUD.h"
 #include "Blueprint/UserWidget.h"
 #include "QuestComponent.h"
+#include "DialogComponent.h"
 
 AMyProject1Character::AMyProject1Character()
 {
@@ -79,6 +80,7 @@ AMyProject1Character::AMyProject1Character()
 
 	InventoryComp = CreateDefaultSubobject<UInventoryComponent>(TEXT("InventoryComp"));
 	QuestComp = CreateDefaultSubobject<UQuestComponent>(TEXT("QuestComp"));
+	DialogComp = CreateDefaultSubobject<UDialogComponent>(TEXT("DialogComp"));
 
 }
 
