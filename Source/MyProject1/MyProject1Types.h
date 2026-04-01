@@ -196,7 +196,11 @@ enum class ETargetStat : uint8
 	Stamina     UMETA(DisplayName = "Stamina (持久力)"),
 	Accuracy    UMETA(DisplayName = "命中率"),
 	Evasion     UMETA(DisplayName = "回避率"),
-	AttackPower UMETA(DisplayName = "攻撃力")
+	AttackPower UMETA(DisplayName = "攻撃力"),
+	Favor       UMETA(DisplayName = "好感度 (Favor)"),
+	Fame        UMETA(DisplayName = "名声 (Fame)"),
+	Charm       UMETA(DisplayName = "魅力 (Charm)"),
+	CustomExtraStat UMETA(DisplayName = "カスタムステータス (ExtraStats)")
 };
 
 
@@ -284,7 +288,8 @@ enum class EDialogActionType : uint8
 {
 	None            UMETA(DisplayName = "何もしない（次の会話へ）"),
 	AcceptQuest     UMETA(DisplayName = "クエストを受注する"),
-	ChangeFavor     UMETA(DisplayName = "好感度を変化させる"),
+	ReportQuest     UMETA(DisplayName = "クエストを報告する"),
+	ChangeStat      UMETA(DisplayName = "ステータスを変化させる"),
 	GiveItem        UMETA(DisplayName = "アイテムを渡す/奪う"),
 	Close           UMETA(DisplayName = "会話を終了する")
 };
@@ -306,6 +311,15 @@ struct FDialogChoice
 	// アクションの引数（QuestIDの文字列や、好感度の増減数値など）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog")
 	FString ActionPayload;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog")
+	ETargetStat StatToChange = ETargetStat::None;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (EditCondition = "StatToChange == ETargetStat::CustomExtraStat"))
+	FName ExtraStatName;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog")
+	float StatChangeAmount = 0.0f;
 
 	// 次に飛ぶ会話のID（会話を続ける場合）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog")
@@ -382,6 +396,9 @@ struct FQuestData : public FTableRowBase
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Reward")
 	int32 RewardItemAmount = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Reward")
+	class USoundBase* CompletionSound = nullptr;
 };
 
 // --- プレイヤーが保持するクエスト進行データ ---

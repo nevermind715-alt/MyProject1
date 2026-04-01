@@ -1,6 +1,7 @@
 ﻿#include "QuestComponent.h"
 #include "MyProject1Character.h"
 #include "InventoryComponent.h"
+#include "Kismet/GameplayStatics.h"
 
 #pragma execution_character_set("utf-8")
 
@@ -192,6 +193,12 @@ bool UQuestComponent::ReportQuest(FName QuestID)
 					// 完了ログ
 					FString LogMsg = FString::Printf(TEXT("クエスト「%s」をコンプリートした！"), *Data.QuestName.ToString());
 					OwnerChar->OnReceiveLogMessage(LogMsg, ELogMessageType::System);
+
+					if (Data.CompletionSound)
+					{
+						// 2Dサウンド（距離に関係なく画面全体に聞こえる音）として再生
+						UGameplayStatics::PlaySound2D(GetWorld(), Data.CompletionSound);
+					}
 				}
 
 				// リストの移動（進行中から消して、完了履歴に追加）
