@@ -340,6 +340,17 @@ struct FDialogData : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (MultiLine = true))
 	FText DialogText;
 
+	// 再生するボイス音声
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Audio")
+	class USoundBase* DialogVoice = nullptr;
+
+	// 再生するモーション（頷く、怒るなど）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Animation")
+	class UAnimMontage* DialogEmote = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog")
+	FName NextDialogID;
+
 	// 選択肢のリスト（配列）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog")
 	TArray<FDialogChoice> Choices;
@@ -397,8 +408,11 @@ struct FQuestData : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Reward")
 	int32 RewardItemAmount = 0;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Reward")
-	class USoundBase* CompletionSound = nullptr;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Audio")
+	class USoundBase* AcceptSound = nullptr; // 受注時の音
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Audio")
+	class USoundBase* CompletionSound = nullptr; // 完了時の音
 };
 
 // --- プレイヤーが保持するクエスト進行データ ---

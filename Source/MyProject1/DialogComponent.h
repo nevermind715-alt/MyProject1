@@ -25,6 +25,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Dialog")
 	void SelectChoice(int32 ChoiceIndex);
 
+	// 選択肢がない会話で、画面をクリックして「次へ進む」時に呼ばれる関数 ---
+	UFUNCTION(BlueprintCallable, Category = "Dialog")
+	void AdvanceDialog();
+
 	// 会話を強制終了する
 	UFUNCTION(BlueprintCallable, Category = "Dialog")
 	void CloseDialog();

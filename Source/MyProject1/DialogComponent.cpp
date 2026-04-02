@@ -2,6 +2,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "MyProject1Character.h"
 #include "QuestComponent.h"
+#include "GameFramework/Character.h"
 
 UDialogComponent::UDialogComponent()
 {
@@ -22,6 +23,30 @@ void UDialogComponent::StartDialog(FName RowName, UDataTable* DialogTable, AActo
 		CurrentDialogData = *Data;
 		// UIに「更新したよ！」と合図を送る
 		OnDialogUpdated.Broadcast(CurrentDialogData, CurrentNPC);
+
+		// ボイスが設定されていれば鳴らす
+		if (CurrentDialogData.DialogVoice)
+		{
+			// 距離に関係なくハッキリ聞こえるように2Dサウンドで再生
+			UGameplayStatics::PlaySound2D(GetWorld(), CurrentDialogData.DialogVoice);
+		}
+
+		// エモートが設定されていれば、NPCに再生させる
+		if (CurrentDialogData.DialogEmote && CurrentNPC)
+		{
+			// 渡されたNPCアクターを「Character」として扱い、モンタージュを再生する
+			ACharacter* NPCCharacter = Cast<ACharacter>(CurrentNPC);
+			if (NPCCharacter)
+			{
+				NPCCharacter->PlayAnimMontage(CurrentDialogData.DialogEmote);
+			}
+		}
+
+		// 選択肢が0個、かつ「次の会話」も設定されていない場合のみ終了 ---
+		if (CurrentDialogData.Choices.Num() == 0 && CurrentDialogData.NextDialogID.IsNone())
+		{
+			CloseDialog();
+		}
 
 		// 選択肢が0個の場合は、返事を待たずに即座に会話を終了する（ロックを解除する）
 		if (CurrentDialogData.Choices.Num() == 0)
@@ -149,4 +174,17 @@ void UDialogComponent::ExecuteAction(const FDialogChoice& Choice)
 void UDialogComponent::CloseDialog()
 {
 	OnDialogClosed.Broadcast();
+}
+
+void UDialogComponent::AdvanceDialog()
+{
+	// 次の会話IDが設定されていればそこへ進み、設定されていなければ会話を終了する
+	if (!CurrentDialogData.NextDialogID.IsNone())
+	{
+		StartDialog(CurrentDialogData.NextDialogID, CurrentTable, CurrentNPC);
+	}
+	else
+	{
+		CloseDialog();
+	}
 }

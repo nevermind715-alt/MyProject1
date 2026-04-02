@@ -271,7 +271,7 @@ void AMyProject1Character::DoMove(float Right, float Forward)
 
 void AMyProject1Character::DoLook(float Yaw, float Pitch)
 {
-	if (bIsInputLocked) return; // ロック中なら何もしない
+	//if (bIsInputLocked) return; // ロック中なら何もしない
 
 	APlayerController* PC = Cast<APlayerController>(GetController());
 	if (PC)

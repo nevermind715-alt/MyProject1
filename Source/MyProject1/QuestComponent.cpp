@@ -76,6 +76,11 @@ bool UQuestComponent::AcceptQuest(FName QuestID)
 		OwnerChar->OnReceiveLogMessage(LogMsg, ELogMessageType::System);
 	}
 
+	if (Data.AcceptSound)
+	{
+		UGameplayStatics::PlaySound2D(GetWorld(), Data.AcceptSound);
+	}
+
 	return true;
 }
 
