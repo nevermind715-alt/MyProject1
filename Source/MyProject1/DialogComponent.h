@@ -25,6 +25,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Dialog")
 	void SelectChoice(int32 ChoiceIndex);
 
+	// --- この選択肢の条件（精神値・フラグ）を満たしているかチェックする ---
+	UFUNCTION(BlueprintPure, Category = "Dialog")
+	bool CanSelectChoice(const FDialogChoice& Choice) const;
+
 	// 選択肢がない会話で、画面をクリックして「次へ進む」時に呼ばれる関数 ---
 	UFUNCTION(BlueprintCallable, Category = "Dialog")
 	void AdvanceDialog();
