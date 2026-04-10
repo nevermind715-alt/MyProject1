@@ -27,16 +27,6 @@ enum class ELogMessageType : uint8
 	Dialogue     UMETA(DisplayName = "Dialogue")
 };
 
-// --- 追加：選択肢の文字色 ---
-UENUM(BlueprintType)
-enum class EDialogChoiceColor : uint8
-{
-	White   UMETA(DisplayName = "白（通常）"),
-	Red     UMETA(DisplayName = "赤（危険・警告）"),
-	Blue    UMETA(DisplayName = "青（冷静・知性）"),
-	Purple  UMETA(DisplayName = "紫（特殊・狂気）")
-};
-
 // --- 追加：ジョブの基本データ（データテーブル用） ---
 USTRUCT(BlueprintType)
 struct FJobAttributes : public FTableRowBase
@@ -164,10 +154,6 @@ struct FCharacterStats
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats")
 	int32 ExperienceReward = 50; // 敵が持っている経験値
-
-	// --- 獲得済みのストーリーフラグや条件のリスト ---
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats|Flags")
-	TArray<FName> UnlockedFlags;
 };
 
 // --- 計算結果を返す用の構造体（変更なし） ---
@@ -305,9 +291,6 @@ enum class EDialogActionType : uint8
 	ReportQuest     UMETA(DisplayName = "クエストを報告する"),
 	ChangeStat      UMETA(DisplayName = "ステータスを変化させる"),
 	GiveItem        UMETA(DisplayName = "アイテムを渡す/奪う"),
-	AddFlag         UMETA(DisplayName = "フラグを獲得する"),
-	RemoveFlag      UMETA(DisplayName = "フラグを消去する"),
-	Warp            UMETA(DisplayName = "ワープを実行する"),
 	Close           UMETA(DisplayName = "会話を終了する")
 };
 
@@ -320,17 +303,6 @@ struct FDialogChoice
 	// 選択肢のテキスト（「わかった！」「断る」など）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog")
 	FString ChoiceText;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Condition")
-	EDialogChoiceColor ChoiceColor = EDialogChoiceColor::White;
-
-	// 要求される精神値（Mentalがこの数値以上ないと選べない）
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Condition")
-	float RequiredMental = 0.0f;
-
-	// 必須フラグ（空欄ならフラグ不要。文字が入っていれば、そのフラグを持っている時だけ選べる）
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Condition")
-	FName RequiredFlag;
 
 	// 選んだ時に何をするか
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog")
@@ -466,37 +438,4 @@ struct FQuestProgress
 		Status = EQuestStatus::InProgress;
 		CurrentAmount = 0;
 	}
-};
-
-// --- ワープポータルの種類（今後のマップ配置用） ---
-UENUM(BlueprintType)
-enum class EWarpPortalType : uint8
-{
-	TouchToWarp     UMETA(DisplayName = "触れると即ワープ"),
-	InteractToWarp  UMETA(DisplayName = "調べてワープ（確認なし）"),
-	ConfirmToWarp   UMETA(DisplayName = "調べてワープ（「移動しますか？」の確認あり）")
-};
-
-// --- ワープ先の基本データ（データテーブル用） ---
-USTRUCT(BlueprintType)
-struct FWarpDestination : public FTableRowBase
-{
-	GENERATED_BODY()
-
-	// 飛ぶ先のマップ名（現在のマップと同じなら空欄でもOK、という仕様にします）
-	// ※「Map_Town」のように、レベルファイルの名前と一致させる必要があります
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Warp")
-	FName TargetLevelName;
-
-	// ワープ後の座標と向き（X, Y, Z と 回転）
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Warp")
-	FTransform DestinationTransform;
-
-	// UIに表示する名前（「王都ルシス・城門前」など）
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Warp")
-	FText DisplayName;
-
-	// 飛ぶために必要なフラグ（空欄なら無条件。フラグ名があれば、それを持っていないと飛べない）
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Warp")
-	FName RequiredFlag;
 };

@@ -147,19 +147,6 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Combat|Stats")
 	void NotifyStatsChanged();
 
-	// --- フラグ管理 ---
-	/** フラグ（条件）を獲得する */
-	UFUNCTION(BlueprintCallable, Category = "RPG Combat|Flags")
-	void AddFlag(FName FlagName);
-
-	// フラグを消去する
-	UFUNCTION(BlueprintCallable, Category = "RPG Combat|Flags")
-	void RemoveFlag(FName FlagName);
-
-	/** 指定したフラグ（条件）を持っているか確認する */
-	UFUNCTION(BlueprintPure, Category = "RPG Combat|Flags")
-	bool HasFlag(FName FlagName) const;
-
 	// --- 疲労度（Energy）設定 ---
 
 	/** オートアタック1回ごとに増える疲労度 */

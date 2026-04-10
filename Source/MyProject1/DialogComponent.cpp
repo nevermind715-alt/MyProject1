@@ -3,8 +3,6 @@
 #include "MyProject1Character.h"
 #include "QuestComponent.h"
 #include "GameFramework/Character.h"
-#include "MyProject1GameInstance.h"
-#include "WarpPortal.h"
 
 UDialogComponent::UDialogComponent()
 {
@@ -98,45 +96,6 @@ void UDialogComponent::ExecuteAction(const FDialogChoice& Choice)
 		if (Player->QuestComp) Player->QuestComp->ReportQuest(FName(*Choice.ActionPayload));
 		break;
 
-	case EDialogActionType::AddFlag:
-		// Payload（文字列）に書かれた名前を FName に変換して渡す
-		Player->AddFlag(FName(*Choice.ActionPayload));
-		break;
-
-	case EDialogActionType::RemoveFlag:
-		Player->RemoveFlag(FName(*Choice.ActionPayload));
-		break;
-
-	case EDialogActionType::Warp:
-		if (UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetWorld()->GetGameInstance()))
-		{
-			// 1. まずはDT_Dialogs（選択肢）に設定されたPayload（行き先）を取得する
-			FName WarpIDToUse = FName(*Choice.ActionPayload);
-
-			// 2. もしPayloadが「空欄」だったら、話しかけた相手（ポータル）の行き先を調べる！
-			if (Choice.ActionPayload.IsEmpty() || WarpIDToUse.IsNone())
-			{
-				// 話している相手（CurrentNPC）がポータルかどうかチェック
-				if (AWarpPortal* Portal = Cast<AWarpPortal>(CurrentNPC))
-				{
-					// ポータルなら、ポータル側に設定されている行き先を上書きで採用する！
-					WarpIDToUse = Portal->TargetWarpID;
-				}
-			}
-
-			// 3. 行き先が確定していればワープ実行
-			if (!WarpIDToUse.IsNone())
-			{
-				GameInst->RequestWarp(WarpIDToUse, Player);
-			}
-			else
-			{
-				// 万が一どちらにも設定されていなかった時のエラーログ
-				UE_LOG(LogTemp, Warning, TEXT("ワープIDが設定されていません！"));
-			}
-		}
-		break;
-
 	case EDialogActionType::Close:
 		CloseDialog();
 		break;
@@ -228,27 +187,4 @@ void UDialogComponent::AdvanceDialog()
 	{
 		CloseDialog();
 	}
-}
-
-bool UDialogComponent::CanSelectChoice(const FDialogChoice& Choice) const
-{
-	AMyProject1Character* Player = Cast<AMyProject1Character>(GetOwner());
-	if (!Player) return false;
-
-	// 1. 精神（Mental）のチェック
-	if (Player->MyStats.Mental < Choice.RequiredMental)
-	{
-		return false; // 精神が足りない
-	}
-
-	// 2. フラグのチェック（RequiredFlagが設定されている場合のみ）
-	if (!Choice.RequiredFlag.IsNone())
-	{
-		if (!Player->HasFlag(Choice.RequiredFlag))
-		{
-			return false; // フラグを持っていない
-		}
-	}
-
-	return true; // 全ての条件をクリア！
 }

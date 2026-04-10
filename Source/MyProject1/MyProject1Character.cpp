@@ -25,7 +25,6 @@
 #include "Blueprint/UserWidget.h"
 #include "QuestComponent.h"
 #include "DialogComponent.h"
-#include "MyProject1GameInstance.h"
 
 AMyProject1Character::AMyProject1Character()
 {
@@ -96,16 +95,6 @@ void AMyProject1Character::BeginPlay()
 		{
 			// エディタ側で変数 DefaultMappingContext に IMC_Default などをセットしておく必要があります
 			// もし変数がなければ、まずは BP 側で Add Mapping Context ノードを組む形でも動きます
-		}
-	}
-
-	if (UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetGameInstance()))
-	{
-		// すぐに呼ぶのではなく、1フレーム待つか、
-		// あるいは確実に Controller が設定されていることを確認してから呼ぶ
-		if (GetController())
-		{
-			GameInst->ApplyPendingWarp(this);
 		}
 	}
 
@@ -1482,28 +1471,4 @@ float AMyProject1Character::GetModifiedAttackSpeed() const
 
 	// 90未満なら速度ペナルティ無し
 	return BaseSpeed;
-}
-
-void AMyProject1Character::AddFlag(FName FlagName)
-{
-	// フラグ名が空っぽではなく、まだ持っていない場合のみ追加する
-	if (!FlagName.IsNone() && !MyStats.UnlockedFlags.Contains(FlagName))
-	{
-		MyStats.UnlockedFlags.Add(FlagName);
-	}
-}
-
-bool AMyProject1Character::HasFlag(FName FlagName) const
-{
-	// 指定されたフラグを持っているか（含まれているか）を返す
-	return MyStats.UnlockedFlags.Contains(FlagName);
-}
-
-void AMyProject1Character::RemoveFlag(FName FlagName)
-{
-	// リストから指定した名前を削除する（入れ物ごと消滅します！）
-	if (!FlagName.IsNone())
-	{
-		MyStats.UnlockedFlags.Remove(FlagName);
-	}
 }
