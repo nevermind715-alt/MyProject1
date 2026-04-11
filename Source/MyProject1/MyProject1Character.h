@@ -176,7 +176,7 @@ public:
 
 	/** ゲーム内の24時間が、現実世界の「何秒」に相当するか（例：1440秒＝24分） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Fatigue")
-	float InGameDayInRealSeconds = 1440.0f;
+	float InGameDayInRealSeconds = 7200.0f;
 
 	/** 疲労度を安全に増減させ、UIを更新する関数 */
 	UFUNCTION(BlueprintCallable, Category = "Combat|Fatigue")

@@ -29,6 +29,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Settings")
 	float RespawnTime = 10.0f;
 
+	//ここを追加：ゲーム開始から最初にスポーンするまでの時間（秒）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Settings")
+	float InitialSpawnDelay = 5.0f;
+
 	// --- 上書き用ステータス（ここで設定した値が敵にコピーされます） ---
 
 	/** 敵のジョブデータ（戦士、モンクなど） */

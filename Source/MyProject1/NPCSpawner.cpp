@@ -27,8 +27,17 @@ void ANPCSpawner::BeginPlay()
 {
 	Super::BeginPlay();
 
-	// ゲーム開始時に最初の1体をスポーン
-	SpawnEnemy();
+	// 即座にスポーンするのではなく、タイマーで待機する
+	if (InitialSpawnDelay > 0.0f)
+	{
+		// InitialSpawnDelay 秒後に SpawnEnemy を実行する
+		GetWorldTimerManager().SetTimer(RespawnTimerHandle, this, &ANPCSpawner::SpawnEnemy, InitialSpawnDelay, false);
+	}
+	else
+	{
+		// 待機時間が0なら、今まで通りすぐにスポーンさせる
+		SpawnEnemy();
+	}
 }
 
 void ANPCSpawner::SpawnEnemy()
