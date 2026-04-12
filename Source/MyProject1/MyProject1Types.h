@@ -44,14 +44,27 @@ struct FJobAttributes : public FTableRowBase
 	GENERATED_BODY()
 
 public:
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "JobData")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "JobData|Base Stats")
 	float BaseHP = 100.f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "JobData")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "JobData|Base Stats")
 	float BaseSTR = 10.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "JobData|Base Stats")
+	float BaseVIT = 10.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "JobData|Base Stats")
+	float BaseDEX = 10.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "JobData|Base Stats")
+	float BaseAGI = 10.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "JobData")
 	EWeaponType DefaultWeapon = EWeaponType::HandToHand;
+
+	// このジョブ（武器）の基本アニメーション（AnimBP）を指定する枠
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "JobData")
+	TSubclassOf<class UAnimInstance> AnimBlueprintClass;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "JobData")
 	TSoftObjectPtr<USoundBase> AttackSound;

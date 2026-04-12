@@ -24,10 +24,14 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnLogScrollToBottomSignature);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnCharacterDeathSignature, AActor*, DeadActor);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnStatsUpdatedSignature);
 
-/**
- *  A simple player-controllable third person character
- *  Implements a controllable orbiting camera
- */
+
+// クリティカルダメージを識別するための専用クラス
+UCLASS()
+class UCriticalDamageType : public UDamageType
+{
+	GENERATED_BODY()
+};
+
 UCLASS(abstract)
 class AMyProject1Character : public ACharacter
 {
@@ -162,6 +166,10 @@ public:
 
 	// --- 疲労度（Energy）設定 ---
 
+	/** ゲーム内の1時間あたりに溜まる蓄積疲労度 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Fatigue")
+	float FatigueIncreasePerInGameDay = 20.0f;
+
 	/** オートアタック1回ごとに増える疲労度 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Fatigue")
 	float FatigueIncreasePerAttack = 1.0f;
@@ -173,11 +181,7 @@ public:
 	/** 非戦闘中、1秒間に回復（減少）する疲労度 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Fatigue")
 	float FatigueDecreasePerSec = 2.0f;
-
-	/** ゲーム内の24時間が、現実世界の「何秒」に相当するか（例：1440秒＝24分） */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Fatigue")
-	float InGameDayInRealSeconds = 7200.0f;
-
+	
 	/** 疲労度を安全に増減させ、UIを更新する関数 */
 	UFUNCTION(BlueprintCallable, Category = "Combat|Fatigue")
 	void UpdateEnergy(float Amount);
@@ -535,7 +539,11 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
 	UAnimMontage* AttackMontage;
 
-	// ★ 追加：抜刀・納刀のアニメーション
+	// ダメージを受けた時ののけぞりアニメーション
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
+	UAnimMontage* HitReactMontage;
+
+	// 抜刀・納刀のアニメーション
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
 	UAnimMontage* UnsheatheMontage;
 

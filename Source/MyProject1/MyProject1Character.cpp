@@ -26,6 +26,7 @@
 #include "QuestComponent.h"
 #include "DialogComponent.h"
 #include "MyProject1GameInstance.h"
+#include "Engine/DamageEvents.h"
 
 AMyProject1Character::AMyProject1Character()
 {
@@ -107,6 +108,15 @@ void AMyProject1Character::BeginPlay()
 		{
 			GameInst->ApplyPendingWarp(this);
 		}
+
+		// マップも太陽も準備完了したこのタイミングで、初回の時間を通知する ---
+		if (GameInst->OnInGameTimeChanged.IsBound())
+		{
+			int32 Hour = GameInst->CurrentTimeInMinutes / 60;
+			int32 Minute = GameInst->CurrentTimeInMinutes % 60;
+			GameInst->OnInGameTimeChanged.Broadcast(GameInst->CurrentYear, GameInst->CurrentMonth, GameInst->CurrentDay, Hour, Minute);
+		}
+
 	}
 
 	// ゲーム開始時にデータテーブルの情報をキャラクターに反映させる
@@ -609,6 +619,20 @@ float AMyProject1Character::TakeDamage(float DamageAmount, FDamageEvent const& D
 	if (ActualDamage >= 1.0f)
 	{
 		UpdateHealth(-ActualDamage);
+
+		// ダメージタイプが「UCriticalDamageType」かどうかをチェックする条件を追加
+		if (HitReactMontage && DamageEvent.DamageTypeClass == UCriticalDamageType::StaticClass())
+		{
+			UAnimInstance* AnimInst = GetMesh()->GetAnimInstance();
+			if (AnimInst)
+			{
+				// 攻撃中（モンタージュ再生中）でなければのけぞる
+				if (!AnimInst->IsAnyMontagePlaying())
+				{
+					PlayAnimMontage(HitReactMontage);
+				}
+			}
+		}
 	}
 
 	
@@ -878,8 +902,11 @@ void AMyProject1Character::OnAttackHit()
 			EnemyChar->OnReceiveLogMessage(TakenLog, SelectedType);
 		}
 
-		// 実際にダメージを適用
-		UGameplayStatics::ApplyDamage(CurrentTarget, Result.DamageAmount, GetController(), this, UDamageType::StaticClass());
+		// クリティカルかどうかに応じて「ダメージタイプ」を切り替える
+		TSubclassOf<UDamageType> DmgTypeClass = Result.bIsCritical ? UCriticalDamageType::StaticClass() : UDamageType::StaticClass();
+
+		// 実際にダメージを適用（最後の引数に DmgTypeClass を渡す）
+		UGameplayStatics::ApplyDamage(CurrentTarget, Result.DamageAmount, GetController(), this, DmgTypeClass);
 	}
 	else
 	{
@@ -1069,23 +1096,17 @@ void AMyProject1Character::LevelUp()
 // --- 3. ジョブデータとレベルに基づいたステータス確定 ---
 void AMyProject1Character::ApplyJobData()
 {
-	// 1. データテーブルがセットされているかチェック
 	if (JobRow.IsNull()) return;
 
-	// 2. 選択された「行名」を直接使ってデータを取得
-	// これにより "JobContext" という固定名ではなく、エディタで選んだ行（戦士など）が読み込まれます
 	FJobAttributes* JobData = JobRow.GetRow<FJobAttributes>(JobRow.RowName.ToString());
 
 	if (JobData)
 	{
-		// --- A. 攻撃モーションの更新 ---
-		// キャラクターが現在持っている AttackMontage をデータテーブルのもので上書き
+		// --- A. アニメーションと武器メッシュの更新 ---
 		if (JobData->AttackMontages.Num() > 0)
 		{
 			AttackMontage = JobData->AttackMontages[0];
 		}
-
-		// --- B. 武器メッシュの更新 ---
 		if (WeaponMeshComp)
 		{
 			if (!JobData->WeaponMesh.IsNull())
@@ -1098,24 +1119,68 @@ void AMyProject1Character::ApplyJobData()
 				WeaponMeshComp->SetSkeletalMesh(nullptr);
 			}
 		}
-				
+		if (JobData->AnimBlueprintClass)
+		{
+			GetMesh()->SetAnimInstanceClass(JobData->AnimBlueprintClass);
+		}
+
+		// --- ★ B. 再計算前の状態を記録しておく（ここを追加！） ---
+		// 現在のHPが最大値以上（＝満タン）かどうかを記憶
+		bool bWasFullHP = (MyStats.HP >= MyStats.MaxHP);
+		// 疲労度が初期値のままかどうかを記憶
+		bool bWasFullEnergy = (MyStats.Energy <= MyStats.BaseEnergy);
+
+
+		// --- C. ステータスの再計算 ---
+		MyStats.MaxHP = JobData->BaseHP + ((MyStats.Level - 1) * 15.0f);
+		MyStats.STR = JobData->BaseSTR + ((MyStats.Level - 1) * 2.0f);
+		MyStats.VIT = JobData->BaseVIT + ((MyStats.Level - 1) * 2.0f);
+		MyStats.DEX = JobData->BaseDEX + ((MyStats.Level - 1) * 2.0f);
+		MyStats.AGI = JobData->BaseAGI + ((MyStats.Level - 1) * 2.0f);
+
+		MyStats.AttackPower = MyStats.STR * 2.0f;
+		MyStats.DefensePower = MyStats.VIT * 2.0f;
+		MyStats.Accuracy = MyStats.DEX * 1.5f;
+		MyStats.Evasion = MyStats.AGI * 1.5f;
+
+		// --- ★ D. 現在値の同期 ---
+		if (bWasFullHP)
+		{
+			// 元々満タンだった場合（新規POP時など）は、新しい最大値でも満タンにする
+			MyStats.HP = MyStats.MaxHP;
+		}
+		else
+		{
+			// ダメージを受けていた場合（レベルアップ時、エリア移動時など）は現在値を維持する
+			// ※ただし、新しい最大値をはみ出さないようにだけ補正する
+			if (MyStats.HP > MyStats.MaxHP) MyStats.HP = MyStats.MaxHP;
+		}
+
+		if (bWasFullEnergy)
+		{
+			MyStats.Energy = MyStats.BaseEnergy;
+		}
+		else
+		{
+			// 疲労度がベースを下回らないように補正
+			if (MyStats.Energy < MyStats.BaseEnergy) MyStats.Energy = MyStats.BaseEnergy;
+		}
 	}
 
+	// --- E. 通知とログの更新 ---
 	if (!MyStats.NPCName.IsEmpty())
 	{
 		CharacterName = MyStats.NPCName;
 	}
-
-	// 2. 名前が変わったので、UI（HPバーの上の名前）を強制的に更新する
 	UpdateHealthWidgetName(CharacterName);
 
-	// 3. レベルなどのステータスが変わったので、HPバーの最大値なども更新通知を送る
 	if (OnHPChangedDelegate.IsBound())
 	{
 		OnHPChangedDelegate.Broadcast(MyStats.HP, MyStats.MaxHP);
 	}
-	// もしBPイベントの方を使っているならこちらも呼ぶ
 	OnHPChanged(MyStats.HP, MyStats.MaxHP);
+
+	NotifyStatsChanged();
 }
 
 bool AMyProject1Character::TryPerformAutoAttack()
@@ -1409,8 +1474,24 @@ void AMyProject1Character::HandleFatigueTick()
 
 	float OldEnergy = MyStats.Energy;
 
-	// 1. 蓄積疲労度の増加（1秒あたりの増加量）
-	float BaseIncreaseRate = 20.0f / InGameDayInRealSeconds;
+	// --- 1. GameInstanceの時間の進み具合を取得 ---
+	float InGameDaysPassed = 0.0f; // この1秒間（1Tick）で進んだゲーム内の「日数」
+
+	if (UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetGameInstance()))
+	{
+		if (GameInst->RealSecondsPerGameMinute > 0.0f) // 0割り防止
+		{
+			// 現実の1秒で「ゲーム内の何分」が進むか
+			float InGameMinutesPassed = 1.0f / GameInst->RealSecondsPerGameMinute;
+
+			// 1日は1440分なので、分を1440で割って「日数」に変換
+			InGameDaysPassed = InGameMinutesPassed / 1440.0f;
+		}
+	}
+
+	// --- 2. 蓄積疲労度の増加（ゲーム内1日単位に連動） ---
+	// 「1日あたりの増加量(20)」 × 「実際に進んだ日数」
+	float BaseIncreaseRate = FatigueIncreasePerInGameDay * InGameDaysPassed;
 	MyStats.BaseEnergy = FMath::Clamp(MyStats.BaseEnergy + BaseIncreaseRate, 0.0f, MyStats.MaxEnergy);
 
 	// Energyが蓄積値を下回らないように強制的に押し上げる
@@ -1419,7 +1500,7 @@ void AMyProject1Character::HandleFatigueTick()
 		MyStats.Energy = MyStats.BaseEnergy;
 	}
 
-	// 2. 疲労度の自然変動
+	// --- 3. 疲労度の自然変動（戦闘時の増減はリアルタイム基準） ---
 	if (bIsAutoAttacking || bIsPreparingAttack)
 	{
 		// 抜刀中（エンゲージ中）：1秒あたりの疲労度を加算
