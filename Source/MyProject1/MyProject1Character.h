@@ -166,7 +166,7 @@ public:
 
 	// --- 疲労度（Energy）設定 ---
 
-	/** ゲーム内の1時間あたりに溜まる蓄積疲労度 */
+	/** ゲーム内の1日あたりに溜まる蓄積疲労度 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Fatigue")
 	float FatigueIncreasePerInGameDay = 20.0f;
 
@@ -590,5 +590,11 @@ public:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Dialog", meta = (AllowPrivateAccess = "true"))
 	class UDialogComponent* DialogComp;
+
+	
+	// BGM管理コンポーネント
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Audio")
+	class UMusicControlComponent* MusicComp;
+
 
 };

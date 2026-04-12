@@ -26,6 +26,7 @@
 #include "QuestComponent.h"
 #include "DialogComponent.h"
 #include "MyProject1GameInstance.h"
+#include "MusicControlComponent.h"
 #include "Engine/DamageEvents.h"
 
 AMyProject1Character::AMyProject1Character()
@@ -83,6 +84,7 @@ AMyProject1Character::AMyProject1Character()
 	InventoryComp = CreateDefaultSubobject<UInventoryComponent>(TEXT("InventoryComp"));
 	QuestComp = CreateDefaultSubobject<UQuestComponent>(TEXT("QuestComp"));
 	DialogComp = CreateDefaultSubobject<UDialogComponent>(TEXT("DialogComp"));
+	MusicComp = CreateDefaultSubobject<UMusicControlComponent>(TEXT("MusicComp"));
 
 }
 
@@ -481,6 +483,12 @@ void AMyProject1Character::Tick(float DeltaTime)
 		bUseControllerRotationYaw = false;
 		bIsPreparingAttack = false;
 		bIsAutoAttacking = false;
+
+		// ターゲットが外れた（＝納刀状態）ならフィールド曲に戻す
+		if (IsPlayerControlled() && MusicComp)
+		{
+			MusicComp->SetCombatMusicActive(false);
+		}
 		return;
 	}
 	
@@ -1002,19 +1010,25 @@ void AMyProject1Character::StartAutoAttack()
 		bIsPreparingAttack = true;
 		StartAttackTimestamp = GetWorld()->GetTimeSeconds();
 
-		// ★ 追加：オートアタック開始時に疲労度を上げる
+		// オートアタック開始時に疲労度を上げる
 		UpdateEnergy(FatigueIncreasePerAttack);
 
-		// ★ 追加1：抜刀アニメーションの再生
+		// 抜刀アニメーションの再生
 		if (UnsheatheMontage)
 		{
 			PlayAnimMontage(UnsheatheMontage);
 		}
 
-		// ★ 追加2：即座に敵の方を向く準備（Tickを待たずにフラグを折る）
+		// 即座に敵の方を向く準備（Tickを待たずにフラグを折る）
 		if (GetCharacterMovement())
 		{
 			GetCharacterMovement()->bOrientRotationToMovement = false;
+		}
+
+		// 戦闘曲に切り替え！
+		if (IsPlayerControlled() && MusicComp)
+		{
+			MusicComp->SetCombatMusicActive(true);
 		}
 
 		// ★このログ送信をコメントアウトします
