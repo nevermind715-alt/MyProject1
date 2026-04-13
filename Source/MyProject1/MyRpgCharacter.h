@@ -36,15 +36,15 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RPG Status")
 	int32 CurrentHP = 200;
 
-	// ★追加: 攻撃力
+	// 攻撃力
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RPG Status")
 	int32 AttackPower = 50;
 
-	// ★追加: 防御力
+	// 防御力
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RPG Status")
 	int32 DefensePower = 10;
 
-	// ★追加: ダメージを受ける関数
+	// ダメージを受ける関数
 	// BlueprintCallable: ブループリントから「ダメージ受けろ！」と命令できる
 	UFUNCTION(BlueprintCallable, Category = "RPG Combat")
 	void ReceiveDamage(int32 DamageAmount);
@@ -57,5 +57,5 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RPG Status")
 	int32 AGI = 20;
 
-	// ★★★ ここまで ★★★
+	
 };

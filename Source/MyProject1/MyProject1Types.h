@@ -239,6 +239,9 @@ struct FItemEffect
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	ETargetStat TargetStat = ETargetStat::None;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (EditCondition = "TargetStat == ETargetStat::CustomExtraStat"))
+	FName ExtraStatName;
+
 	/** 効果量（回復なら正、ダメージなら負） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	float EffectAmount = 0.0f;

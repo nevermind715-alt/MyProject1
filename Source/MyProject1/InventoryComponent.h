@@ -27,6 +27,14 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Inventory|UI")
 	void ReportItemHover(FName ItemID) { OnItemHoverChanged.Broadcast(ItemID); }
 
+	/** 指定したカテゴリー（ItemType）のアイテムだけを抽出して返す */
+	UFUNCTION(BlueprintCallable, Category = "Inventory|UI")
+	TArray<FInventorySlot> GetInventoryByType(EItemType TargetType);
+
+	/** アイテムタブ用（Consumable と Material を両方返す）など、複数対応版 */
+	UFUNCTION(BlueprintCallable, Category = "Inventory|UI")
+	TArray<FInventorySlot> GetInventoryByTypes(const TArray<EItemType>& TargetTypes);
+
 protected:
 	virtual void BeginPlay() override;
 

@@ -156,6 +156,38 @@ bool UInventoryComponent::RemoveItem(FName ItemID, int32 Amount)
 	return true;
 }
 
+TArray<FInventorySlot> UInventoryComponent::GetInventoryByType(EItemType TargetType)
+{
+	TArray<FInventorySlot> FilteredSlots;
+
+	for (const FInventorySlot& Slot : InventoryContent)
+	{
+		FItemData* ItemInfo = GetItemData(Slot.ItemID);
+		if (ItemInfo && ItemInfo->ItemType == TargetType)
+		{
+			FilteredSlots.Add(Slot);
+		}
+	}
+
+	return FilteredSlots;
+}
+
+TArray<FInventorySlot> UInventoryComponent::GetInventoryByTypes(const TArray<EItemType>& TargetTypes)
+{
+	TArray<FInventorySlot> FilteredSlots;
+
+	for (const FInventorySlot& Slot : InventoryContent)
+	{
+		FItemData* ItemInfo = GetItemData(Slot.ItemID);
+		if (ItemInfo && TargetTypes.Contains(ItemInfo->ItemType))
+		{
+			FilteredSlots.Add(Slot);
+		}
+	}
+
+	return FilteredSlots;
+}
+
 int32 UInventoryComponent::GetItemQuantity(FName ItemID)
 {
 	int32 Total = 0;
@@ -194,6 +226,17 @@ bool UInventoryComponent::UseItem(FName ItemID)
 	AMyProject1Character* OwnerChar = Cast<AMyProject1Character>(GetOwner());
 	if (!ItemInfo || !OwnerChar) return false;
 
+	// ---消費アイテム以外なら使えないように弾く ---
+	if (ItemInfo->ItemType != EItemType::Consumable)
+	{
+		// 「〇〇は使えない。」というメッセージを作る
+		FString CannotUseMsg = FString::Printf(TEXT("%s は使えない。"), *ItemInfo->Name);
+		OwnerChar->OnReceiveLogMessage(CannotUseMsg, ELogMessageType::System);
+
+		// 処理を中断して失敗(false)を返す
+		return false;
+	}
+
 	if (!ItemInfo->UseSound.IsNull())
 	{
 		// ソフトポインタを同期ロード
@@ -206,7 +249,7 @@ bool UInventoryComponent::UseItem(FName ItemID)
 	}
 
 	TArray<FItemEffect> TimedEffects;
-	float TotalHealed = 0.0f; // ★追加：回復量の合計
+	float TotalHealed = 0.0f; // 回復量の合計
 	bool bAnyEffectApplied = false;
 
 	for (const FItemEffect& Effect : ItemInfo->Effects)
@@ -223,6 +266,34 @@ bool UInventoryComponent::UseItem(FName ItemID)
 			else
 			{
 				TimedEffects.Add(Effect);
+				bAnyEffectApplied = true;
+			}
+			break;
+
+		case ETargetStat::Fame:
+			OwnerChar->MyStats.Fame += Effect.EffectAmount;
+			bAnyEffectApplied = true;
+			break;
+
+		case ETargetStat::Favor:
+			OwnerChar->MyStats.Favor += Effect.EffectAmount;
+			bAnyEffectApplied = true;
+			break;
+
+		case ETargetStat::Charm:
+			OwnerChar->MyStats.Charm += Effect.EffectAmount;
+			bAnyEffectApplied = true;
+			break;
+
+		case ETargetStat::CustomExtraStat:
+			if (!Effect.ExtraStatName.IsNone())
+			{
+				// FindRefは、名前が見つかればその数値を、無ければ 0.0f を返してくれる超便利機能です
+				float CurrentValue = OwnerChar->MyStats.ExtraStats.FindRef(Effect.ExtraStatName);
+
+				// マップの値を更新（無ければ新規追加される）
+				OwnerChar->MyStats.ExtraStats.Add(Effect.ExtraStatName, CurrentValue + Effect.EffectAmount);
+
 				bAnyEffectApplied = true;
 			}
 			break;
