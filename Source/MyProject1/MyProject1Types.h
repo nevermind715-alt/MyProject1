@@ -420,6 +420,7 @@ enum class EQuestStatus : uint8
 };
 
 // --- クエストの基本データ（データテーブル用） ---
+// --- クエストの基本データ（データテーブル用） ---
 USTRUCT(BlueprintType)
 struct FQuestData : public FTableRowBase
 {
@@ -457,6 +458,24 @@ struct FQuestData : public FTableRowBase
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Audio")
 	class USoundBase* CompletionSound = nullptr; // 完了時の音
+
+	// --- 掲載場所の設定 ---
+	// Trueならクエストボードに表示、FalseならNPCから直接受注する専用クエスト
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Display")
+	bool bIsBoardQuest = true;
+
+	// どのボードに掲載するか（例："TownA", "Guild" など。ボード側の設定と合わせる）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Display", meta = (EditCondition = "bIsBoardQuest"))
+	FName BoardGroupID;
+
+	// --- 繰り返し（デイリー等）設定 ---
+	// 再受注可能かどうか
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Repeat")
+	bool bIsRepeatable = false;
+
+	// クリアしてから何日経過で再受注できるか（1なら翌日。0なら即時）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Repeat", meta = (EditCondition = "bIsRepeatable"))
+	int32 CooldownDays = 1;
 };
 
 // --- プレイヤーが保持するクエスト進行データ ---
@@ -483,6 +502,21 @@ struct FQuestProgress
 		CurrentAmount = 0;
 	}
 };
+
+// --- クリアしたクエストの履歴用構造体 ---
+USTRUCT(BlueprintType)
+struct FCompletedQuestInfo
+{
+	GENERATED_BODY()
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Quest|Progress")
+	FName QuestID;
+
+	// クリアした時の「累計日数」を記録しておく（クールタイム判定用）
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Quest|Progress")
+	int32 CompletedTotalDays = 0;
+};
+
 
 // --- ワープポータルの種類（今後のマップ配置用） ---
 UENUM(BlueprintType)

@@ -39,6 +39,7 @@ void UMyProject1GameInstance::UpdateInGameTime()
 void UMyProject1GameInstance::AdvanceDay()
 {
 	CurrentDay++;
+	TotalElapsedDays++;
 
 	// その月の最終日を超えたら、翌月の1日にする
 	if (CurrentDay > GetDaysInMonth(CurrentYear, CurrentMonth))

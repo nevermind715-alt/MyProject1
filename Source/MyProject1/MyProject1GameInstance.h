@@ -37,6 +37,11 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Time|Calendar")
 	int32 CurrentDay = 11;
 
+	
+	// （ゲーム内時間が1日進むたびに+1される絶対的なカウンター）
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Time|Calendar")
+	int32 TotalElapsedDays = 0;
+
 	// ゲーム開始時に呼ばれる関数（ここでタイマーを動かします）
 	virtual void Init() override;
 

@@ -2,6 +2,7 @@
 #include "MyProject1Character.h"
 #include "InventoryComponent.h"
 #include "Kismet/GameplayStatics.h"
+#include "MyProject1GameInstance.h"
 
 #pragma execution_character_set("utf-8")
 
@@ -25,18 +26,39 @@ bool UQuestComponent::GetQuestData(FName QuestID, FQuestData& OutData)
 
 EQuestStatus UQuestComponent::GetQuestStatus(FName QuestID)
 {
-	// 1. すでにクリア済みかチェック
-	if (CompletedQuests.Contains(QuestID))
-	{
-		return EQuestStatus::Completed;
-	}
-
-	// 2. 進行中リストにあるかチェック
+	// 1. 進行中リストにあるかチェック（最優先）
 	for (const FQuestProgress& Progress : ActiveQuests)
 	{
 		if (Progress.QuestID == QuestID)
 		{
 			return Progress.Status;
+		}
+	}
+
+	// 2. すでにクリア済みかチェック ＆ クールタイム判定
+	for (int32 i = 0; i < CompletedQuests.Num(); ++i)
+	{
+		if (CompletedQuests[i].QuestID == QuestID)
+		{
+			FQuestData Data;
+			if (GetQuestData(QuestID, Data) && Data.bIsRepeatable)
+			{
+				// リピート可能なら日数を計算
+				UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetWorld()->GetGameInstance());
+				if (GameInst)
+				{
+					// 現在の総経過日数 - クリアした時の総経過日数
+					int32 DaysPassed = GameInst->TotalElapsedDays - CompletedQuests[i].CompletedTotalDays;
+
+					if (DaysPassed >= Data.CooldownDays)
+					{
+						// ★クールタイム明け！履歴から削除して「未受注」として返す
+						CompletedQuests.RemoveAt(i);
+						return EQuestStatus::NotStarted;
+					}
+				}
+			}
+			return EQuestStatus::Completed;
 		}
 	}
 
@@ -208,7 +230,14 @@ bool UQuestComponent::ReportQuest(FName QuestID)
 
 				// リストの移動（進行中から消して、完了履歴に追加）
 				ActiveQuests.RemoveAt(i);
-				CompletedQuests.Add(QuestID);
+
+				FCompletedQuestInfo NewRecord;
+				NewRecord.QuestID = QuestID;
+				if (UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetWorld()->GetGameInstance()))
+				{
+					NewRecord.CompletedTotalDays = GameInst->TotalElapsedDays;
+				}
+				CompletedQuests.Add(NewRecord);
 
 				OnQuestUpdated.Broadcast(QuestID);
 				return true;

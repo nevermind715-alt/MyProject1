@@ -28,7 +28,7 @@ public:
 
 	/** すでにクリアしたクエストのID履歴（二重受注を防ぐため） */
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Quest")
-	TArray<FName> CompletedQuests;
+	TArray<FCompletedQuestInfo> CompletedQuests;
 
 	// --- イベント ---
 	/** クエストの進行度が変わった時に呼ばれるイベント */
