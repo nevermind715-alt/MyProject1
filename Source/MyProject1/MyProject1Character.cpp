@@ -393,7 +393,7 @@ void AMyProject1Character::CycleTarget()
 	{
 		if (Actor == this || !Actor) continue;
 
-		// ★追加：死んでる敵は無視する
+		// 死んでる敵は無視する
 		AMyProject1Character* TargetChar = Cast<AMyProject1Character>(Actor);
 		if (TargetChar && TargetChar->IsDead()) continue;
 
@@ -432,9 +432,7 @@ void AMyProject1Character::CycleTarget()
 	// 6. 新しいターゲットをセット
 	SetCurrentTarget(ValidTargets[NextIndex]);
 
-	// デバッグ表示
-	if (GEngine && CurrentTarget)
-		GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Cyan, FString::Printf(TEXT("Switched to: %s"), *CurrentTarget->GetName()));
+	
 }
 
 void AMyProject1Character::Tick(float DeltaTime)

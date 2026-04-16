@@ -36,6 +36,13 @@ void AMyProject1HUD::ToggleCommandMenu()
         return;
     }
 
+    // もしクエストメニューが存在し、画面に表示されているなら
+    if (QuestMenuWidget && QuestMenuWidget->IsInViewport())
+    {
+        ToggleQuestMenu();
+        return;
+    }
+
     APlayerController* PC = GetOwningPlayerController();
     
 
@@ -138,4 +145,55 @@ bool AMyProject1HUD::IsCommandMenuOpen() const
 {
     // ウィジェットが存在し、かつ画面に表示されているなら true を返す
     return CommandMenuWidget && CommandMenuWidget->IsInViewport();
+}
+
+// --- クエスト（メニュー内のボタンから開く方） ---
+void AMyProject1HUD::ToggleQuestMenu()
+{
+    APlayerController* PC = GetOwningPlayerController();
+    if (!PC || !QuestMenuClass) return;
+
+    if (!QuestMenuWidget)
+    {
+        QuestMenuWidget = CreateWidget<UUserWidget>(GetWorld(), QuestMenuClass);
+    }
+
+    if (QuestMenuWidget)
+    {
+        if (!QuestMenuWidget->IsInViewport())
+        {
+            // Z-Orderを20にして手前に表示
+            QuestMenuWidget->AddToViewport(20);
+
+            // 背後のメニューを隠す
+            if (CommandMenuWidget) CommandMenuWidget->SetVisibility(ESlateVisibility::Collapsed);
+
+            // 入力フォーカスをクエスト画面に向ける
+            FInputModeGameAndUI InputMode;
+            InputMode.SetWidgetToFocus(QuestMenuWidget->TakeWidget());
+            PC->SetInputMode(InputMode);
+
+            if (MenuOpenSound) UGameplayStatics::PlaySound2D(this, MenuOpenSound);
+        }
+        else
+        {
+            // 閉じる処理
+            QuestMenuWidget->RemoveFromParent();
+
+            // 背後のメニューを再表示する
+            if (CommandMenuWidget)
+            {
+                CommandMenuWidget->SetVisibility(ESlateVisibility::Visible);
+
+                FInputModeGameAndUI InputMode;
+                InputMode.SetWidgetToFocus(CommandMenuWidget->TakeWidget());
+                PC->SetInputMode(InputMode);
+
+                if (MenuCloseSound)
+                {
+                    UGameplayStatics::PlaySound2D(this, MenuCloseSound);
+                }
+            }
+        }
+    }
 }

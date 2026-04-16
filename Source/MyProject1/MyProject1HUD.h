@@ -33,6 +33,17 @@ public:
 	UFUNCTION(BlueprintPure, Category = "UI")
 	bool IsCommandMenuOpen() const;
 
+	// --- クエストメニュー用の変数 ---
+	UPROPERTY(EditAnywhere, Category = "UI")
+	TSubclassOf<class UUserWidget> QuestMenuClass;
+
+	UPROPERTY(BlueprintReadOnly, Category = "UI")
+	class UUserWidget* QuestMenuWidget;
+
+	// --- クエストメニューの開閉関数 ---
+	UFUNCTION(BlueprintCallable, Category = "UI")
+	void ToggleQuestMenu();
+
 
 
 	// メニューの表示・非表示を切り替える関数
@@ -42,11 +53,11 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "UI")
 	void ToggleInventoryMenu();
 
-	// ★追加：メニューを開く時の音
+	// メニューを開く時の音
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "UI|Audio")
 	USoundBase* MenuOpenSound;
 
-	// ★追加：メニューを閉じる時の音
+	// メニューを閉じる時の音
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "UI|Audio")
 	USoundBase* MenuCloseSound;
 

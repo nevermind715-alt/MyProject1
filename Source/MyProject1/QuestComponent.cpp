@@ -81,6 +81,17 @@ bool UQuestComponent::AcceptQuest(FName QuestID)
 		return false;
 	}
 
+	// 受注条件（RequiredFlag）のチェック
+	if (!Data.RequiredFlag.IsNone())
+	{
+		AMyProject1Character* OwnerChar = Cast<AMyProject1Character>(GetOwner());
+		if (OwnerChar && !OwnerChar->HasFlag(Data.RequiredFlag))
+		{
+			// 条件を満たしていない場合はシステムログを出して中断
+			OwnerChar->OnReceiveLogMessage(TEXT("このクエストを受けるための条件を満たしていません。"), ELogMessageType::System);
+			return false;
+		}
+	}
 	// 進行中リストに追加
 	FQuestProgress NewQuest(QuestID);
 	ActiveQuests.Add(NewQuest);
@@ -212,8 +223,30 @@ bool UQuestComponent::ReportQuest(FName QuestID)
 						// 3. アイテム
 						if (!Data.RewardItemID.IsNone() && Data.RewardItemAmount > 0)
 						{
+							// アイテムをカバンに追加
 							InvComp->AddItem(Data.RewardItemID, Data.RewardItemAmount);
-							// ※AddItemの中でログを出す設定があればここは不要かもしれません
+
+							// インベントリからアイテムのデータを取得して名前を取り出す
+							FItemData ItemInfo;
+							if (InvComp->GetItemDataBP(Data.RewardItemID, ItemInfo))
+							{
+								// ログの作成（個数が1個でも複数でも対応できる形にしています）
+								FString ItemMsg = FString::Printf(TEXT("報酬として %s を%d個手に入れた。"), *ItemInfo.Name, Data.RewardItemAmount);
+
+								// ギルと同じくシステムメッセージとして送信
+								OwnerChar->OnReceiveLogMessage(ItemMsg, ELogMessageType::System);
+							}
+
+							// 4. 称号（フラグ）の付与
+							if (!Data.RewardFlag.IsNone())
+							{
+								OwnerChar->AddFlag(Data.RewardFlag);
+
+								// 称号獲得のログ表示
+								FString TitleMsg = FString::Printf(TEXT("称号「%s」を獲得した！"), *Data.RewardFlag.ToString());
+								OwnerChar->OnReceiveLogMessage(TitleMsg, ELogMessageType::System);
+							}
+
 						}
 					}
 

@@ -426,6 +426,11 @@ struct FQuestData : public FTableRowBase
 {
 	GENERATED_BODY()
 
+	// --- クエストの受注条件 ---
+	// 空欄なら誰でも受注可能。文字が入っていれば、そのフラグ（称号）が必要
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Condition")
+	FName RequiredFlag;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Info")
 	FText QuestName;
 
@@ -452,6 +457,11 @@ struct FQuestData : public FTableRowBase
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Reward")
 	int32 RewardItemAmount = 0;
+
+	// --- クエストのクリア報酬（称号・フラグ） ---
+	// 空欄なら何もしない。文字が入っていればクリア時にフラグを付与
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Reward")
+	FName RewardFlag;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Audio")
 	class USoundBase* AcceptSound = nullptr; // 受注時の音
