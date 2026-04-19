@@ -28,6 +28,8 @@
 #include "MyProject1GameInstance.h"
 #include "MusicControlComponent.h"
 #include "Engine/DamageEvents.h"
+#include "GameFramework/PhysicsVolume.h"
+
 
 AMyProject1Character::AMyProject1Character()
 {
@@ -38,6 +40,11 @@ AMyProject1Character::AMyProject1Character()
 	WeaponMeshComp = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("WeaponMeshComp"));
 	// キャラクターの手にアタッチ（ソケット名はスケルトンに合わせて調整）
 	WeaponMeshComp->SetupAttachment(GetMesh(), FName("hand_r_socket"));
+
+	// StaticMesh用の武器コンポーネント
+	StaticWeaponMeshComp = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("WeaponStaticMeshComponent"));
+	StaticWeaponMeshComp->SetupAttachment(GetMesh(), FName("hand_r_socket"));
+	StaticWeaponMeshComp->SetCollisionEnabled(ECollisionEnabled::NoCollision); // 武器自体が何かにぶつかってバグるのを防ぐ
 
 	// ... 既存の CameraBoom や FollowCamera の設定を続ける ...
 
@@ -439,8 +446,6 @@ void AMyProject1Character::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
-	
-
 	// --- 追加：周囲の敵のHPバー表示ロジック ---
 	if (!IsPlayerControlled() && !IsDead()) // 自分がNPCで、かつ生きている場合
 	{
@@ -462,18 +467,41 @@ void AMyProject1Character::Tick(float DeltaTime)
 		}
 	}
 
-	// --- 1. ターゲットがいない、または自分が死んでいる場合のリセット処理 ---
-	if (CurrentTarget == nullptr || IsDead())
+	// --- 1. 死んでいる場合は何もしない ---
+	if (IsDead()) return;
+
+	// --- 2. 基本となる目標速度（TargetSpeed）を計算する ---
+	float TargetSpeed = LandWalkSpeed; // 基本は陸上の歩行速度
+
+	if (CurrentTarget != nullptr)
 	{
-		// 速度をパトロール速度（ゆっくり）に戻す
-		float DefaultSpeed = IsPlayerControlled() ? ChaseRunSpeed : PatrolWalkSpeed;
+		// 戦闘中（ターゲットあり）なら追いかけ速度
+		TargetSpeed = ChaseRunSpeed;
+	}
+	else
+	{
+		// 非戦闘中なら、プレイヤーは通常の歩行、NPCならパトロール速度
+		TargetSpeed = IsPlayerControlled() ? LandWalkSpeed : PatrolWalkSpeed;
+	}
 
-		if (GetCharacterMovement() && GetCharacterMovement()->MaxWalkSpeed != DefaultSpeed)
+	// --- 3. 水の中にいる判定：目標速度を水中用に上書きする ---
+	if (GetCharacterMovement() && GetCharacterMovement()->GetPhysicsVolume())
+	{
+		if (GetCharacterMovement()->GetPhysicsVolume()->bWaterVolume)
 		{
-			GetCharacterMovement()->MaxWalkSpeed = DefaultSpeed;
+			TargetSpeed = WaterWalkSpeed; // 水中なら速度を上書き
 		}
+	}
 
-		// (以下のリセット処理は共通でOK)
+	// --- 4. 最終的な速度を一括で適用する ---
+	if (GetCharacterMovement()->MaxWalkSpeed != TargetSpeed)
+	{
+		GetCharacterMovement()->MaxWalkSpeed = TargetSpeed;
+	}
+
+	// --- 5. ターゲットがいない場合のリセット処理と早期終了 ---
+	if (CurrentTarget == nullptr)
+	{
 		if (GetCharacterMovement() && !GetCharacterMovement()->bOrientRotationToMovement)
 		{
 			GetCharacterMovement()->bOrientRotationToMovement = true;
@@ -487,42 +515,32 @@ void AMyProject1Character::Tick(float DeltaTime)
 		{
 			MusicComp->SetCombatMusicActive(false);
 		}
-		return;
+		return; // ★重要：ターゲットがいない時はここで処理を終わらせる（速度設定は上で終わっているので安全！）
 	}
-	
-	// --- 2. エリア離脱（ナビメッシュ外）の判定 ---
+
+	// --- 6. エリア離脱（ナビメッシュ外）の判定 ---
 	UNavigationSystemV1* NavSys = FNavigationSystem::GetCurrent<UNavigationSystemV1>(GetWorld());
 	if (NavSys && CurrentTarget)
 	{
 		FNavLocation NavLoc;
-		// 戦闘中のターゲット喪失を防ぐため、判定範囲を FVector(100) から (500, 500, 1000) へ大幅に拡大
+		// 戦闘中のターゲット喪失を防ぐため、判定範囲を拡大
 		bool bIsOnNavMesh = NavSys->ProjectPointToNavigation(CurrentTarget->GetActorLocation(), NavLoc, FVector(500.f, 500.f, 1000.f));
 
 		if (!bIsOnNavMesh)
 		{
-			// 完全にエリア外（奈落に落ちた等）でない限り、ターゲットを維持する
 			SetCurrentTarget(nullptr);
 			bIsAutoAttacking = false;
 			bIsPreparingAttack = false;
 			return;
 		}
 	}
-	
-	// --- 3. 追跡・戦闘時の速度設定 ---
-	// ターゲットがいるので、速度を「追いかけ速度（速い）」に変更する
-	if (GetCharacterMovement() && GetCharacterMovement()->MaxWalkSpeed != ChaseRunSpeed)
-	{
-		GetCharacterMovement()->MaxWalkSpeed = ChaseRunSpeed;
-	}
 
-	// --- 4. 回転制御（ターゲットの方向を向く） ---
-	// 条件を「(抜刀・準備中) OR (自分がNPC 且つ ターゲットあり)」に変更します
+	// --- 7. 回転制御（ターゲットの方向を向く） ---
 	bool bIsNPC = !IsPlayerControlled();
 	bool bShouldFaceTarget = bIsAutoAttacking || bIsPreparingAttack || (bIsNPC && CurrentTarget);
 
 	if (bShouldFaceTarget)
 	{
-		// 戦闘中、またはNPCが追跡中の時はターゲットを向く
 		FVector StartLocation = GetActorLocation();
 		FVector TargetLocation = CurrentTarget->GetActorLocation();
 		FRotator TargetRotation = UKismetMathLibrary::FindLookAtRotation(StartLocation, TargetLocation);
@@ -537,24 +555,21 @@ void AMyProject1Character::Tick(float DeltaTime)
 		}
 
 		FRotator CurrentActorRot = GetActorRotation();
-		// 15.0f は回転の速さです。お好みで調整してください
 		FRotator NewRot = FMath::RInterpTo(CurrentActorRot, TargetRotation, DeltaTime, 15.0f);
 		SetActorRotation(NewRot);
 	}
 	else
 	{
-		// プレイヤーが非戦闘状態で逃げている時などは、移動方向を向く
 		if (GetCharacterMovement() && !GetCharacterMovement()->bOrientRotationToMovement)
 		{
 			GetCharacterMovement()->bOrientRotationToMovement = true;
 		}
 	}
 
-	// 5. 攻撃タイマーの更新ロジック
+	// --- 8. 攻撃タイマーの更新ロジック ---
 	double CurrentTime = GetWorld()->GetTimeSeconds();
 	float DistanceToTarget = GetDistanceTo(CurrentTarget);
 
-	// 攻撃準備（構え）中の処理（ここは変更なし）
 	if (bIsPreparingAttack)
 	{
 		if (CurrentTime - StartAttackTimestamp >= AttackStartupDelay)
@@ -564,30 +579,21 @@ void AMyProject1Character::Tick(float DeltaTime)
 		}
 	}
 
-	// オートアタック実行中（抜刀状態）の判定
 	if (bIsAutoAttacking)
 	{
-		// A. まず「攻撃間隔（リキャスト）」が溜まっているかチェック
 		if (CurrentTime - LastAttackTime >= GetModifiedAttackSpeed())
 		{
-			// B. 次に「射程内」にいるかチェック
 			if (DistanceToTarget <= AttackRange)
 			{
-				// 【射程内】攻撃実行！
 				PerformAutoAttack();
-				LastAttackTime = CurrentTime; // 攻撃したのでタイマー更新
+				LastAttackTime = CurrentTime;
 			}
 			else
 			{
-				// 【射程外】メッセージを表示
 				if (IsPlayerControlled())
 				{
-					// ご要望通りのメッセージと色（Default）
 					OnReceiveLogMessage(TEXT("ターゲットが遠すぎます。"), ELogMessageType::Default);
 				}
-
-				// ★重要：メッセージを連打しないよう、ここでもタイマーを更新して
-				// 次の攻撃間隔が来るまで待機させる（FF11風の挙動）
 				LastAttackTime = CurrentTime;
 			}
 		}
@@ -1125,12 +1131,52 @@ void AMyProject1Character::ApplyJobData()
 			{
 				USkeletalMesh* NewMesh = JobData->WeaponMesh.LoadSynchronous();
 				WeaponMeshComp->SetSkeletalMesh(NewMesh);
+
+				// 大きさを反映
+				WeaponMeshComp->SetRelativeScale3D(JobData->WeaponScale);
+
+				// 強制的に手のソケットにアタッチ
+				WeaponMeshComp->AttachToComponent(GetMesh(), FAttachmentTransformRules::SnapToTargetNotIncludingScale, FName("hand_r_socket"));
 			}
 			else
 			{
 				WeaponMeshComp->SetSkeletalMesh(nullptr);
 			}
 		}
+
+		// --- B. StaticMesh (バットなどの置物武器) の処理 ---
+		if (StaticWeaponMeshComp)
+		{
+			if (!JobData->StaticWeaponMesh.IsNull())
+			{
+				UStaticMesh* NewStaticMesh = JobData->StaticWeaponMesh.LoadSynchronous();
+				StaticWeaponMeshComp->SetStaticMesh(NewStaticMesh);
+
+				// ★重要：ここを SkeletalMesh の外に出しました
+				// 大きさを反映
+				StaticWeaponMeshComp->SetRelativeScale3D(JobData->WeaponScale);
+
+				// ★重要：ここで強制的に手のソケットに吸着（Snap）させる
+				StaticWeaponMeshComp->AttachToComponent(
+					GetMesh(),
+					FAttachmentTransformRules::SnapToTargetNotIncludingScale,
+					FName("hand_r_socket")
+				);
+
+				// ★ここからデバッグコードを追加：本当にソケットはあるか？★
+				if (!GetMesh()->DoesSocketExist(FName("hand_r_socket")))
+				{
+					// 画面の左上に赤いエラー文字を出す
+					if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 10.0f, FColor::Red, TEXT("エラー：hand_r_socketが見つかりません！"));
+				}
+				// ★デバッグコードここまで★
+			}
+			else
+			{
+				StaticWeaponMeshComp->SetStaticMesh(nullptr);
+			}
+		}
+
 		if (JobData->AnimBlueprintClass)
 		{
 			GetMesh()->SetAnimInstanceClass(JobData->AnimBlueprintClass);
@@ -1600,3 +1646,4 @@ void AMyProject1Character::RemoveFlag(FName FlagName)
 		MyStats.UnlockedFlags.Remove(FlagName);
 	}
 }
+

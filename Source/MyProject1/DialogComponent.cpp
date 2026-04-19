@@ -26,6 +26,13 @@ void UDialogComponent::StartDialog(FName RowName, UDataTable* DialogTable, AActo
 		// UIに「更新したよ！」と合図を送る
 		OnDialogUpdated.Broadcast(CurrentDialogData, CurrentNPC);
 
+		// --- 効果音(SE)が設定されていれば鳴らす ---
+		if (CurrentDialogData.DialogSE)
+		{
+			// 距離に関係なくハッキリ聞こえるように2Dサウンドで再生
+			UGameplayStatics::PlaySound2D(GetWorld(), CurrentDialogData.DialogSE);
+		}
+
 		// ボイスが設定されていれば鳴らす
 		if (CurrentDialogData.DialogVoice)
 		{
@@ -45,6 +52,8 @@ void UDialogComponent::StartDialog(FName RowName, UDataTable* DialogTable, AActo
 		}
 
 		// 選択肢が0個、かつ「次の会話」も設定されていない場合のみ終了 ---
+		/*
+		/
 		if (CurrentDialogData.Choices.Num() == 0 && CurrentDialogData.NextDialogID.IsNone())
 		{
 			CloseDialog();
@@ -54,7 +63,8 @@ void UDialogComponent::StartDialog(FName RowName, UDataTable* DialogTable, AActo
 		if (CurrentDialogData.Choices.Num() == 0)
 		{
 			CloseDialog();
-		}
+		}*/
+
 	}
 }
 

@@ -63,6 +63,15 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Input")
 	UInputAction* MouseLookAction;
 
+	// --- 水に入った時の処理 ---
+		// 水中での歩行スピード
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement")
+	float WaterWalkSpeed = 200.0f;
+
+	// 陸上での基本歩行スピード（パトロール速度とは別の、プレイヤーの基本速度）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement")
+	float LandWalkSpeed = 500.0f;
+
 	
 
 	/** ズーム操作用の入力アクション（Enhanced Input用） */
@@ -137,11 +146,11 @@ public:
 	/** Constructor */
 	AMyProject1Character();
 
-	// ★追加：キャラクターの名前
+	// キャラクターの名前
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "UI")
 	FString CharacterName = "Senshi";
 
-	// ★追加：UIに名前を通知するイベント
+	// UIに名前を通知するイベント
 	UFUNCTION(BlueprintImplementableEvent, Category = "UI")
 	void UpdateHealthWidgetName(const FString& NewName);
 
@@ -216,9 +225,13 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Combat|Fatigue Penalty")
 	float GetModifiedAttackSpeed() const;
 
-	/** 武器を表示するためのコンポーネント（宣言のみにする） */
+	/** 武器を表示するためのコンポーネント */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
 	USkeletalMeshComponent* WeaponMeshComp;
+
+	/** 武器を表示するためのコンポーネント（Static用） */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+	class UStaticMeshComponent* StaticWeaponMeshComp;
 
 	/** 操作をロックするかどうかのフラグ */
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Input")

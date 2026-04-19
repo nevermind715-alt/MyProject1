@@ -73,11 +73,19 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "JobData")
 	TSoftObjectPtr<USkeletalMesh> WeaponMesh;
 
+	// 武器の大きさ（デフォルトは 1.0, 1.0, 1.0）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "JobData")
+	FVector WeaponScale = FVector(1.0f, 1.0f, 1.0f);
+
+	// そのジョブが装備する武器のメッシュ (Static用：バットや剣などはこちらを使うことが多いです)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "JobData")
+	TSoftObjectPtr<class UStaticMesh> StaticWeaponMesh;
+
 	// ジョブごとの攻撃モーションセット（必要に応じて）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "JobData")
 	TArray<UAnimMontage*> AttackMontages;
 
-	/** ★追加：クリティカルヒット時の音 */
+	/** クリティカルヒット時の音 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "JobData")
 	TSoftObjectPtr<USoundBase> CriticalSound;
 };
@@ -383,6 +391,9 @@ struct FDialogData : public FTableRowBase
 	// セリフ本文
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (MultiLine = true))
 	FText DialogText;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Audio")
+	class USoundBase* DialogSE = nullptr;
 
 	// 再生するボイス音声
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Audio")
