@@ -1,6 +1,7 @@
 #include "RpgDamageCalculator.h"
 
-FDamageResult URpgDamageCalculator::CalculateDamage(const FCharacterStats& AttackerStats, const FCharacterStats& DefenderStats)
+FDamageResult URpgDamageCalculator::CalculateDamage(const FCharacterStats& AttackerStats, const FCharacterStats& DefenderStats, float SkillDamageMultiplier, float SkillCriticalBonus)
+
 {
 	FDamageResult Result;
 	float LevelDiff = (float)DefenderStats.Level - (float)AttackerStats.Level;
@@ -33,6 +34,8 @@ FDamageResult URpgDamageCalculator::CalculateDamage(const FCharacterStats& Attac
 		}
 	}
 
+	// レベル差のペナルティ倍率に、特殊技の倍率を掛け合わせる
+	DamageMultiplier *= SkillDamageMultiplier;
 	// 命中率を 5% ～ 95% の間に制限（どんなに命中が高くても 5% はミスする）
 	HitChance = FMath::Clamp(HitChance, 5.0f, 95.0f);
 
@@ -63,6 +66,8 @@ FDamageResult URpgDamageCalculator::CalculateDamage(const FCharacterStats& Attac
 	}
 
 	FinalCritChance = FMath::Clamp(FinalCritChance, 1.0f, 35.0f);
+
+	FinalCritChance += SkillCriticalBonus;
 
 	if (FMath::RandRange(0.0f, 100.0f) < FinalCritChance)
 	{

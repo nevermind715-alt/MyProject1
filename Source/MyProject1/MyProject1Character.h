@@ -225,6 +225,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Combat|Fatigue Penalty")
 	float GetModifiedAttackSpeed() const;
 
+	/** 特殊技（ウェポンスキル等）を実行する関数 */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Special")
+	void PerformSpecialAttack(UAnimMontage* SpecialMontage);
+
 	/** 武器を表示するためのコンポーネント */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
 	USkeletalMeshComponent* WeaponMeshComp;
@@ -299,6 +303,20 @@ protected:
 
 	/** ゲーム開始時に呼ばれる */
 	virtual void BeginPlay() override;
+
+	/** 特殊技を発動中かどうかのフラグ */
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Combat|Special")
+	bool bIsUsingSpecialAttack = false;
+
+	// 現在発動している特殊技モンタージュを記憶しておく変数
+	UPROPERTY()
+	UAnimMontage* ActiveSpecialMontage = nullptr;
+
+	/** アニメーションモンタージュが終了した時に自動で呼ばれる関数 */
+	UFUNCTION()
+	void OnMontageEnded(UAnimMontage* Montage, bool bInterrupted);
+
+	FSpecialAttackData CurrentExecutingSkillData;
 
 	
 public:
@@ -519,7 +537,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
 	float AttackRange = 150.0f;
 
-	/** ★追加: 攻撃ミス時の共通SE */
+	/** 攻撃ミス時の共通SE */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Sounds")
 	USoundBase* GlobalMissSound;
 
@@ -531,10 +549,20 @@ protected:
 	/** 最後に攻撃した時刻を記録する変数 */
 	double LastAttackTime = 0.0;
 
+	// 連続でオートアタックした回数
+		UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Combat|Special")
+	int32 ConsecutiveAttackCount = 0;
+
+	// 各特殊技の最後に使った時間を記憶（インデックス番号, 時刻）
+	TMap<int32, double> SpecialAttackCooldowns;
+
+	// オートアタックの代わりに特殊技を発動できるかチェックする関数
+	bool TryUseSpecialAttack();
+
 public: // ★ public に変更（どこからでも呼べるようにする）
 
 	/** 実際に攻撃を実行する関数 */
-	// ★ UFUNCTIONを追加して、BTT_Attackから呼べるようにする
+	// UFUNCTIONを追加して、BTT_Attackから呼べるようにする
 	UFUNCTION(BlueprintCallable, Category = "Combat")
 	void PerformAutoAttack();	
 

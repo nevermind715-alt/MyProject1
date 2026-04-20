@@ -37,6 +37,79 @@ enum class EDialogChoiceColor : uint8
 	Purple  UMETA(DisplayName = "紫（特殊・狂気）")
 };
 
+// --- 特殊技の発動条件 ---
+UENUM(BlueprintType)
+enum class ESpecialCondition : uint8
+{
+	None            UMETA(DisplayName = "条件なし（手動用）"),
+	HPBelowPercent  UMETA(DisplayName = "HPが指定%以下のとき"),
+	AttackCount     UMETA(DisplayName = "オートアタック指定回数ごと")
+};
+
+// --- 特殊技の追加効果の種類（将来用） ---
+UENUM(BlueprintType)
+enum class ESpecialEffectType : uint8
+{
+	None        UMETA(DisplayName = "なし"),
+	Stun        UMETA(DisplayName = "スタン（行動停止）"),
+	Knockback   UMETA(DisplayName = "ノックバック"),
+	HealHP      UMETA(DisplayName = "HP吸収"),
+	LowerDefense UMETA(DisplayName = "防御ダウン")
+};
+
+// --- 特殊効果の設定構造体 ---
+USTRUCT(BlueprintType)
+struct FSpecialEffectInfo
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	ESpecialEffectType EffectType = ESpecialEffectType::None;
+
+	/** 効果の強さや確率、持続時間など */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	float Value = 0.0f;
+};
+
+// --- 特殊技1つ分の設定データ ---
+USTRUCT(BlueprintType)
+struct FSpecialAttackData
+{
+	GENERATED_BODY()
+
+	/** 技の名前（ログ表示用） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	FString SkillName = TEXT("特殊技");
+
+	/** 発動するモンタージュ */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	UAnimMontage* Montage = nullptr;
+
+	/** 発動する条件 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	ESpecialCondition Condition = ESpecialCondition::None;
+
+	/** 条件の数値（HPなら50.0で50%以下、AttackCountなら3.0で3回ごと） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	float ConditionValue = 0.0f;
+
+	/** 連続発動を防ぐためのクールダウン（秒）。HP条件の場合に毎フレーム発動するのを防ぎます */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	float Cooldown = 10.0f;
+
+	/** ダメージ倍率（1.5なら通常の1.5倍の威力） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats")
+	float DamageMultiplier = 1.0f;
+
+	/** クリティカル率のボーナス（20.0なら+20%） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats")
+	float CriticalRateBonus = 0.0f;
+
+	/** 特殊効果のリスト（＋ボタンで複数追加可能） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Effects")
+	TArray<FSpecialEffectInfo> SpecialEffects;
+};
+
 // --- 追加：ジョブの基本データ（データテーブル用） ---
 USTRUCT(BlueprintType)
 struct FJobAttributes : public FTableRowBase
@@ -84,6 +157,10 @@ public:
 	// ジョブごとの攻撃モーションセット（必要に応じて）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "JobData")
 	TArray<UAnimMontage*> AttackMontages;
+
+	// ジョブが持つ特殊技（ウェポンスキル）のリスト
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "JobData")
+	TArray<FSpecialAttackData> SpecialAttacks;
 
 	/** クリティカルヒット時の音 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "JobData")

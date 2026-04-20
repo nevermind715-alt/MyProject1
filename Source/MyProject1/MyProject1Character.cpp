@@ -581,20 +581,30 @@ void AMyProject1Character::Tick(float DeltaTime)
 
 	if (bIsAutoAttacking)
 	{
-		if (CurrentTime - LastAttackTime >= GetModifiedAttackSpeed())
+		if (!bIsUsingSpecialAttack)
 		{
-			if (DistanceToTarget <= AttackRange)
+			if (CurrentTime - LastAttackTime >= GetModifiedAttackSpeed())
 			{
-				PerformAutoAttack();
-				LastAttackTime = CurrentTime;
-			}
-			else
-			{
-				if (IsPlayerControlled())
+				if (DistanceToTarget <= AttackRange)
 				{
-					OnReceiveLogMessage(TEXT("ターゲットが遠すぎます。"), ELogMessageType::Default);
+					if (!TryUseSpecialAttack())
+					{
+						// 特殊技の条件を満たしていなかった場合のみ、通常攻撃を行う
+						PerformAutoAttack();
+
+						// 通常攻撃を行ったらカウントを+1する
+						ConsecutiveAttackCount++;
+					}
+					LastAttackTime = CurrentTime;
 				}
-				LastAttackTime = CurrentTime;
+				else
+				{
+					if (IsPlayerControlled())
+					{
+						OnReceiveLogMessage(TEXT("ターゲットが遠すぎます。"), ELogMessageType::Default);
+					}
+					LastAttackTime = CurrentTime;
+				}
 			}
 		}
 	}
@@ -836,16 +846,29 @@ void AMyProject1Character::OnAttackHit()
 	AMyProject1Character* EnemyChar = Cast<AMyProject1Character>(CurrentTarget);
 	if (!EnemyChar) return;
 
-	// ★追加：計算直前に、現在の攻撃力を保存しておく
+	// 疲労度を加味した攻撃力で一時的に上書きする
 	float OriginalAP = this->MyStats.AttackPower;
-
-	// ★追加：疲労度を加味した攻撃力で一時的に上書きする
 	this->MyStats.AttackPower = GetModifiedAttackPower();
 
-	// 1. ダメージ計算を実行
-	FDamageResult Result = URpgDamageCalculator::CalculateDamage(this->MyStats, EnemyChar->MyStats);
+	// 特殊技の倍率・ボーナスをセットする変数を準備
+	float SkillMultiplier = 1.0f;
+	float SkillCritBonus = 0.0f;
 
-	// ★追加：計算が終わったら、すぐに元の攻撃力に戻す（UI等に影響を出さないため）
+	if (bIsUsingSpecialAttack)
+	{
+		SkillMultiplier = CurrentExecutingSkillData.DamageMultiplier;
+		SkillCritBonus = CurrentExecutingSkillData.CriticalRateBonus;
+	}
+
+	// 1. ダメージ計算を実行
+	FDamageResult Result = URpgDamageCalculator::CalculateDamage(
+		this->MyStats,
+		EnemyChar->MyStats,
+		SkillMultiplier,
+		SkillCritBonus
+	);
+
+	// 一時的に変えた攻撃力を元に戻す！（これが消えていました）
 	this->MyStats.AttackPower = OriginalAP;
 
 	// 2. 判定に基づいてSEを選択
@@ -853,26 +876,19 @@ void AMyProject1Character::OnAttackHit()
 
 	if (Result.bIsHit)
 	{
-		// ヒットした場合：ジョブデータを取得
 		FJobAttributes* JobData = JobRow.GetRow<FJobAttributes>(JobRow.RowName.ToString());
-
 		if (JobData)
 		{
-			if (Result.bIsCritical)
-			{
-				// ★クリティカルなら専用音を選択（なければ通常音）
+			if (Result.bIsCritical) {
 				SoundToPlay = !JobData->CriticalSound.IsNull() ? JobData->CriticalSound.LoadSynchronous() : JobData->AttackSound.LoadSynchronous();
 			}
-			else
-			{
-				// 通常ヒット音
+			else {
 				SoundToPlay = JobData->AttackSound.LoadSynchronous();
 			}
 		}
 	}
 	else
 	{
-		// ミスした：共通のミス音を使用
 		SoundToPlay = GlobalMissSound;
 	}
 
@@ -882,6 +898,10 @@ void AMyProject1Character::OnAttackHit()
 		UGameplayStatics::PlaySoundAtLocation(this, SoundToPlay, GetActorLocation());
 	}
 
+	// 攻撃者と防御者の名前を準備しておく
+	FString AttackerName = this->MyStats.NPCName.IsEmpty() ? this->CharacterName : this->MyStats.NPCName;
+	FString DefenderName = EnemyChar->MyStats.NPCName.IsEmpty() ? EnemyChar->CharacterName : EnemyChar->MyStats.NPCName;
+
 	// --- 3. 命中時の処理（ログ出力・ダメージ適用） ---
 	if (Result.bIsHit)
 	{
@@ -889,11 +909,22 @@ void AMyProject1Character::OnAttackHit()
 		{
 			// 【自分が殴った場合】
 			FString DamageLog;
-			if (Result.bIsCritical) {
-				DamageLog = FString::Printf(TEXT("%sにクリティカル！ %.0fのダメージ！"), *EnemyChar->MyStats.NPCName, Result.DamageAmount);
+			if (bIsUsingSpecialAttack) {
+				if (Result.bIsCritical) {
+					// ★変更： \"%s\" を 【%s】 に変更
+					DamageLog = FString::Printf(TEXT("%sの【%s】 → %sにクリティカル！ %.0fのダメージ！"), *AttackerName, *CurrentExecutingSkillData.SkillName, *DefenderName, Result.DamageAmount);
+				}
+				else {
+					DamageLog = FString::Printf(TEXT("%sの【%s】 → %sに、%.0fのダメージ！"), *AttackerName, *CurrentExecutingSkillData.SkillName, *DefenderName, Result.DamageAmount);
+				}
 			}
 			else {
-				DamageLog = FString::Printf(TEXT("%sに、%.0fのダメージ！"), *EnemyChar->MyStats.NPCName, Result.DamageAmount);
+				if (Result.bIsCritical) {
+					DamageLog = FString::Printf(TEXT("%sにクリティカル！ %.0fのダメージ！"), *DefenderName, Result.DamageAmount);
+				}
+				else {
+					DamageLog = FString::Printf(TEXT("%sに、%.0fのダメージ！"), *DefenderName, Result.DamageAmount);
+				}
 			}
 			this->OnReceiveLogMessage(DamageLog, ELogMessageType::DamageDealt);
 		}
@@ -903,21 +934,29 @@ void AMyProject1Character::OnAttackHit()
 			FString TakenLog;
 			ELogMessageType SelectedType;
 
-			if (Result.bIsCritical) {
-				TakenLog = FString::Printf(TEXT("クリティカル！！ %sから、%.0fのダメージ！"), *MyStats.NPCName, Result.DamageAmount);
-				SelectedType = ELogMessageType::Critical;
+			if (bIsUsingSpecialAttack) {
+				if (Result.bIsCritical) {
+					// ★変更： \"%s\" を 【%s】 に変更
+					TakenLog = FString::Printf(TEXT("%sの【%s】 → クリティカル！！ %.0fのダメージ！"), *AttackerName, *CurrentExecutingSkillData.SkillName, Result.DamageAmount);
+				}
+				else {
+					TakenLog = FString::Printf(TEXT("%sの【%s】 → %.0fのダメージ！"), *AttackerName, *CurrentExecutingSkillData.SkillName, Result.DamageAmount);
+				}
 			}
 			else {
-				TakenLog = FString::Printf(TEXT("%sから、%.0fのダメージ！"), *MyStats.NPCName, Result.DamageAmount);
-				SelectedType = ELogMessageType::DamageTaken;
+				if (Result.bIsCritical) {
+					TakenLog = FString::Printf(TEXT("クリティカル！！ %sから、%.0fのダメージ！"), *AttackerName, Result.DamageAmount);
+				}
+				else {
+					TakenLog = FString::Printf(TEXT("%sから、%.0fのダメージ！"), *AttackerName, Result.DamageAmount);
+				}
 			}
+			SelectedType = Result.bIsCritical ? ELogMessageType::Critical : ELogMessageType::DamageTaken;
 			EnemyChar->OnReceiveLogMessage(TakenLog, SelectedType);
 		}
 
 		// クリティカルかどうかに応じて「ダメージタイプ」を切り替える
 		TSubclassOf<UDamageType> DmgTypeClass = Result.bIsCritical ? UCriticalDamageType::StaticClass() : UDamageType::StaticClass();
-
-		// 実際にダメージを適用（最後の引数に DmgTypeClass を渡す）
 		UGameplayStatics::ApplyDamage(CurrentTarget, Result.DamageAmount, GetController(), this, DmgTypeClass);
 	}
 	else
@@ -925,12 +964,26 @@ void AMyProject1Character::OnAttackHit()
 		// --- 4. ミス・回避のログ処理 ---
 		if (this->IsPlayerControlled())
 		{
-			FString MissLog = FString::Printf(TEXT("%sの攻撃 → %sにミス！"), *MyStats.NPCName, *EnemyChar->MyStats.NPCName);
+			FString MissLog;
+			if (bIsUsingSpecialAttack) {
+				// ★変更： \"%s\" を 【%s】 に変更
+				MissLog = FString::Printf(TEXT("%sの【%s】 → %sにミス！"), *AttackerName, *CurrentExecutingSkillData.SkillName, *DefenderName);
+			}
+			else {
+				MissLog = FString::Printf(TEXT("%sの攻撃 → %sにミス！"), *AttackerName, *DefenderName);
+			}
 			this->OnReceiveLogMessage(MissLog, ELogMessageType::Default);
 		}
 		else if (EnemyChar->IsPlayerControlled())
 		{
-			FString EvadeLog = FString::Printf(TEXT("%sの攻撃を回避！"), *MyStats.NPCName);
+			FString EvadeLog;
+			if (bIsUsingSpecialAttack) {
+				// ★変更： \"%s\" を 【%s】 に変更
+				EvadeLog = FString::Printf(TEXT("%sの【%s】を回避！"), *AttackerName, *CurrentExecutingSkillData.SkillName);
+			}
+			else {
+				EvadeLog = FString::Printf(TEXT("%sの攻撃を回避！"), *AttackerName);
+			}
 			EnemyChar->OnReceiveLogMessage(EvadeLog, ELogMessageType::Default);
 		}
 
@@ -944,6 +997,7 @@ void AMyProject1Character::SetCurrentTarget(AActor* NewTarget)
 	LastCombatTime = GetWorld()->GetTimeSeconds();
 
 	if (CurrentTarget == NewTarget) return;
+	ConsecutiveAttackCount = 0;
 
 	// AIコントローラーを取得
 	AAIController* AIC = Cast<AAIController>(GetController());
@@ -1180,6 +1234,13 @@ void AMyProject1Character::ApplyJobData()
 		if (JobData->AnimBlueprintClass)
 		{
 			GetMesh()->SetAnimInstanceClass(JobData->AnimBlueprintClass);
+
+			// 新しく設定されたAnimInstanceのモンタージュ終了イベントを監視する
+			UAnimInstance* AnimInst = GetMesh()->GetAnimInstance();
+			if (AnimInst && !AnimInst->OnMontageEnded.IsAlreadyBound(this, &AMyProject1Character::OnMontageEnded))
+			{
+				AnimInst->OnMontageEnded.AddDynamic(this, &AMyProject1Character::OnMontageEnded);
+			}
 		}
 
 		// --- ★ B. 再計算前の状態を記録しておく（ここを追加！） ---
@@ -1245,6 +1306,12 @@ bool AMyProject1Character::TryPerformAutoAttack()
 {
 	if (!CurrentTarget || IsDead()) return false;
 
+	// 特殊技のモーション中であれば、通常攻撃のタイマー判定ごとブロックする
+	if (bIsUsingSpecialAttack)
+	{
+		return false;
+	}
+
 	// 1. まだ納刀状態なら抜刀を開始する
 	if (!bIsAutoAttacking && !bIsPreparingAttack)
 	{
@@ -1265,12 +1332,54 @@ bool AMyProject1Character::TryPerformAutoAttack()
 
 	if (CurrentTime - LastAttackTime >= GetModifiedAttackSpeed())
 	{
+		// まず特殊技が撃てるかチェック！
+		if (TryUseSpecialAttack())
+		{
+			// 特殊技が発動したので、通常攻撃はせずに終了
+			return true;
+		}
+
+		// 特殊技が出なかった場合は、今まで通り通常攻撃を行う
 		PerformAutoAttack();
+
+		// オートアタックした回数を+1する
+		ConsecutiveAttackCount++;
+
 		LastAttackTime = CurrentTime;
 		return true; // 攻撃成功
+		
 	}
 
 	return false; // リキャスト中
+}
+
+// --- 特殊技の発動 ---
+void AMyProject1Character::PerformSpecialAttack(UAnimMontage* SpecialMontage)
+{
+	if (!SpecialMontage || IsDead()) return;
+
+	// 特殊技中のフラグを立てる
+	bIsUsingSpecialAttack = true;
+	ActiveSpecialMontage = SpecialMontage;
+
+	// 特殊技のモンタージュを再生
+	PlayAnimMontage(SpecialMontage);
+
+	// 必要であればここに「○○を構えた！」などのログ処理を追加
+}
+
+// --- モンタージュ終了時の処理 ---
+void AMyProject1Character::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted)
+{
+	// 終わったモンタージュが、記憶しておいた「特殊技」と完全に一致した時だけフラグを折る
+	if (bIsUsingSpecialAttack && Montage == ActiveSpecialMontage)
+	{
+		bIsUsingSpecialAttack = false;
+		ActiveSpecialMontage = nullptr; // 記憶をリセット
+
+		// 特殊技が終わった瞬間にディレイタイマーをリセット
+		LastAttackTime = GetWorld()->GetTimeSeconds();
+	}
 }
 
 void AMyProject1Character::HandleTargetDeath()
@@ -1645,5 +1754,82 @@ void AMyProject1Character::RemoveFlag(FName FlagName)
 	{
 		MyStats.UnlockedFlags.Remove(FlagName);
 	}
+}
+
+bool AMyProject1Character::TryUseSpecialAttack()
+{
+	if (JobRow.IsNull()) return false;
+
+	FJobAttributes* JobData = JobRow.GetRow<FJobAttributes>(JobRow.RowName.ToString());
+	if (!JobData || JobData->SpecialAttacks.Num() == 0) return false;
+
+	double CurrentTime = GetWorld()->GetTimeSeconds();
+
+	// リストに登録されている特殊技を上から順番にチェック
+	for (int32 i = 0; i < JobData->SpecialAttacks.Num(); ++i)
+	{
+		const FSpecialAttackData& Skill = JobData->SpecialAttacks[i];
+		if (!Skill.Montage) continue;
+
+		// 1. クールダウンのチェック
+		double LastUsed = SpecialAttackCooldowns.Contains(i) ? SpecialAttackCooldowns[i] : -9999.0;
+		if (CurrentTime - LastUsed < Skill.Cooldown) continue;
+
+		bool bCanUse = false;
+
+		// 2. 条件の判定
+		if (Skill.Condition == ESpecialCondition::HPBelowPercent)
+		{
+			float CurrentPercent = (MyStats.MaxHP > 0) ? (MyStats.HP / MyStats.MaxHP) * 100.0f : 0.0f;
+			if (CurrentPercent <= Skill.ConditionValue)
+			{
+				bCanUse = true;
+			}
+		}
+		else if (Skill.Condition == ESpecialCondition::AttackCount)
+		{
+			// 指定回数「以上」になったら発動
+			if (ConsecutiveAttackCount >= FMath::RoundToInt(Skill.ConditionValue) && ConsecutiveAttackCount > 0)
+			{
+				bCanUse = true;
+			}
+		}
+
+		// 3. 発動できる場合
+		if (bCanUse)
+		{
+			CurrentExecutingSkillData = Skill;
+			PerformSpecialAttack(Skill.Montage); // 発動！
+			SpecialAttackCooldowns.Add(i, CurrentTime); // 使った時間を記録
+
+			// もし回数条件だったら、発動後にカウントを0に戻す
+			if (Skill.Condition == ESpecialCondition::AttackCount)
+			{
+				ConsecutiveAttackCount = 0;
+			}
+
+			// ログを確実にプレイヤーの画面に送る
+			FString SpeakerName = MyStats.NPCName.IsEmpty() ? CharacterName : MyStats.NPCName;
+			FString Msg = FString::Printf(TEXT("%s は 【%s】 の構え！"), *SpeakerName, *Skill.SkillName);
+
+			if (IsPlayerControlled())
+			{
+				// 自分が使った場合は自分の画面に表示
+				OnReceiveLogMessage(Msg, ELogMessageType::System);
+			}
+			else if (CurrentTarget)
+			{
+				// 敵が使った場合、狙われているプレイヤーの画面に送りつける！
+				AMyProject1Character* TargetPlayer = Cast<AMyProject1Character>(CurrentTarget);
+				if (TargetPlayer && TargetPlayer->IsPlayerControlled())
+				{
+					TargetPlayer->OnReceiveLogMessage(Msg, ELogMessageType::System);
+				}
+			}
+
+			return true; // 1つ発動したら終了（複数同時には発動しない）
+		}
+	}
+	return false;
 }
 
