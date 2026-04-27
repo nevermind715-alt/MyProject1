@@ -47,43 +47,56 @@ void ANPCSpawner::SpawnEnemy()
 	UWorld* World = GetWorld();
 	if (!World) return;
 
-	// 1. スポーン位置と回転を決定
+	// 1. スポーン位置と回転を決定し、Transformにまとめる
 	FVector Location = GetActorLocation();
 	FRotator Rotation = GetActorRotation();
+	FTransform SpawnTransform(Rotation, Location);
 
-	FActorSpawnParameters SpawnParams;
-	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
-
-	// 2. 敵をスポーン
-	SpawnedEnemy = World->SpawnActor<AMyProject1Character>(EnemyClass, Location, Rotation, SpawnParams);
+	// 2. スポーン処理を「保留（Deferred）」状態で開始する
+	SpawnedEnemy = World->SpawnActorDeferred<AMyProject1Character>(
+		EnemyClass,
+		SpawnTransform,
+		nullptr,
+		nullptr,
+		ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn
+	);
 
 	if (SpawnedEnemy)
 	{
-		// 3. スポーナーの設定を敵に「上書きコピー」する
-		// ★ここがやりたかった機能の核心です！
+		// 3. AIが憑依する前、かつ BeginPlay の「前」に設定を上書きする
 		SpawnedEnemy->JobRow = this->SpawnerJobRow;      // ジョブ
-		SpawnedEnemy->MyStats = this->SpawnerStats;      // レベル・名前・HPなど
+		SpawnedEnemy->MyStats = this->SpawnerStats;      // レベル・名前など
 
 		// AI設定の上書き
 		if (bOverridePatrolSettings)
 		{
 			SpawnedEnemy->PatrolRadius = this->SpawnerPatrolRadius;
 			SpawnedEnemy->AISightRadius = this->SpawnerPerceptionRadius;
-			// 必要なら初期位置をパトロール中心点としてセットし直す処理などを追加
+			SpawnedEnemy->bCanPatrol = this->bSpawnerCanPatrol;
 		}
 
-		// 4. 新しい設定に基づいてステータスを再計算させる
-		// (レベルが変わったのでHPなどを計算しなおすため)
+		// 敵が死んだ時の通知を受け取る設定
+		SpawnedEnemy->OnDeathDelegate.AddDynamic(this, &ANPCSpawner::OnEnemyDeath);
+
+		// ---------------------------------------------------------
+		// 4. ★保留していたスポーン処理をここで完了させる！
+		// ！！！この FinishSpawning の中で敵の BeginPlay が実行され、
+		//     ブループリント側で HP_Bar などのUIが作成・準備されます ！！！
+		// ---------------------------------------------------------
+		SpawnedEnemy->FinishSpawning(SpawnTransform);
+
+		// ---------------------------------------------------------
+		// 5. ★順番を後ろに変更：UIの準備が完了した「後」にステータスを計算する
+		// ---------------------------------------------------------
 		SpawnedEnemy->ApplyJobData();
 
-		// HPを全快にしておく（計算で最大HPが増えたあとに合わせるため）
+		// HPを全快にしておく
 		SpawnedEnemy->MyStats.HP = SpawnedEnemy->MyStats.MaxHP;
 
-		// 5. 敵が死んだ時の通知を受け取る設定
-		SpawnedEnemy->OnDeathDelegate.AddDynamic(this, &ANPCSpawner::OnEnemyDeath);
+		// ※ブループリント側で「HPが変化した時にUIを更新する処理」があれば、
+		// UIが準備済みのこのタイミングならエラーなく安全に動作します。
 	}
 }
-
 void ANPCSpawner::OnEnemyDeath(AActor* DeadActor)
 {
 	// 念のため、死んだのが管理している敵かチェック

@@ -499,6 +499,20 @@ void AMyProject1Character::Tick(float DeltaTime)
 		GetCharacterMovement()->MaxWalkSpeed = TargetSpeed;
 	}
 
+	//ターゲットから離れすぎたら自動解除する
+	if (CurrentTarget != nullptr && IsPlayerControlled())
+	{
+		float DistanceToTarget = GetDistanceTo(CurrentTarget);
+
+		// ターゲット可能距離（TargetingRange）を基準に解除する
+		// ※境界線でカーソルが点滅するのを防ぐため、「+500」の遊び（バッファ）を持たせています
+		if (DistanceToTarget > TargetingRange + 500.0f)
+		{
+			CancelTarget(); // これを呼ぶだけで、UIのカーソルが消えます
+			OnReceiveLogMessage(TEXT("ターゲットから離れすぎたため解除しました。"), ELogMessageType::System);
+		}
+	}
+
 	// --- 5. ターゲットがいない場合のリセット処理と早期終了 ---
 	if (CurrentTarget == nullptr)
 	{
