@@ -7,6 +7,40 @@
 #include "MyProject1Character.h" // キャラクターの構造体を使うためにインクルード
 #include "NPCSpawner.generated.h"
 
+USTRUCT(BlueprintType)
+struct FStatBonus
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	int32 MaxHP = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	int32 AttackPower = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	int32 DefensePower = 0;
+	
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	int32 STR = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	int32 VIT = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	int32 DEX = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	int32 AGI = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	int32 Accuracy = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	int32 Evasion = 0;
+		
+};
+
 UCLASS()
 class MYPROJECT1_API ANPCSpawner : public AActor
 {
@@ -39,9 +73,18 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Overrides")
 	FDataTableRowHandle SpawnerJobRow;
 
-	/** 敵のステータス（レベル、名前、HPなど） */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Overrides")
-	FCharacterStats SpawnerStats;
+	/** スポーンする敵のレベル */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Overrides|Base Stats")
+	int32 SpawnerLevel = 1;
+
+	//FName から FString に変更しました！
+	/** スポーンする敵の名前 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Overrides|Base Stats")
+	FString SpawnerNPCName = TEXT("Goblin");
+
+	//ステータス補正値（ここで設定した数値がプラス・マイナスされます）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Overrides|Stat Bonus")
+	FStatBonus SpawnerStatBonus;
 
 	// --- AI / パトロール設定の上書き ---
 
@@ -55,8 +98,27 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Overrides|AI")
 	float SpawnerPatrolRadius = 1000.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Overrides|AI")
-	float SpawnerPerceptionRadius = 1500.0f;
+	// --- 追加：AIの知覚（目と耳）設定 ---
+
+	/** 敵を見つける距離（元の SpawnerPerceptionRadius） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Overrides|AI Sensors")
+	float SpawnerSightRadius = 1500.0f;
+
+	/** 敵を見失う距離 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Overrides|AI Sensors")
+	float SpawnerLoseSightRadius = 2000.0f;
+
+	/** 視野角（90で前方180度） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Overrides|AI Sensors")
+	float SpawnerVisionAngle = 90.0f;
+
+	/** 聴覚を有効にするか */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Overrides|AI Sensors")
+	bool bSpawnerEnableHearing = true;
+
+	/** 聴覚の範囲 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Overrides|AI Sensors")
+	float SpawnerHearingRange = 3000.0f;
 
 protected:
 	// --- 内部処理 ---

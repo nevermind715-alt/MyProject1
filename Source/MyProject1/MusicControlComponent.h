@@ -14,11 +14,19 @@ class MYPROJECT1_API UMusicControlComponent : public UActorComponent
 public:
 	UMusicControlComponent();
 
+	
+	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
+
 	UFUNCTION(BlueprintCallable, Category = "Music Control")
 	void SetCombatMusicActive(bool bIsCombat);
 
-	// 毎フレームのフェード処理を行うための関数
-	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
+	// 死亡時のBGM
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Music Control")
+	USoundBase* DeathMusic;
+
+	// 死亡BGMを再生する関数
+	UFUNCTION(BlueprintCallable, Category = "Music Control")
+	void PlayDeathMusic();
 
 	// フェードにかかる時間（秒）。BPから自由に変更可能です
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Music Control")
@@ -28,6 +36,12 @@ protected:
 	virtual void BeginPlay() override;
 
 private:
+	// タイマーハンドルと終了時に呼ばれる関数
+	FTimerHandle DeathMusicTimerHandle;
+
+	UFUNCTION()
+	void OnDeathMusicFinished();
+
 	UPROPERTY()
 	UAudioComponent* FieldAudioComp;
 

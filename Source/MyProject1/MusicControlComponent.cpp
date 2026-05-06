@@ -138,3 +138,50 @@ void UMusicControlComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 		BattleAudioComp->SetPaused(true);
 	}
 }
+
+void UMusicControlComponent::PlayDeathMusic()
+{
+	// 1. 現在の戦闘曲とフィールド曲の両方をフェードアウト状態（無音ターゲット）にする
+	TargetBattleVolume = SilentVolume;
+	TargetFieldVolume = SilentVolume;
+	bIsCombatMusicPlaying = false; // 状態をリセット
+
+	if (DeathMusic)
+	{
+		// 2. 死亡BGMをフェードイン再生（FadeDurationを使って滑らかに導入）
+		UAudioComponent* DeathAudio = UGameplayStatics::SpawnSound2D(this, DeathMusic);
+		if (DeathAudio)
+		{
+			DeathAudio->FadeIn(FadeDuration, 1.0f);
+
+			// 3. 曲の長さを取得して、鳴り終わるタイミングでフィールド曲に戻すタイマーをセット
+			float MusicDuration = DeathMusic->GetDuration();
+			GetWorld()->GetTimerManager().SetTimer(DeathMusicTimerHandle, this, &UMusicControlComponent::OnDeathMusicFinished, MusicDuration, false);
+		}
+	}
+	else
+	{
+		// 死亡BGMがセットされていない場合はすぐにフィールド曲へ戻す
+		OnDeathMusicFinished();
+	}
+}
+
+void UMusicControlComponent::OnDeathMusicFinished()
+{
+	// SetCombatMusicActive(false) を使うと「すでにfalse」と判定されてスキップされてしまうため、
+	// ここで直接フィールド曲をフェードインさせるように設定を上書きします。
+
+	bIsCombatMusicPlaying = false;
+
+	// フィールド曲の目標音量を MAX (1.0) に戻す
+	TargetFieldVolume = 1.0f;
+
+	// 戦闘曲は確実に無音にする
+	TargetBattleVolume = SilentVolume;
+
+	// フィールド曲が一時停止(Pause)されていたら、再生を再開する
+	if (FieldAudioComp)
+	{
+		FieldAudioComp->SetPaused(false);
+	}
+}

@@ -8,6 +8,7 @@
 // UIに通知するためのデリゲート（セリフデータと、喋っているNPCの情報を送る）
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnDialogUpdated, const FDialogData&, DialogData, AActor*, NPC);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnDialogClosed);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnHideChoices);
 
 UCLASS(ClassGroup = (Custom), meta = (BlueprintSpawnableComponent))
 class MYPROJECT1_API UDialogComponent : public UActorComponent
@@ -43,6 +44,9 @@ public:
 
 	UPROPERTY(BlueprintAssignable, Category = "Dialog")
 	FOnDialogClosed OnDialogClosed;
+
+	UPROPERTY(BlueprintAssignable, Category = "Dialog")
+	FOnHideChoices OnHideChoices;
 
 private:
 	// 現在使用中のデータテーブルとNPC

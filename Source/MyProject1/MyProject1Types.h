@@ -480,6 +480,10 @@ struct FDialogData : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Animation")
 	class UAnimMontage* DialogEmote = nullptr;
 
+	// このセリフを読み終わった時に会話を明示的に終了するフラグ
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog")
+	bool bEndDialog = false;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog")
 	FName NextDialogID;
 

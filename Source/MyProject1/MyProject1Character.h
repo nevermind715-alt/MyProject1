@@ -440,6 +440,12 @@ protected:
 	bool bIsDead = false;
 
 public:
+
+	// --- 疑似飛行（ホバー）設定 ---
+	/** 空中を飛ぶ敵などの場合、地上からどれくらいメッシュを浮かすか (0なら通常) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Hover")
+	float HoverHeight = 0.0f;
+
 	// --- パトロール設定 (Combatカテゴリ) ---
 
 /** パトロールをするかどうか（Falseなら定点監視） */

@@ -7,6 +7,9 @@
 #include "Perception/AISenseConfig_Sight.h"
 #include "Perception/AISenseConfig_Hearing.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "GameFramework/CharacterMovementComponent.h"
+#include "Perception/AISense_Sight.h"
+#include "Perception/AISense_Hearing.h"
 
 // コンストラクタ
 AMyAIController::AMyAIController()
@@ -48,37 +51,9 @@ void AMyAIController::OnPossess(APawn* InPawn)
     Super::OnPossess(InPawn);
 
     AMyProject1Character* MyChar = Cast<AMyProject1Character>(InPawn);
+    if (!MyChar) return;
 
-    // 1. キャラクター側の設定値をAIの「目」に反映する
-    if (MyChar && SightConfig)
-    {
-        SightConfig->SightRadius = MyChar->AISightRadius;
-        SightConfig->LoseSightRadius = MyChar->AILoseSightRadius;
-        SightConfig->PeripheralVisionAngleDegrees = MyChar->AIVisionAngle;
-
-        // 設定を更新
-        PerceptionComp->ConfigureSense(*SightConfig);
-    }
-
-    // 2. キャラクター側の設定値をAIの「耳」に反映する
-    if (MyChar && HearingConfig)
-    {
-        if (MyChar->bAIEnableHearing)
-        {
-            // 有効なら設定された範囲を適用
-            HearingConfig->HearingRange = MyChar->AIHearingRange;
-        }
-        else
-        {
-            // 無効なら範囲を0にして聞こえなくする
-            HearingConfig->HearingRange = 0.0f;
-        }
-
-        // 聴覚設定を更新して反映
-        PerceptionComp->ConfigureSense(*HearingConfig);
-    }
-
-    // 2. ビヘイビアツリーを実行 & 初期設定
+    // 1. ビヘイビアツリーを実行 & 初期設定
     if (BehaviorTreeAsset)
     {
         RunBehaviorTree(BehaviorTreeAsset);
@@ -99,6 +74,46 @@ void AMyAIController::OnPossess(APawn* InPawn)
             }
         }
     }
+
+    //スポーン直後の0.1秒だけ待ってから視界を更新する！
+    FTimerHandle TimerHandle;
+    GetWorldTimerManager().SetTimer(TimerHandle, this, &AMyAIController::ApplyPerceptionSettings, 0.1f, false);
+   
+}
+
+
+//視界・聴覚の設定を実際に上書きする処理
+void AMyAIController::ApplyPerceptionSettings()
+{
+    AMyProject1Character* MyChar = Cast<AMyProject1Character>(GetPawn());
+    if (!MyChar) return;
+
+    // 1. AIの脳内から「現在アクティブな視覚設定」を取り出して上書きする
+    FAISenseID SightID = UAISense::GetSenseID<UAISense_Sight>();
+    UAISenseConfig_Sight* ActiveSight = Cast<UAISenseConfig_Sight>(PerceptionComp->GetSenseConfig(SightID));
+
+    if (ActiveSight)
+    {
+        ActiveSight->SightRadius = MyChar->AISightRadius;
+        ActiveSight->LoseSightRadius = MyChar->AILoseSightRadius;
+        ActiveSight->PeripheralVisionAngleDegrees = MyChar->AIVisionAngle;
+
+        PerceptionComp->ConfigureSense(*ActiveSight);
+    }
+
+    // 2. 「現在アクティブな聴覚設定」を取り出して上書きする
+    FAISenseID HearingID = UAISense::GetSenseID<UAISense_Hearing>();
+    UAISenseConfig_Hearing* ActiveHearing = Cast<UAISenseConfig_Hearing>(PerceptionComp->GetSenseConfig(HearingID));
+
+    if (ActiveHearing)
+    {
+        ActiveHearing->HearingRange = MyChar->bAIEnableHearing ? MyChar->AIHearingRange : 0.0f;
+
+        PerceptionComp->ConfigureSense(*ActiveHearing);
+    }
+
+    // 3. コンポーネント自身に「設定が変わったから今すぐ反映して！」と命令する
+    PerceptionComp->RequestStimuliListenerUpdate();
 }
 
 // ターゲットを発見・見失った時の処理

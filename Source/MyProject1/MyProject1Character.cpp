@@ -12,12 +12,12 @@
 #include "InputActionValue.h"
 #include "InputAction.h"
 #include "MyProject1.h"
-#include "RpgDamageCalculator.h" // ★これを必ず追加！
+#include "RpgDamageCalculator.h" 
 #include "Engine/LocalPlayer.h"
 #include "PhysicalMaterials/PhysicalMaterial.h"
-#include "Kismet/GameplayStatics.h" // これを追加
-#include "GameFramework/Pawn.h"     // これも念のため
-#include "GameFramework/CharacterMovementComponent.h" // ←これを追加
+#include "Kismet/GameplayStatics.h" 
+#include "GameFramework/Pawn.h"     
+#include "GameFramework/CharacterMovementComponent.h" 
 #include "Kismet/KismetSystemLibrary.h"
 #include "AIController.h"
 #include "NavigationSystem.h"
@@ -99,6 +99,17 @@ AMyProject1Character::AMyProject1Character()
 void AMyProject1Character::BeginPlay()
 {
 	Super::BeginPlay();
+
+	// --- 疑似飛行の処理：設定した高さだけメッシュを上に持ち上げる ---
+	if (HoverHeight > 0.0f)
+	{
+		if (USkeletalMeshComponent* CharacterMesh = GetMesh())
+		{
+			FVector CurrentLocation = CharacterMesh->GetRelativeLocation();
+			CurrentLocation.Z += HoverHeight;
+			CharacterMesh->SetRelativeLocation(CurrentLocation);
+		}
+	}
 
 	if (APlayerController* PlayerController = Cast<APlayerController>(Controller))
 	{
@@ -525,7 +536,7 @@ void AMyProject1Character::Tick(float DeltaTime)
 		bIsAutoAttacking = false;
 
 		// ターゲットが外れた（＝納刀状態）ならフィールド曲に戻す
-		if (IsPlayerControlled() && MusicComp)
+		if (IsPlayerControlled() && MusicComp && !IsDead())
 		{
 			MusicComp->SetCombatMusicActive(false);
 		}
@@ -794,6 +805,30 @@ void AMyProject1Character::OnDeath()
 	bIsAutoAttacking = false;
 	bIsPreparingAttack = false;
 
+	// 1秒かけてメッシュを地面の高さに滑らかに落とす！
+	if (HoverHeight > 0.0f)
+	{
+		FVector TargetLoc = GetMesh()->GetRelativeLocation();
+		TargetLoc.Z -= HoverHeight; // 浮かせていた分を引いた「本来の地面の高さ」
+
+		// 実行用のダミー情報（今回は終わった後の通知は不要なのでこれでOK）
+		FLatentActionInfo LatentInfo;
+		LatentInfo.CallbackTarget = this;
+
+		// メッシュを TargetLoc の位置まで、1.0f 秒かけて移動させる
+		UKismetSystemLibrary::MoveComponentTo(
+			GetMesh(),
+			TargetLoc,
+			GetMesh()->GetRelativeRotation(),
+			false, // イーズアウト（ゆっくり止まるか）
+			false, // イーズイン（ゆっくり動き出すか）
+			1.0f,  // ★ここで「1秒かけて落とす」を直接指定しています！
+			false,
+			EMoveComponentAction::Move,
+			LatentInfo
+		);
+	}
+
 	// 2. 物理挙動とコリジョン停止（BPエラー防止のため真っ先に止める）
 	GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	GetCharacterMovement()->StopMovementImmediately();
@@ -802,6 +837,11 @@ void AMyProject1Character::OnDeath()
 	// 3. ラグドール化と削除予約
 	GetMesh()->SetCollisionProfileName(TEXT("Ragdoll"));
 	GetMesh()->SetSimulatePhysics(true);
+
+	if (IsPlayerControlled() && MusicComp)
+	{
+		MusicComp->PlayDeathMusic();
+	}
 
 	if (bDestroyOnDeath)
 	{
@@ -1582,6 +1622,9 @@ void AMyProject1Character::PlayFootstepSound()
 					1.0f,   // ピッチ
 					0.0f,   // 開始時間
 					FootstepAttenuation);
+
+				MakeNoise(1.0f, this, HitResult.Location);
+
 			}
 		}
 	}

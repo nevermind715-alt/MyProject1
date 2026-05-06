@@ -72,6 +72,7 @@ void UDialogComponent::SelectChoice(int32 ChoiceIndex)
 {
 	if (!CurrentDialogData.Choices.IsValidIndex(ChoiceIndex)) return;
 
+	
 	const FDialogChoice& SelectedChoice = CurrentDialogData.Choices[ChoiceIndex];
 
 	// アクションを実行
@@ -80,6 +81,8 @@ void UDialogComponent::SelectChoice(int32 ChoiceIndex)
 	// 次の会話IDがあれば移動、なければ終了（またはCloseアクションに任せる）
 	FString NextIDStr = SelectedChoice.NextDialogID.ToString().TrimStartAndEnd();
 	bool bHasNext = !SelectedChoice.NextDialogID.IsNone() && !NextIDStr.IsEmpty() && NextIDStr.ToLower() != TEXT("none");
+
+	OnHideChoices.Broadcast();
 
 	if (bHasNext)
 	{
@@ -229,14 +232,14 @@ void UDialogComponent::CloseDialog()
 
 void UDialogComponent::AdvanceDialog()
 {
-	// 次の会話IDが設定されていればそこへ進み、設定されていなければ会話を終了する
-	if (!CurrentDialogData.NextDialogID.IsNone())
+	// bEndDialogがTrueになっている、または次の会話IDが設定されていなければ会話を終了する
+	if (CurrentDialogData.bEndDialog || CurrentDialogData.NextDialogID.IsNone())
 	{
-		StartDialog(CurrentDialogData.NextDialogID, CurrentTable, CurrentNPC);
+		CloseDialog();
 	}
 	else
 	{
-		CloseDialog();
+		StartDialog(CurrentDialogData.NextDialogID, CurrentTable, CurrentNPC);
 	}
 }
 

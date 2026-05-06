@@ -34,13 +34,10 @@ bool UInventoryComponent::AddItem(FName ItemID, int32 Amount)
 	FItemData* ItemInfo = GetItemData(ItemID);
 	if (!ItemInfo)
 	{
-		// データテーブルに存在しない謎のアイテム
-		// ここでログを出すだけで false を返せば、BP側で「無視」扱いになります
 		UE_LOG(LogTemp, Warning, TEXT("Item ID [%s] not found in DataTable. Ignoring."), *ItemID.ToString());
 		return false;
 	}
 
-	// 残りの追加したい数
 	int32 RemainingAmount = Amount;
 
 	// 1. 既に持っているスロットを探して、スタック（重ねる）できるか試す
@@ -48,30 +45,15 @@ bool UInventoryComponent::AddItem(FName ItemID, int32 Amount)
 	{
 		if (Slot.ItemID == ItemID)
 		{
-			// まだスタックできる余裕があるか？
 			int32 SpaceInSlot = ItemInfo->MaxStack - Slot.Quantity;
-
 			if (SpaceInSlot > 0)
 			{
-				// 重ねられるだけ重ねる
 				int32 AddCount = FMath::Min(RemainingAmount, SpaceInSlot);
-
 				Slot.Quantity += AddCount;
 				RemainingAmount -= AddCount;
 
-				if (RemainingAmount <= 0)
-				{
-					// ★ 追加：既存枠に綺麗に重なった場合もクエストに通知する
-					AMyProject1Character* OwnerChar = Cast<AMyProject1Character>(GetOwner());
-					if (OwnerChar && OwnerChar->QuestComp)
-					{
-						OwnerChar->QuestComp->UpdateGatherObjective(ItemID, AddCount);
-					}
-
-					// 全部入ったので終了
-					OnInventoryUpdated.Broadcast();
-					return true;
-				}
+				// 全部入ったらループを抜ける
+				if (RemainingAmount <= 0) break;
 			}
 		}
 	}
@@ -79,20 +61,14 @@ bool UInventoryComponent::AddItem(FName ItemID, int32 Amount)
 	// 2. まだ残っている場合、新しいスロット（空き枠）を使う
 	while (RemainingAmount > 0)
 	{
-		// カバンがいっぱいかチェック
 		if (InventoryContent.Num() >= MaxSlots)
 		{
-			// UI更新（入った分だけ反映）
-			OnInventoryUpdated.Broadcast();
-			// 「カバンがいっぱいでこれ以上持てない」状態
-			return false;
+			break; // カバンがいっぱいでこれ以上入らない
 		}
 
-		// 新しいスロットを作る
 		FInventorySlot NewSlot;
 		NewSlot.ItemID = ItemID;
 
-		// 1スロットに入る最大数まで入れる
 		int32 AddCount = FMath::Min(RemainingAmount, ItemInfo->MaxStack);
 		NewSlot.Quantity = AddCount;
 
@@ -100,21 +76,40 @@ bool UInventoryComponent::AddItem(FName ItemID, int32 Amount)
 		RemainingAmount -= AddCount;
 	}
 
-	// ★ ここを追加：カバンに入ったアイテムをクエスト側に通知する
-	AMyProject1Character* OwnerChar = Cast<AMyProject1Character>(GetOwner());
-	if (OwnerChar && OwnerChar->QuestComp)
+	// 実際にカバンに入った数を計算
+	int32 ActuallyAdded = Amount - RemainingAmount;
+
+	// 1個でもカバンに入った場合の処理
+	if (ActuallyAdded > 0)
 	{
-		// Amount から、カバンがいっぱいで入りきらなかった分(RemainingAmount)を引いた「実質的な取得数」を渡す
-		int32 ActuallyAdded = Amount - RemainingAmount;
-		if (ActuallyAdded > 0)
+		AMyProject1Character* OwnerChar = Cast<AMyProject1Character>(GetOwner());
+		if (OwnerChar)
 		{
-			OwnerChar->QuestComp->UpdateGatherObjective(ItemID, ActuallyAdded);
+			// クエストに通知
+			if (OwnerChar->QuestComp)
+			{
+				OwnerChar->QuestComp->UpdateGatherObjective(ItemID, ActuallyAdded);
+			}
+
+			// ★ FF11風のアイテム取得ログを表示
+			FString LogMsg;
+			if (ActuallyAdded == 1)
+			{
+				LogMsg = FString::Printf(TEXT("%sを手に入れた。"), *ItemInfo->Name);
+			}
+			else
+			{
+				LogMsg = FString::Printf(TEXT("%sを%d個手に入れた。"), *ItemInfo->Name, ActuallyAdded);
+			}
+			OwnerChar->OnReceiveLogMessage(LogMsg, ELogMessageType::System);
 		}
+
+		// UI更新
+		OnInventoryUpdated.Broadcast();
 	}
 
-	// ここまで来たら完全に収納成功
-	OnInventoryUpdated.Broadcast();
-	return true;
+	// 全部入りきったか（true）、カバンがいっぱいで一部/全部弾かれたか（false）を返す
+	return RemainingAmount <= 0;
 }
 
 bool UInventoryComponent::RemoveItem(FName ItemID, int32 Amount)

@@ -17,10 +17,6 @@ ANPCSpawner::ANPCSpawner()
 	ArrowComponent = CreateDefaultSubobject<UArrowComponent>(TEXT("Arrow"));
 	ArrowComponent->SetupAttachment(RootComponent);
 #endif
-
-	// デフォルトの設定
-	SpawnerStats.Level = 1;
-	SpawnerStats.NPCName = TEXT("Goblin");
 }
 
 void ANPCSpawner::BeginPlay()
@@ -65,38 +61,58 @@ void ANPCSpawner::SpawnEnemy()
 	{
 		// 3. AIが憑依する前、かつ BeginPlay の「前」に設定を上書きする
 		SpawnedEnemy->JobRow = this->SpawnerJobRow;      // ジョブ
-		SpawnedEnemy->MyStats = this->SpawnerStats;      // レベル・名前など
 
-		// AI設定の上書き
+		//丸ごとコピーをやめて、レベルと名前だけ渡す
+		SpawnedEnemy->MyStats.Level = this->SpawnerLevel;
+		SpawnedEnemy->MyStats.NPCName = this->SpawnerNPCName;
+
+		// AI設定と知覚設定の上書き
 		if (bOverridePatrolSettings)
 		{
 			SpawnedEnemy->PatrolRadius = this->SpawnerPatrolRadius;
-			SpawnedEnemy->AISightRadius = this->SpawnerPerceptionRadius;
 			SpawnedEnemy->bCanPatrol = this->bSpawnerCanPatrol;
+
+			//AIの視覚と聴覚をすべてスポーナー側の値で上書きする！
+			SpawnedEnemy->AISightRadius = this->SpawnerSightRadius;
+			SpawnedEnemy->AILoseSightRadius = this->SpawnerLoseSightRadius;
+			SpawnedEnemy->AIVisionAngle = this->SpawnerVisionAngle;
+			SpawnedEnemy->bAIEnableHearing = this->bSpawnerEnableHearing;
+			SpawnedEnemy->AIHearingRange = this->SpawnerHearingRange;
 		}
 
 		// 敵が死んだ時の通知を受け取る設定
 		SpawnedEnemy->OnDeathDelegate.AddDynamic(this, &ANPCSpawner::OnEnemyDeath);
 
 		// ---------------------------------------------------------
-		// 4. ★保留していたスポーン処理をここで完了させる！
+		// 4.保留していたスポーン処理をここで完了させる！
 		// ！！！この FinishSpawning の中で敵の BeginPlay が実行され、
 		//     ブループリント側で HP_Bar などのUIが作成・準備されます ！！！
 		// ---------------------------------------------------------
 		SpawnedEnemy->FinishSpawning(SpawnTransform);
 
 		// ---------------------------------------------------------
-		// 5. ★順番を後ろに変更：UIの準備が完了した「後」にステータスを計算する
+		// 5.UIの準備が完了した「後」にステータスを計算する
 		// ---------------------------------------------------------
 		SpawnedEnemy->ApplyJobData();
 
-		// HPを全快にしておく
-		SpawnedEnemy->MyStats.HP = SpawnedEnemy->MyStats.MaxHP;
+		// =========================================================
+		// 6.データテーブルの自動計算が終わった直後に、ボーナス値を足し算する！
+		// =========================================================
+		SpawnedEnemy->MyStats.MaxHP += SpawnerStatBonus.MaxHP;
+		SpawnedEnemy->MyStats.AttackPower += SpawnerStatBonus.AttackPower;
+		SpawnedEnemy->MyStats.DefensePower += SpawnerStatBonus.DefensePower;
+		SpawnedEnemy->MyStats.STR += SpawnerStatBonus.STR;
+		SpawnedEnemy->MyStats.VIT += SpawnerStatBonus.VIT;
+		SpawnedEnemy->MyStats.DEX += SpawnerStatBonus.DEX;
+		SpawnedEnemy->MyStats.AGI += SpawnerStatBonus.AGI;
+		SpawnedEnemy->MyStats.Accuracy += SpawnerStatBonus.Accuracy;
+		SpawnedEnemy->MyStats.Evasion += SpawnerStatBonus.Evasion;
 
-		// ※ブループリント側で「HPが変化した時にUIを更新する処理」があれば、
-		// UIが準備済みのこのタイミングならエラーなく安全に動作します。
+		// ボーナス（MaxHPなど）を加味した上で、現在のHPを満タンにしておく
+		SpawnedEnemy->MyStats.HP = SpawnedEnemy->MyStats.MaxHP;
 	}
-}
+} 
+
 void ANPCSpawner::OnEnemyDeath(AActor* DeadActor)
 {
 	// 念のため、死んだのが管理している敵かチェック

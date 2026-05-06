@@ -47,8 +47,12 @@ protected:
 
 public:
    
-    // ★追加：毎フレーム実行する関数（生存確認用）
+    //毎フレーム実行する関数（生存確認用）
     virtual void Tick(float DeltaTime) override;
+
+    //遅延させて視界設定を適用するための関数
+    UFUNCTION()
+    void ApplyPerceptionSettings();
 
     // ... (OnPossess など他の関数) ...
 };
