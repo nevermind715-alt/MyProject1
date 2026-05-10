@@ -829,14 +829,22 @@ void AMyProject1Character::OnDeath()
 		);
 	}
 
+	else // --- 【ここから追加】地上にいるキャラ（VRMなど）の浮きを補正する ---
+	{
+		FVector CurrentLoc = GetMesh()->GetRelativeLocation();
+		// ★浮き具合に合わせて数値を調整してください（-15.0fなど）
+		CurrentLoc.Z -= 5.0f;
+		GetMesh()->SetRelativeLocation(CurrentLoc);
+	}
+
 	// 2. 物理挙動とコリジョン停止（BPエラー防止のため真っ先に止める）
 	GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	GetCharacterMovement()->StopMovementImmediately();
 	GetCharacterMovement()->DisableMovement();
 
 	// 3. ラグドール化と削除予約
-	GetMesh()->SetCollisionProfileName(TEXT("Ragdoll"));
-	GetMesh()->SetSimulatePhysics(true);
+	//GetMesh()->SetCollisionProfileName(TEXT("Ragdoll"));
+	//GetMesh()->SetSimulatePhysics(true);
 
 	if (IsPlayerControlled() && MusicComp)
 	{
@@ -1233,6 +1241,12 @@ void AMyProject1Character::ApplyJobData()
 		{
 			AttackMontage = JobData->AttackMontages[0];
 		}
+
+		if (!JobData->CharacterMesh.IsNull())
+		{
+			GetMesh()->SetSkeletalMesh(JobData->CharacterMesh.LoadSynchronous());
+		}
+
 		if (WeaponMeshComp)
 		{
 			if (!JobData->WeaponMesh.IsNull())
@@ -1244,7 +1258,7 @@ void AMyProject1Character::ApplyJobData()
 				WeaponMeshComp->SetRelativeScale3D(JobData->WeaponScale);
 
 				// 強制的に手のソケットにアタッチ
-				WeaponMeshComp->AttachToComponent(GetMesh(), FAttachmentTransformRules::SnapToTargetNotIncludingScale, FName("hand_r_socket"));
+				WeaponMeshComp->AttachToComponent(GetMesh(), FAttachmentTransformRules::SnapToTargetNotIncludingScale, JobData->WeaponSocketName);
 			}
 			else
 			{
@@ -1268,11 +1282,11 @@ void AMyProject1Character::ApplyJobData()
 				StaticWeaponMeshComp->AttachToComponent(
 					GetMesh(),
 					FAttachmentTransformRules::SnapToTargetNotIncludingScale,
-					FName("hand_r_socket")
+					JobData->WeaponSocketName
 				);
 
 				// ★ここからデバッグコードを追加：本当にソケットはあるか？★
-				if (!GetMesh()->DoesSocketExist(FName("hand_r_socket")))
+				if (!GetMesh()->DoesSocketExist(JobData->WeaponSocketName))
 				{
 					// 画面の左上に赤いエラー文字を出す
 					if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 10.0f, FColor::Red, TEXT("エラー：hand_r_socketが見つかりません！"));
@@ -1296,6 +1310,9 @@ void AMyProject1Character::ApplyJobData()
 				AnimInst->OnMontageEnded.AddDynamic(this, &AMyProject1Character::OnMontageEnded);
 			}
 		}
+
+		// つま先の補正角度をキャラクターにセット
+		CurrentToeOffset = JobData->ToeRotationOffset;
 
 		// --- ★ B. 再計算前の状態を記録しておく（ここを追加！） ---
 		// 現在のHPが最大値以上（＝満タン）かどうかを記憶

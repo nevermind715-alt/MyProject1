@@ -160,6 +160,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Combat|Stats")
 	void NotifyStatsChanged();
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|MeshOffset")
+	FRotator CurrentToeOffset = FRotator::ZeroRotator;
+
 	// --- フラグ管理 ---
 	/** フラグ（条件）を獲得する */
 	UFUNCTION(BlueprintCallable, Category = "RPG Combat|Flags")
@@ -240,6 +243,9 @@ public:
 	/** 操作をロックするかどうかのフラグ */
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Input")
 	bool bIsInputLocked = false;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Cinematic")
+	bool bIsInCutscene = false;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input")
 	UInputAction* ToggleMenuAction;
@@ -436,7 +442,8 @@ protected:
 	// 死亡処理
 	virtual void OnDeath();
 
-	// 死亡フラグ
+	// 死亡フラグ（AnimBPから読めるように UPROPERTY を追加！）
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
 	bool bIsDead = false;
 
 public:

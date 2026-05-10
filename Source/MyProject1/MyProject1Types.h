@@ -139,6 +139,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "JobData")
 	TSubclassOf<class UAnimInstance> AnimBlueprintClass;
 
+	// そのジョブ（敵）の本体メッシュ
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "JobData")
+	TSoftObjectPtr<USkeletalMesh> CharacterMesh;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "JobData")
 	TSoftObjectPtr<USoundBase> AttackSound;
 
@@ -149,6 +153,12 @@ public:
 	// 武器の大きさ（デフォルトは 1.0, 1.0, 1.0）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "JobData")
 	FVector WeaponScale = FVector(1.0f, 1.0f, 1.0f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "JobData")
+	FName WeaponSocketName = FName("hand_r_socket");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "JobData|MeshOffset")
+	FRotator ToeRotationOffset = FRotator::ZeroRotator;
 
 	// そのジョブが装備する武器のメッシュ (Static用：バットや剣などはこちらを使うことが多いです)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "JobData")

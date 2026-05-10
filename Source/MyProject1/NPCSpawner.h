@@ -73,6 +73,22 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Overrides")
 	FDataTableRowHandle SpawnerJobRow;
 
+	// --- 追加：NM（レア敵）抽選ポップ設定 ---
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Overrides|NM")
+	bool bEnableRareSpawn = false;
+
+	/** NMが湧く確率（%） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Overrides|NM")
+	float RareSpawnChance = 5.0f;
+
+	/** NM湧きに当選した時に使うジョブデータ（データテーブルの行） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Overrides|NM", meta = (EditCondition = "bEnableRareSpawn"))
+	FDataTableRowHandle RareJobRow;
+
+	/** NMの名前 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Overrides|NM", meta = (EditCondition = "bEnableRareSpawn"))
+	FString RareNPCName = TEXT("Leaping Lizzy"); // FF11風に
+
 	/** スポーンする敵のレベル */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Overrides|Base Stats")
 	int32 SpawnerLevel = 1;

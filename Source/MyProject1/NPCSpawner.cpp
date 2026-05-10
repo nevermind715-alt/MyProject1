@@ -60,11 +60,25 @@ void ANPCSpawner::SpawnEnemy()
 	if (SpawnedEnemy)
 	{
 		// 3. AIが憑依する前、かつ BeginPlay の「前」に設定を上書きする
-		SpawnedEnemy->JobRow = this->SpawnerJobRow;      // ジョブ
 
-		//丸ごとコピーをやめて、レベルと名前だけ渡す
-		SpawnedEnemy->MyStats.Level = this->SpawnerLevel;
-		SpawnedEnemy->MyStats.NPCName = this->SpawnerNPCName;
+		// --- NM抽選処理 ---
+		FDataTableRowHandle FinalJobRow = this->SpawnerJobRow;
+		FString FinalNPCName = this->SpawnerNPCName;
+
+		if (bEnableRareSpawn)
+		{
+			// 0.0 ～ 100.0 の間でランダムな数値を出し、確率以下ならNM当選！
+			if (FMath::RandRange(0.0f, 100.0f) <= RareSpawnChance)
+			{
+				FinalJobRow = this->RareJobRow;
+				FinalNPCName = this->RareNPCName;
+				// ※必要ならここでレベルやサイズを大きくする処理を入れてもOK
+			}
+		}
+
+		SpawnedEnemy->JobRow = FinalJobRow;           // 抽選結果のジョブをセット
+		SpawnedEnemy->MyStats.NPCName = FinalNPCName; // 抽選結果の名前をセット
+		SpawnedEnemy->MyStats.Level = this->SpawnerLevel; // レベルはそのまま渡す
 
 		// AI設定と知覚設定の上書き
 		if (bOverridePatrolSettings)
