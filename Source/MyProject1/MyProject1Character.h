@@ -139,6 +139,33 @@ protected:
 
 	void ExpireItemBuff(FString ItemName, TArray<FItemEffect> Effects);
 
+	// --- まばたき・目閉じ（モーフターゲット）制御 ---
+
+	/** 目を閉じるモーフターゲットの名前（VRMの場合は "Blink" や "Fcl_EYE_Close" など） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Animation")
+	FName BlinkMorphName = TEXT("Blink");
+
+	/** まばたきする間隔の最小値（秒） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Animation")
+	float BlinkIntervalMin = 2.0f;
+
+	/** まばたきする間隔の最大値（秒） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Animation")
+	float BlinkIntervalMax = 6.0f;
+
+	/** まばたきの開閉スピード */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Animation")
+	float BlinkSpeed = 15.0f;
+
+	// 内部処理用の変数
+	float CurrentBlinkValue = 0.0f;
+	float TimeUntilNextBlink = 0.0f;
+	bool bIsBlinking = false;
+	bool bIsClosingEyes = false;
+
+	/** 毎フレーム呼び出されてまばたきを計算する関数 */
+	void UpdateBlink(float DeltaTime);
+
 	
 	
 

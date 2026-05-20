@@ -23,27 +23,42 @@ void UDialogComponent::StartDialog(FName RowName, UDataTable* DialogTable, AActo
 	if (Data)
 	{
 		CurrentDialogData = *Data;
-		// UIに「更新したよ！」と合図を送る
-		OnDialogUpdated.Broadcast(CurrentDialogData, CurrentNPC);
+
+		// --- 【追加】テキストの分割処理 ---
+		FString RawText = CurrentDialogData.DialogText.ToString();
+		CurrentDialogLines.Empty();
+
+		// Windows等の改行コード(\r\n)のズレを防ぐため、\r を消去してから \n で分割する
+		RawText = RawText.Replace(TEXT("\r"), TEXT(""));
+
+		// \n（改行）でテキストを分割。true にすることで、連続した空行を無視します。
+		RawText.ParseIntoArray(CurrentDialogLines, TEXT("\n"), true);
+
+		// 万が一テキストが空だった場合の安全対策
+		if (CurrentDialogLines.Num() == 0)
+		{
+			CurrentDialogLines.Add(TEXT(""));
+		}
+
+		// 最初は0行目からスタート
+		CurrentLineIndex = 0;
+		// ------------------------------------
 
 		// --- 効果音(SE)が設定されていれば鳴らす ---
 		if (CurrentDialogData.DialogSE)
 		{
-			// 距離に関係なくハッキリ聞こえるように2Dサウンドで再生
 			UGameplayStatics::PlaySound2D(GetWorld(), CurrentDialogData.DialogSE);
 		}
 
 		// ボイスが設定されていれば鳴らす
 		if (CurrentDialogData.DialogVoice)
 		{
-			// 距離に関係なくハッキリ聞こえるように2Dサウンドで再生
 			UGameplayStatics::PlaySound2D(GetWorld(), CurrentDialogData.DialogVoice);
 		}
 
 		// エモートが設定されていれば、NPCに再生させる
 		if (CurrentDialogData.DialogEmote && CurrentNPC)
 		{
-			// 渡されたNPCアクターを「Character」として扱い、モンタージュを再生する
 			ACharacter* NPCCharacter = Cast<ACharacter>(CurrentNPC);
 			if (NPCCharacter)
 			{
@@ -51,20 +66,8 @@ void UDialogComponent::StartDialog(FName RowName, UDataTable* DialogTable, AActo
 			}
 		}
 
-		// 選択肢が0個、かつ「次の会話」も設定されていない場合のみ終了 ---
-		/*
-		/
-		if (CurrentDialogData.Choices.Num() == 0 && CurrentDialogData.NextDialogID.IsNone())
-		{
-			CloseDialog();
-		}
-
-		// 選択肢が0個の場合は、返事を待たずに即座に会話を終了する（ロックを解除する）
-		if (CurrentDialogData.Choices.Num() == 0)
-		{
-			CloseDialog();
-		}*/
-
+		// --- 【追加】最初の1行目をUIに表示する ---
+		ShowCurrentLine();
 	}
 }
 
@@ -232,6 +235,15 @@ void UDialogComponent::CloseDialog()
 
 void UDialogComponent::AdvanceDialog()
 {
+	// --- まだ同じRowの中に次の改行テキストが残っている場合 ---
+	if (CurrentLineIndex < CurrentDialogLines.Num() - 1)
+	{
+		CurrentLineIndex++;
+		ShowCurrentLine(); // 次の行を表示
+		return;            // ★ここで処理を終わらせて、次のRowへ行くのを防ぐ
+	}
+
+	// --- 全ての行を読み終わっている場合の処理（既存のまま） ---
 	// bEndDialogがTrueになっている、または次の会話IDが設定されていなければ会話を終了する
 	if (CurrentDialogData.bEndDialog || CurrentDialogData.NextDialogID.IsNone())
 	{
@@ -264,4 +276,31 @@ bool UDialogComponent::CanSelectChoice(const FDialogChoice& Choice) const
 	}
 
 	return true; // 全ての条件をクリア！
+}
+
+// --- 1行分のテキストをUIへ送信する関数 ---
+void UDialogComponent::ShowCurrentLine()
+{
+	if (!CurrentDialogLines.IsValidIndex(CurrentLineIndex)) return;
+
+	// UIへ送る用の一時データを作成（元の CurrentDialogData 自体は書き換えない）
+	FDialogData DisplayData = CurrentDialogData;
+
+	// テキスト部分だけを「現在の行」の文字列に差し替える
+	DisplayData.DialogText = FText::FromString(CurrentDialogLines[CurrentLineIndex]);
+
+	// ★ポイント：最後の行に到達するまでは、選択肢を出さないように配列を空にする
+	// これにより、UI側は「選択肢がない普通のセリフだ」と認識してくれます。
+	if (CurrentLineIndex < CurrentDialogLines.Num() - 1)
+	{
+		DisplayData.Choices.Empty();
+		// まだ改行が残っている場合は、UIが勝手に会話を終わらせないように
+		// ダミーのIDを入れて「次へ進むボタン（クリック）」を有効にさせる
+		DisplayData.NextDialogID = FName(TEXT("DummyNextPage"));
+		DisplayData.bEndDialog = false;
+		// ------------------------
+	}
+
+	// UIに「更新したよ！」と合図を送る
+	OnDialogUpdated.Broadcast(DisplayData, CurrentNPC);
 }

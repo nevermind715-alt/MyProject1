@@ -61,4 +61,16 @@ private:
 
 	// アクションを実行する内部関数
 	void ExecuteAction(const FDialogChoice& Choice);
+
+	// --- 改行分割システム用の変数と関数 ---
+
+	/** 分割されたテキストを保持する配列 */
+	UPROPERTY()
+	TArray<FString> CurrentDialogLines;
+
+	/** 現在何行目を表示しているかのインデックス */
+	int32 CurrentLineIndex = 0;
+
+	/** 現在の行のテキストをUIへ送信する関数 */
+	void ShowCurrentLine();
 };

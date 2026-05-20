@@ -153,6 +153,8 @@ void AMyProject1Character::BeginPlay()
 
 	// 疲労度の計算を「1秒に1回」のペースで自動実行する
 	GetWorldTimerManager().SetTimer(TimerHandle_FatigueUpdate, this, &AMyProject1Character::HandleFatigueTick, 1.0f, true);
+	// --- 最初のまばたきまでの時間をセット ---
+	TimeUntilNextBlink = FMath::RandRange(BlinkIntervalMin, BlinkIntervalMax);
 }
 
 void AMyProject1Character::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -478,8 +480,21 @@ void AMyProject1Character::Tick(float DeltaTime)
 		}
 	}
 
-	// --- 1. 死んでいる場合は何もしない ---
-	if (IsDead()) return;
+	// --- 1. 死んでいる場合は目を閉じて終了、生きている場合はまばたきを更新 ---
+	if (IsDead())
+	{
+		if (GetMesh())
+		{
+			// モーフターゲットの値を 1.0（完全に閉じた状態）に固定
+			GetMesh()->SetMorphTarget(BlinkMorphName, 1.0f);
+		}
+		return;
+	}
+	else
+	{
+		// 通常時の自動まばたき処理
+		UpdateBlink(DeltaTime);
+	}
 
 	// --- 2. 基本となる目標速度（TargetSpeed）を計算する ---
 	float TargetSpeed = LandWalkSpeed; // 基本は陸上の歩行速度
@@ -1907,3 +1922,46 @@ bool AMyProject1Character::TryUseSpecialAttack()
 	return false;
 }
 
+void AMyProject1Character::UpdateBlink(float DeltaTime)
+{
+	if (!GetMesh()) return;
+
+	// まばたきをしていない待機時間
+	if (!bIsBlinking)
+	{
+		TimeUntilNextBlink -= DeltaTime;
+		if (TimeUntilNextBlink <= 0.0f)
+		{
+			bIsBlinking = true;
+			bIsClosingEyes = true; // 目を閉じ始める
+		}
+	}
+	// まばたきのアニメーション中
+	else
+	{
+		if (bIsClosingEyes)
+		{
+			// 目を滑らかに閉じる (0.0 -> 1.0)
+			CurrentBlinkValue = FMath::FInterpConstantTo(CurrentBlinkValue, 1.0f, DeltaTime, BlinkSpeed);
+			if (CurrentBlinkValue >= 1.0f)
+			{
+				bIsClosingEyes = false; // 完全に閉じたら開き始めるフラグに変える
+			}
+		}
+		else
+		{
+			// 目を滑らかに開く (1.0 -> 0.0)
+			CurrentBlinkValue = FMath::FInterpConstantTo(CurrentBlinkValue, 0.0f, DeltaTime, BlinkSpeed);
+			if (CurrentBlinkValue <= 0.0f)
+			{
+				// 完全に開ききったらまばたき終了
+				bIsBlinking = false;
+				// 次のまばたきまでの時間を再設定
+				TimeUntilNextBlink = FMath::RandRange(BlinkIntervalMin, BlinkIntervalMax);
+			}
+		}
+
+		// 計算したモーフターゲットの値をメッシュに適用
+		GetMesh()->SetMorphTarget(BlinkMorphName, CurrentBlinkValue);
+	}
+}
