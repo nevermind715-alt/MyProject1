@@ -187,9 +187,6 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Combat|Stats")
 	void NotifyStatsChanged();
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|MeshOffset")
-	FRotator CurrentToeOffset = FRotator::ZeroRotator;
-
 	// --- フラグ管理 ---
 	/** フラグ（条件）を獲得する */
 	UFUNCTION(BlueprintCallable, Category = "RPG Combat|Flags")

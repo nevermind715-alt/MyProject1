@@ -365,9 +365,16 @@ void AMyProject1Character::TargetNearestEnemy()
 		// 自分自身はターゲットしない
 		if (Actor == this || !Actor) continue;
 
-		// ★追加：死んでる敵は無視する
+		// 死んでる敵は無視する
 		AMyProject1Character* TargetChar = Cast<AMyProject1Character>(Actor);
+
+		// キャストに失敗した（＝透明なPawn等だった）場合はここで確実に弾く！
+		if (!TargetChar) continue;
+
 		if (TargetChar && TargetChar->IsDead()) continue;
+
+		// Actorが「Enemy」タグを持っていなければ無視して次へ！
+		if (!TargetChar->ActorHasTag(FName("Enemy"))) continue;
 
 		// 距離を測る
 		float Dist = GetDistanceTo(Actor);
@@ -415,7 +422,13 @@ void AMyProject1Character::CycleTarget()
 
 		// 死んでる敵は無視する
 		AMyProject1Character* TargetChar = Cast<AMyProject1Character>(Actor);
+
+		if (!TargetChar) continue;
+
 		if (TargetChar && TargetChar->IsDead()) continue;
+
+		// 「Enemy」タグを持っていなければリストに入れない
+		if (!TargetChar->ActorHasTag(FName("Enemy"))) continue;
 
 		if (GetDistanceTo(Actor) <= TargetingRange) // 射程内か？
 		{
@@ -1326,9 +1339,7 @@ void AMyProject1Character::ApplyJobData()
 			}
 		}
 
-		// つま先の補正角度をキャラクターにセット
-		CurrentToeOffset = JobData->ToeRotationOffset;
-
+		
 		// --- ★ B. 再計算前の状態を記録しておく（ここを追加！） ---
 		// 現在のHPが最大値以上（＝満タン）かどうかを記憶
 		bool bWasFullHP = (MyStats.HP >= MyStats.MaxHP);

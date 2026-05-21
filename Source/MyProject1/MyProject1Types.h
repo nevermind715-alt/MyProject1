@@ -157,9 +157,6 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "JobData")
 	FName WeaponSocketName = FName("hand_r_socket");
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "JobData|MeshOffset")
-	FRotator ToeRotationOffset = FRotator::ZeroRotator;
-
 	// そのジョブが装備する武器のメッシュ (Static用：バットや剣などはこちらを使うことが多いです)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "JobData")
 	TSoftObjectPtr<class UStaticMesh> StaticWeaponMesh;
