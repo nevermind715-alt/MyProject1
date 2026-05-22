@@ -423,6 +423,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
 	float TargetingRange = 2000.0f;
 
+	/** 会話やインタラクトが届く距離 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Interact")
+	float InteractRange = 250.0f;
+
 	/** HPバーを自動表示する範囲（cm）。1000〜1500くらいが目安 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|UI")
 	float HPBarDisplayRange = 1000.0f;

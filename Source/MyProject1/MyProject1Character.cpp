@@ -365,16 +365,12 @@ void AMyProject1Character::TargetNearestEnemy()
 		// 自分自身はターゲットしない
 		if (Actor == this || !Actor) continue;
 
-		// 死んでる敵は無視する
+		// キャストする前に、Actor自体が対象のタグを持っているかチェックする！
+		if (!Actor->ActorHasTag(FName("Enemy")) && !Actor->ActorHasTag(FName("NPC"))) continue;
+
+		// 戦闘キャラ(MyProject1Character)の場合のみ、死んでいるかをチェックする
 		AMyProject1Character* TargetChar = Cast<AMyProject1Character>(Actor);
-
-		// キャストに失敗した（＝透明なPawn等だった）場合はここで確実に弾く！
-		if (!TargetChar) continue;
-
 		if (TargetChar && TargetChar->IsDead()) continue;
-
-		// Actorが「Enemy」タグを持っていなければ無視して次へ！
-		if (!TargetChar->ActorHasTag(FName("Enemy"))) continue;
 
 		// 距離を測る
 		float Dist = GetDistanceTo(Actor);
@@ -420,15 +416,12 @@ void AMyProject1Character::CycleTarget()
 	{
 		if (Actor == this || !Actor) continue;
 
-		// 死んでる敵は無視する
+		// キャストする前に、Actor自体が対象のタグを持っているかチェックする！
+		if (!Actor->ActorHasTag(FName("Enemy")) && !Actor->ActorHasTag(FName("NPC"))) continue;
+
+		// 戦闘キャラ(MyProject1Character)の場合のみ、死んでいるかをチェックする
 		AMyProject1Character* TargetChar = Cast<AMyProject1Character>(Actor);
-
-		if (!TargetChar) continue;
-
 		if (TargetChar && TargetChar->IsDead()) continue;
-
-		// 「Enemy」タグを持っていなければリストに入れない
-		if (!TargetChar->ActorHasTag(FName("Enemy"))) continue;
 
 		if (GetDistanceTo(Actor) <= TargetingRange) // 射程内か？
 		{
@@ -573,7 +566,7 @@ void AMyProject1Character::Tick(float DeltaTime)
 
 	// --- 6. エリア離脱（ナビメッシュ外）の判定 ---
 	UNavigationSystemV1* NavSys = FNavigationSystem::GetCurrent<UNavigationSystemV1>(GetWorld());
-	if (NavSys && CurrentTarget)
+	if (NavSys && CurrentTarget && !CurrentTarget->ActorHasTag(FName("NPC")))
 	{
 		FNavLocation NavLoc;
 		// 戦闘中のターゲット喪失を防ぐため、判定範囲を拡大
