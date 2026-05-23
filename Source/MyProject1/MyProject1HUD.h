@@ -44,6 +44,17 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "UI")
 	void ToggleQuestMenu();
 
+	// --- 装備メニュー用の変数 ---
+	UPROPERTY(EditAnywhere, Category = "UI")
+	TSubclassOf<class UUserWidget> EquipmentMenuClass;
+
+	UPROPERTY(BlueprintReadOnly, Category = "UI")
+	class UUserWidget* EquipmentMenuWidget;
+
+	// --- 装備メニューの開閉関数 ---
+	UFUNCTION(BlueprintCallable, Category = "UI")
+	void ToggleEquipmentMenu();
+
 
 
 	// メニューの表示・非表示を切り替える関数

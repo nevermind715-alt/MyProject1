@@ -46,6 +46,52 @@ AMyProject1Character::AMyProject1Character()
 	StaticWeaponMeshComp->SetupAttachment(GetMesh(), FName("hand_r_socket"));
 	StaticWeaponMeshComp->SetCollisionEnabled(ECollisionEnabled::NoCollision); // 武器自体が何かにぶつかってバグるのを防ぐ
 
+	// ==========================================
+	// 装備コンポーネントの生成とアタッチ
+	// ==========================================
+
+	// 1. 柔らかい装備群（SkeletalMesh）の生成とウェイト連動設定
+	HeadMeshComp = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("HeadMeshComp"));
+	HeadMeshComp->SetupAttachment(GetMesh());
+	HeadMeshComp->SetLeaderPoseComponent(GetMesh());
+
+	TorsoMeshComp = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("TorsoMeshComp"));
+	TorsoMeshComp->SetupAttachment(GetMesh());
+	TorsoMeshComp->SetLeaderPoseComponent(GetMesh());
+
+	InnerUpperMeshComp = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("InnerUpperMeshComp"));
+	InnerUpperMeshComp->SetupAttachment(GetMesh());
+	InnerUpperMeshComp->SetLeaderPoseComponent(GetMesh());
+
+	InnerLowerMeshComp = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("InnerLowerMeshComp"));
+	InnerLowerMeshComp->SetupAttachment(GetMesh());
+	InnerLowerMeshComp->SetLeaderPoseComponent(GetMesh());
+
+	ArmsMeshComp = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("ArmsMeshComp"));
+	ArmsMeshComp->SetupAttachment(GetMesh());
+	ArmsMeshComp->SetLeaderPoseComponent(GetMesh());
+
+	LegsMeshComp = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("LegsMeshComp"));
+	LegsMeshComp->SetupAttachment(GetMesh());
+	LegsMeshComp->SetLeaderPoseComponent(GetMesh());
+
+	FeetMeshComp = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("FeetMeshComp"));
+	FeetMeshComp->SetupAttachment(GetMesh());
+	FeetMeshComp->SetLeaderPoseComponent(GetMesh());
+
+
+	// 2. 固いアクセサリー群（StaticMesh）の生成とソケットへのアタッチ
+	// ※ソケット名("hand_r_socket"等)は後でUE5側でVRMの骨に合わせて調整します
+	NeckMeshComp = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("NeckMeshComp"));
+	NeckMeshComp->SetupAttachment(GetMesh(), TEXT("Neck_socket"));
+
+	WristMeshComp = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("WristMeshComp"));
+	WristMeshComp->SetupAttachment(GetMesh(), TEXT("hand_r_socket"));
+
+	AnkleMeshComp = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("AnkleMeshComp"));
+	AnkleMeshComp->SetupAttachment(GetMesh(), TEXT("foot_r_socket"));
+
+
 	// ... 既存の CameraBoom や FollowCamera の設定を続ける ...
 
 	// Set size for collision capsule
@@ -1968,4 +2014,85 @@ void AMyProject1Character::UpdateBlink(float DeltaTime)
 		// 計算したモーフターゲットの値をメッシュに適用
 		GetMesh()->SetMorphTarget(BlinkMorphName, CurrentBlinkValue);
 	}
+}
+
+// ==========================================
+// 装備システムの関数実装
+// ==========================================
+
+void AMyProject1Character::EquipItem(FName ItemID, FEquipmentData EquipData)
+{
+	
+	switch(EquipData.TargetSlot)
+	{
+		case EEquipmentSlot::Head:
+			if (HeadMeshComp) HeadMeshComp->SetSkeletalMesh(EquipData.EquipSkeletalMesh);
+			break;
+
+		case EEquipmentSlot::Torso:
+			if (TorsoMeshComp) TorsoMeshComp->SetSkeletalMesh(EquipData.EquipSkeletalMesh);
+			break;
+
+		case EEquipmentSlot::Legs:
+			if (LegsMeshComp) LegsMeshComp->SetSkeletalMesh(EquipData.EquipSkeletalMesh);
+			break;
+
+		case EEquipmentSlot::Feet:
+			if (FeetMeshComp) FeetMeshComp->SetSkeletalMesh(EquipData.EquipSkeletalMesh);
+			break;
+
+		default:
+			break;
+	}
+
+	// 装備状態の記憶を更新（ここで ItemID が使われます）
+	CurrentEquippedItems.Add(EquipData.TargetSlot, ItemID);
+}
+
+void AMyProject1Character::UnequipItem(EEquipmentSlot TargetSlot)
+{
+	switch (TargetSlot)
+	{
+	case EEquipmentSlot::Head:
+		if (HeadMeshComp) HeadMeshComp->SetSkeletalMesh(nullptr);
+		break;
+
+	case EEquipmentSlot::Torso:
+		if (TorsoMeshComp) TorsoMeshComp->SetSkeletalMesh(nullptr);
+		break;
+
+	case EEquipmentSlot::Legs:
+		if (LegsMeshComp) LegsMeshComp->SetSkeletalMesh(nullptr);
+		break;
+
+	case EEquipmentSlot::Feet:
+		if (FeetMeshComp) FeetMeshComp->SetSkeletalMesh(nullptr);
+		break;
+
+	default:
+		break;
+	}
+
+	// 記憶している装備状態から削除
+	CurrentEquippedItems.Remove(TargetSlot);
+}
+
+void AMyProject1Character::RefreshEquipmentStats()
+{
+	// TODO: ここに後で「現在の装備リストをループして、すべての装備の STR増や DEF増 を合計してステータスに反映する処理」を書きます
+
+	// UE_LOG(LogTemp, Warning, TEXT("装備ステータスを再計算しました"));
+}
+
+FName AMyProject1Character::GetEquippedItemID(EEquipmentSlot Slot)
+{
+	// Mapの中に、指定されたスロット（部位）のデータが存在するかチェック
+	if (CurrentEquippedItems.Contains(Slot))
+	{
+		// 存在すれば、そのアイテムID（FName）を返す
+		return CurrentEquippedItems[Slot];
+	}
+
+	// 登録されていなければ（何も装備していなければ） None を返す
+	return NAME_None;
 }

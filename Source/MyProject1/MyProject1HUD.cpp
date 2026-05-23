@@ -43,6 +43,13 @@ void AMyProject1HUD::ToggleCommandMenu()
         return;
     }
 
+    // もし装備メニューが存在し、画面に表示されているなら
+    if (EquipmentMenuWidget && EquipmentMenuWidget->IsInViewport())
+    {
+        ToggleEquipmentMenu();
+        return;
+    }
+
     APlayerController* PC = GetOwningPlayerController();
     
 
@@ -179,6 +186,58 @@ void AMyProject1HUD::ToggleQuestMenu()
         {
             // 閉じる処理
             QuestMenuWidget->RemoveFromParent();
+
+            // 背後のメニューを再表示する
+            if (CommandMenuWidget)
+            {
+                CommandMenuWidget->SetVisibility(ESlateVisibility::Visible);
+
+                FInputModeGameAndUI InputMode;
+                InputMode.SetWidgetToFocus(CommandMenuWidget->TakeWidget());
+                PC->SetInputMode(InputMode);
+
+                if (MenuCloseSound)
+                {
+                    UGameplayStatics::PlaySound2D(this, MenuCloseSound);
+                }
+            }
+        }
+    }
+}
+
+// --- 装備（メニュー内のボタンから開く方） ---
+void AMyProject1HUD::ToggleEquipmentMenu()
+{
+    APlayerController* PC = GetOwningPlayerController();
+    if (!PC || !EquipmentMenuClass) return;
+
+    if (!EquipmentMenuWidget)
+    {
+        // まだ作られていなければ生成する
+        EquipmentMenuWidget = CreateWidget<UUserWidget>(GetWorld(), EquipmentMenuClass);
+    }
+
+    if (EquipmentMenuWidget)
+    {
+        if (!EquipmentMenuWidget->IsInViewport())
+        {
+            // Z-Orderを20にして手前に表示
+            EquipmentMenuWidget->AddToViewport(20);
+
+            // 背後のメニュー（WBP_CommandMenu）を隠す
+            if (CommandMenuWidget) CommandMenuWidget->SetVisibility(ESlateVisibility::Collapsed);
+
+            // 入力フォーカスを装備画面に向ける
+            FInputModeGameAndUI InputMode;
+            InputMode.SetWidgetToFocus(EquipmentMenuWidget->TakeWidget());
+            PC->SetInputMode(InputMode);
+
+            if (MenuOpenSound) UGameplayStatics::PlaySound2D(this, MenuOpenSound);
+        }
+        else
+        {
+            // 閉じる処理
+            EquipmentMenuWidget->RemoveFromParent();
 
             // 背後のメニューを再表示する
             if (CommandMenuWidget)

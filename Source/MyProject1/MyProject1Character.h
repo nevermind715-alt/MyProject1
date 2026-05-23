@@ -315,6 +315,78 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Combat")
 	FOnCharacterDeathSignature OnDeathDelegate;
 
+	// ==========================================
+	// 装備システム（見た目用コンポーネント）
+	// ==========================================
+
+	// --- 柔らかい装備（SkeletalMesh） ---
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Components")
+	USkeletalMeshComponent* HeadMeshComp;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Components")
+	USkeletalMeshComponent* TorsoMeshComp;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Components")
+	USkeletalMeshComponent* InnerUpperMeshComp;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Components")
+	USkeletalMeshComponent* InnerLowerMeshComp;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Components")
+	USkeletalMeshComponent* ArmsMeshComp;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Components")
+	USkeletalMeshComponent* LegsMeshComp;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Components")
+	USkeletalMeshComponent* FeetMeshComp;
+
+
+	// --- 固いアクセサリー（StaticMesh） ---
+	// ※ソケットに直接アタッチします
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Components")
+	UStaticMeshComponent* NeckMeshComp;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Components")
+	UStaticMeshComponent* WristMeshComp;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Components")
+	UStaticMeshComponent* AnkleMeshComp;
+
+	// ==========================================
+	// 装備システムのデータと関数
+	// ==========================================
+
+	// 現在装備しているアイテムのデータテーブルRowNameを保持
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment")
+	TMap<EEquipmentSlot, FName> CurrentEquippedItems;
+
+	// アイテムIDと装備データの両方を受け取るようにします
+	UFUNCTION(BlueprintCallable, Category = "Equipment")
+	void EquipItem(FName ItemID, FEquipmentData EquipData);
+
+	// 外す部位を指定して受け取ります
+	UFUNCTION(BlueprintCallable, Category = "Equipment")
+	void UnequipItem(EEquipmentSlot TargetSlot);
+
+	// 全装備のステータス補正を再計算して適用する
+	UFUNCTION(BlueprintCallable, Category = "Equipment")
+	void RefreshEquipmentStats();
+
+	// 装備データテーブルの参照
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment")
+	UDataTable* EquipmentDataTable;
+
+	
+	/**
+	 * 指定した部位（スロット）に装備されているアイテムのIDを取得します。
+	 * UIのボタンに「Tシャツ」などの名前を表示する際に使います。
+	 * 何も装備していない場合は "None" が返ります。
+	 */
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Equipment")
+	FName GetEquippedItemID(EEquipmentSlot Slot);
+
 protected:
 
 	void OnToggleMenuPressed();

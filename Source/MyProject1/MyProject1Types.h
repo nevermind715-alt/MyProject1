@@ -659,3 +659,51 @@ struct FWarpDestination : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Warp")
 	FName RequiredFlag;
 };
+
+// --- 装備スロットの定義 ---
+UENUM(BlueprintType)
+enum class EEquipmentSlot : uint8
+{
+	Head          UMETA(DisplayName = "頭防具"),
+	Torso         UMETA(DisplayName = "胴防具"),
+	InnerUpper    UMETA(DisplayName = "上半身インナー"),
+	InnerLower    UMETA(DisplayName = "下半身インナー"),
+	Arms          UMETA(DisplayName = "腕防具"),
+	Legs          UMETA(DisplayName = "脚防具"),
+	Feet          UMETA(DisplayName = "足防具"),
+	Neck          UMETA(DisplayName = "首装備（Static）"),
+	Wrist         UMETA(DisplayName = "腕輪（Static）"),
+	Ankle         UMETA(DisplayName = "足輪（Static）"),
+	Weapon        UMETA(DisplayName = "メイン武器"),
+	ExtraInvisible1 UMETA(DisplayName = "特殊枠1（非表示）"),
+	ExtraInvisible2 UMETA(DisplayName = "特殊枠2（非表示）"),
+	Max           UMETA(Hidden)
+};
+
+// --- 装備品データの構造体 ---
+USTRUCT(BlueprintType)
+struct FEquipmentData : public FTableRowBase
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment")
+	EEquipmentSlot TargetSlot = EEquipmentSlot::Torso;
+
+	// 柔らかい服や変形する装備用（Tシャツなど）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment")
+	USkeletalMesh* EquipSkeletalMesh = nullptr;
+
+	// 固いアクセサリー用（ネックレス腕輪・足輪など）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment")
+	UStaticMesh* EquipStaticMesh = nullptr;
+
+	// ステータス補正値
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment|Stats")
+	int32 AddSTR = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment|Stats")
+	int32 AddDEF = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment|Stats")
+	int32 AddMND = 0;
+};
