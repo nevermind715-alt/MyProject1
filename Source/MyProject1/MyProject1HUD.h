@@ -33,6 +33,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "UI")
 	bool IsCommandMenuOpen() const;
 
+	// 現在開いているすべての「サブメニュー（一覧画面など）」を記憶する汎用変数
+	UPROPERTY(BlueprintReadWrite, Category = "UI")
+	class UUserWidget* ActiveSubMenuWidget;
+
 	// --- クエストメニュー用の変数 ---
 	UPROPERTY(EditAnywhere, Category = "UI")
 	TSubclassOf<class UUserWidget> QuestMenuClass;

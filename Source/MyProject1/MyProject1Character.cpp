@@ -71,6 +71,10 @@ AMyProject1Character::AMyProject1Character()
 	ArmsMeshComp->SetupAttachment(GetMesh());
 	ArmsMeshComp->SetLeaderPoseComponent(GetMesh());
 
+	HandsMeshComp = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("HandsMeshComp"));
+	HandsMeshComp->SetupAttachment(GetMesh());
+	HandsMeshComp->SetLeaderPoseComponent(GetMesh());
+
 	LegsMeshComp = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("LegsMeshComp"));
 	LegsMeshComp->SetupAttachment(GetMesh());
 	LegsMeshComp->SetLeaderPoseComponent(GetMesh());
@@ -2033,12 +2037,32 @@ void AMyProject1Character::EquipItem(FName ItemID, FEquipmentData EquipData)
 			if (TorsoMeshComp) TorsoMeshComp->SetSkeletalMesh(EquipData.EquipSkeletalMesh);
 			break;
 
+		case EEquipmentSlot::Arms:
+			if (ArmsMeshComp) ArmsMeshComp->SetSkeletalMesh(EquipData.EquipSkeletalMesh);
+			break;
+
+		case EEquipmentSlot::Hands:
+			if (HandsMeshComp) HandsMeshComp->SetSkeletalMesh(EquipData.EquipSkeletalMesh);
+			break;
+
 		case EEquipmentSlot::Legs:
 			if (LegsMeshComp) LegsMeshComp->SetSkeletalMesh(EquipData.EquipSkeletalMesh);
 			break;
 
 		case EEquipmentSlot::Feet:
 			if (FeetMeshComp) FeetMeshComp->SetSkeletalMesh(EquipData.EquipSkeletalMesh);
+			break;
+
+		case EEquipmentSlot::Neck:
+			if (NeckMeshComp) NeckMeshComp->SetStaticMesh(EquipData.EquipStaticMesh);
+			break;
+
+		case EEquipmentSlot::Wrist:
+			if (WristMeshComp) WristMeshComp->SetStaticMesh(EquipData.EquipStaticMesh);
+			break;
+
+		case EEquipmentSlot::Ankle:
+			if (AnkleMeshComp) AnkleMeshComp->SetStaticMesh(EquipData.EquipStaticMesh);
 			break;
 
 		default:
@@ -2061,12 +2085,32 @@ void AMyProject1Character::UnequipItem(EEquipmentSlot TargetSlot)
 		if (TorsoMeshComp) TorsoMeshComp->SetSkeletalMesh(nullptr);
 		break;
 
+	case EEquipmentSlot::Arms:
+		if (ArmsMeshComp) ArmsMeshComp->SetSkeletalMesh(nullptr);
+		break;
+
+	case EEquipmentSlot::Hands: 
+		if (HandsMeshComp) HandsMeshComp->SetSkeletalMesh(nullptr);
+		break;
+
 	case EEquipmentSlot::Legs:
 		if (LegsMeshComp) LegsMeshComp->SetSkeletalMesh(nullptr);
 		break;
 
 	case EEquipmentSlot::Feet:
 		if (FeetMeshComp) FeetMeshComp->SetSkeletalMesh(nullptr);
+		break;
+
+	case EEquipmentSlot::Neck:
+		if (NeckMeshComp) NeckMeshComp->SetStaticMesh(nullptr);
+		break;
+
+	case EEquipmentSlot::Wrist:
+		if (WristMeshComp) WristMeshComp->SetStaticMesh(nullptr);
+		break;
+
+	case EEquipmentSlot::Ankle:
+		if (AnkleMeshComp) AnkleMeshComp->SetStaticMesh(nullptr);
 		break;
 
 	default:

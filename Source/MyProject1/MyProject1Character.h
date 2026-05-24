@@ -336,6 +336,9 @@ public:
 	USkeletalMeshComponent* ArmsMeshComp;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Components")
+	USkeletalMeshComponent* HandsMeshComp;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Components")
 	USkeletalMeshComponent* LegsMeshComp;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Components")

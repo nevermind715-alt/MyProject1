@@ -669,14 +669,18 @@ enum class EEquipmentSlot : uint8
 	InnerUpper    UMETA(DisplayName = "上半身インナー"),
 	InnerLower    UMETA(DisplayName = "下半身インナー"),
 	Arms          UMETA(DisplayName = "腕防具"),
+	Hands         UMETA(DisplayName = "手防具（手袋・小手）"),
 	Legs          UMETA(DisplayName = "脚防具"),
 	Feet          UMETA(DisplayName = "足防具"),
 	Neck          UMETA(DisplayName = "首装備（Static）"),
 	Wrist         UMETA(DisplayName = "腕輪（Static）"),
 	Ankle         UMETA(DisplayName = "足輪（Static）"),
 	Weapon        UMETA(DisplayName = "メイン武器"),
-	ExtraInvisible1 UMETA(DisplayName = "特殊枠1（非表示）"),
-	ExtraInvisible2 UMETA(DisplayName = "特殊枠2（非表示）"),
+	Extra1        UMETA(DisplayName = "特殊枠1（非表示）"),
+	Extra2        UMETA(DisplayName = "特殊枠2（非表示）"),
+	Extra3        UMETA(DisplayName = "特殊枠3（非表示）"),
+	Extra4        UMETA(DisplayName = "特殊枠4（非表示）"),
+	Extra5        UMETA(DisplayName = "特殊枠5（非表示）"),
 	Max           UMETA(Hidden)
 };
 
@@ -685,6 +689,9 @@ USTRUCT(BlueprintType)
 struct FEquipmentData : public FTableRowBase
 {
 	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment", meta = (DisplayName = "開発用メモ（アイテム名）"))
+	FString DevMemo;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment")
 	EEquipmentSlot TargetSlot = EEquipmentSlot::Torso;

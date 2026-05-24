@@ -25,6 +25,24 @@ void AMyProject1HUD::BeginPlay()
 
 void AMyProject1HUD::ToggleCommandMenu()
 {
+    if (ActiveSubMenuWidget && ActiveSubMenuWidget->IsInViewport())
+    {
+        ActiveSubMenuWidget->RemoveFromParent();
+        ActiveSubMenuWidget = nullptr; // 記憶をクリア
+
+        // サブメニューが消えたので、親である「装備メインメニュー」に操作フォーカスを戻す
+        APlayerController* PC = GetOwningPlayerController();
+        if (PC && EquipmentMenuWidget && EquipmentMenuWidget->IsInViewport())
+        {
+            FInputModeGameAndUI InputMode;
+            InputMode.SetWidgetToFocus(EquipmentMenuWidget->TakeWidget());
+            PC->SetInputMode(InputMode);
+        }
+
+        if (MenuCloseSound) UGameplayStatics::PlaySound2D(this, MenuCloseSound);
+        return; // ここで処理を終了させることで、後ろの「EquipmentMenuWidgetを消す処理」に行かせない！
+    }
+
     // もしインベントリメニューが存在し、画面に表示されているなら
     if (InventoryMenuWidget && InventoryMenuWidget->IsInViewport())
     {
