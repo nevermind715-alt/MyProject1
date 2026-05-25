@@ -403,8 +403,8 @@ void AMyProject1Character::TargetNearestEnemy()
 {
 	// 1. 周囲のすべての「Pawn（キャラクター）」を探す
 	TArray<AActor*> FoundActors;
-	// ※ ここで "APawn::StaticClass()" としていますが、敵専用クラスがあるなら "ACombatEnemy::StaticClass()" にするとより正確です
-	UGameplayStatics::GetAllActorsOfClass(GetWorld(), APawn::StaticClass(), FoundActors);
+	
+	UGameplayStatics::GetAllActorsOfClass(GetWorld(), AActor::StaticClass(), FoundActors);
 
 	AActor* ClosestActor = nullptr;
 	float MinDistance = TargetingRange; // 最初は最大射程をセット
@@ -458,7 +458,7 @@ void AMyProject1Character::CycleTarget()
 {
 	// 1. 周囲の敵を全員探す
 	TArray<AActor*> FoundActors;
-	UGameplayStatics::GetAllActorsOfClass(GetWorld(), APawn::StaticClass(), FoundActors);
+	UGameplayStatics::GetAllActorsOfClass(GetWorld(), AActor::StaticClass(), FoundActors);
 
 	// 2. 「射程内」の敵だけのリストを作る
 	TArray<AActor*> ValidTargets;

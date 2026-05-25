@@ -68,6 +68,13 @@ void AMyProject1HUD::ToggleCommandMenu()
         return;
     }
 
+    // もしステータスメニューが存在し、画面に表示されているなら
+    if (StatusMenuWidget && StatusMenuWidget->IsInViewport())
+    {
+        ToggleStatusMenu();
+        return;
+    }
+
     APlayerController* PC = GetOwningPlayerController();
     
 
@@ -256,6 +263,58 @@ void AMyProject1HUD::ToggleEquipmentMenu()
         {
             // 閉じる処理
             EquipmentMenuWidget->RemoveFromParent();
+
+            // 背後のメニューを再表示する
+            if (CommandMenuWidget)
+            {
+                CommandMenuWidget->SetVisibility(ESlateVisibility::Visible);
+
+                FInputModeGameAndUI InputMode;
+                InputMode.SetWidgetToFocus(CommandMenuWidget->TakeWidget());
+                PC->SetInputMode(InputMode);
+
+                if (MenuCloseSound)
+                {
+                    UGameplayStatics::PlaySound2D(this, MenuCloseSound);
+                }
+            }
+        }
+    }
+}
+
+// ---ステータスメニューの開閉処理 ---
+void AMyProject1HUD::ToggleStatusMenu()
+{
+    APlayerController* PC = GetOwningPlayerController();
+    if (!PC || !StatusMenuClass) return;
+
+    if (!StatusMenuWidget)
+    {
+        // まだ作られていなければ生成する
+        StatusMenuWidget = CreateWidget<UUserWidget>(GetWorld(), StatusMenuClass);
+    }
+
+    if (StatusMenuWidget)
+    {
+        if (!StatusMenuWidget->IsInViewport())
+        {
+            // Z-Orderを20にして手前に表示
+            StatusMenuWidget->AddToViewport(20);
+
+            // 背後のメニューを隠す
+            if (CommandMenuWidget) CommandMenuWidget->SetVisibility(ESlateVisibility::Collapsed);
+
+            // 入力フォーカスをステータス画面に向ける
+            FInputModeGameAndUI InputMode;
+            InputMode.SetWidgetToFocus(StatusMenuWidget->TakeWidget());
+            PC->SetInputMode(InputMode);
+
+            if (MenuOpenSound) UGameplayStatics::PlaySound2D(this, MenuOpenSound);
+        }
+        else
+        {
+            // 閉じる処理
+            StatusMenuWidget->RemoveFromParent();
 
             // 背後のメニューを再表示する
             if (CommandMenuWidget)

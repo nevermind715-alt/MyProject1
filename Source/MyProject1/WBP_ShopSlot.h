@@ -22,7 +22,7 @@ protected:
 	// マウスが離れた時の検知（cppで実装済み）
 	virtual void NativeOnMouseLeave(const FPointerEvent& InMouseEvent) override;
 
-	// ★追加：エディタでカーソル音を選択できるようにする
+	// エディタでカーソル音を選択できるようにする
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sound")
 	class USoundBase* HoverSound;
 

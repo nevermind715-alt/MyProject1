@@ -59,7 +59,16 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "UI")
 	void ToggleEquipmentMenu();
 
+	// ---ステータスメニュー用の変数 ---
+	UPROPERTY(EditAnywhere, Category = "UI")
+	TSubclassOf<class UUserWidget> StatusMenuClass;
 
+	UPROPERTY(BlueprintReadOnly, Category = "UI")
+	class UUserWidget* StatusMenuWidget;
+
+	// --- ステータスメニューの開閉関数 ---
+	UFUNCTION(BlueprintCallable, Category = "UI")
+	void ToggleStatusMenu();
 
 	// メニューの表示・非表示を切り替える関数
 	UFUNCTION(BlueprintCallable, Category = "UI")

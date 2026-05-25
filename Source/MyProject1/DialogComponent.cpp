@@ -230,6 +230,11 @@ void UDialogComponent::ExecuteAction(const FDialogChoice& Choice)
 
 void UDialogComponent::CloseDialog()
 {
+	if (AMyProject1Character* Player = Cast<AMyProject1Character>(GetOwner()))
+	{
+		Player->CancelTarget();
+	}
+
 	OnDialogClosed.Broadcast();
 }
 
