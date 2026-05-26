@@ -1,11 +1,11 @@
-#pragma once
+ï»¿#pragma once
 
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
-#include "Components/TextBlock.h" // UTextBlock‚ğg‚¤‚½‚ß‚É•K{
+#include "Components/TextBlock.h" // UTextBlockã‚’ä½¿ã†ãŸã‚ã«å¿…é ˆ
 #include "StatusScreenWidget.generated.h"
 
-class AMyProject1Character; // ‘O•ûéŒ¾
+class AMyProject1Character; // å‰æ–¹å®£è¨€
 
 UCLASS()
 class MYPROJECT1_API UStatusScreenWidget : public UUserWidget
@@ -14,7 +14,7 @@ class MYPROJECT1_API UStatusScreenWidget : public UUserWidget
 
 protected:
     // ==========================================
-    // UIƒRƒ“ƒ|[ƒlƒ“ƒg‚ÌƒoƒCƒ“ƒhiBP‚Ì•Ï”–¼‚ÆŠ®‘Sˆê’v‚³‚¹‚éj
+    // UIã‚³ãƒ³ãƒãƒ¼ãƒãƒ³ãƒˆã®ãƒã‚¤ãƒ³ãƒ‰ï¼ˆBPã®å¤‰æ•°åã¨å®Œå…¨ä¸€è‡´ã•ã›ã‚‹ï¼‰
     // ==========================================
 
     UPROPERTY(meta = (BindWidget))
@@ -58,7 +58,7 @@ protected:
 
 public:
     // ==========================================
-    // BP‚©‚çŒÄ‚Ño‚µ‚ÄˆêŠ‡XV‚·‚éŠÖ”
+    // BPã‹ã‚‰å‘¼ã³å‡ºã—ã¦ä¸€æ‹¬æ›´æ–°ã™ã‚‹é–¢æ•°
     // ==========================================
     UFUNCTION(BlueprintCallable, Category = "UI")
     void UpdateAllStatus(AMyProject1Character* PlayerCharacter);

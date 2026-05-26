@@ -1,21 +1,21 @@
-#include "StatusScreenWidget.h"
-#include "MyProject1Character.h" // MyStats‚ðŽæ“¾‚·‚é‚½‚ß‚É•K{
+ï»¿#include "StatusScreenWidget.h"
+#include "MyProject1Character.h" // MyStatsã‚’å–å¾—ã™ã‚‹ãŸã‚ã«å¿…é ˆ
 
 void UStatusScreenWidget::UpdateAllStatus(AMyProject1Character* PlayerCharacter)
 {
-    // ƒLƒƒƒ‰ƒNƒ^[î•ñ‚ª–³Œø‚Èê‡‚Íˆ—‚ð’†’f
+    // ã‚­ãƒ£ãƒ©ã‚¯ã‚¿ãƒ¼æƒ…å ±ãŒç„¡åŠ¹ãªå ´åˆã¯å‡¦ç†ã‚’ä¸­æ–­
     if (!PlayerCharacter) return;
 
-    // ƒLƒƒƒ‰ƒNƒ^[‚ÌƒXƒe[ƒ^ƒX\‘¢‘Ì‚ðŽæ“¾
+    // ã‚­ãƒ£ãƒ©ã‚¯ã‚¿ãƒ¼ã®ã‚¹ãƒ†ãƒ¼ã‚¿ã‚¹æ§‹é€ ä½“ã‚’å–å¾—
     const FCharacterStats& Stats = PlayerCharacter->MyStats;
 
-    // --- ƒeƒLƒXƒg‚ÌXV ---
-    // FText::AsNumber() ‚ðŽg‚¤‚±‚Æ‚ÅAfloat‚âint‚ðŽ©“®“I‚É“KØ‚ÈƒeƒLƒXƒgŒ`Ž®‚É•ÏŠ·‚µ‚Ü‚·B
-    // ¬”“_‚ð•\Ž¦‚µ‚½‚­‚È‚¢ƒXƒe[ƒ^ƒX‚Ìê‡‚ÍAFMath::RoundToInt() ‚Å®”‚ÉŠÛ‚ß‚é‚ÆUI‚ªãY—í‚É‚Ü‚Æ‚Ü‚è‚Ü‚·B
+    // --- ãƒ†ã‚­ã‚¹ãƒˆã®æ›´æ–° ---
+    // FText::AsNumber() ã‚’ä½¿ã†ã“ã¨ã§ã€floatã‚„intã‚’è‡ªå‹•çš„ã«é©åˆ‡ãªãƒ†ã‚­ã‚¹ãƒˆå½¢å¼ã«å¤‰æ›ã—ã¾ã™ã€‚
+    // å°æ•°ç‚¹ã‚’è¡¨ç¤ºã—ãŸããªã„ã‚¹ãƒ†ãƒ¼ã‚¿ã‚¹ã®å ´åˆã¯ã€FMath::RoundToInt() ã§æ•´æ•°ã«ä¸¸ã‚ã‚‹ã¨UIãŒç¶ºéº—ã«ã¾ã¨ã¾ã‚Šã¾ã™ã€‚
 
     if (Text_CharName)
     {
-        // –¼‘O‚Í FString ‚È‚Ì‚Å FText::FromString ‚ðŽg—p
+        // åå‰ã¯ FString ãªã®ã§ FText::FromString ã‚’ä½¿ç”¨
         FString DisplayName = Stats.NPCName.IsEmpty() ? PlayerCharacter->CharacterName : Stats.NPCName;
         Text_CharName->SetText(FText::FromString(DisplayName));
     }
