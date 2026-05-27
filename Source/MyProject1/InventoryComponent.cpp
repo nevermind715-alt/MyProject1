@@ -312,19 +312,13 @@ bool UInventoryComponent::UseItem(FName ItemID)
 		}
 	}
 
-	// バフをまとめて1回だけ実行
-	if (TimedEffects.Num() > 0)
-	{
-		OwnerChar->ApplyItemBuff(ItemInfo->Name, TimedEffects, TimedEffects[0].EffectDuration);
-	}
-
 	if (bAnyEffectApplied)
 	{
-		// 1. 使用ログ（FF11風：〇〇を使用した。）
+		// 1. 使用ログ（一番最初に出す）
 		FString LogMsg = FString::Printf(TEXT("%sを使用した。"), *ItemInfo->Name);
 		OwnerChar->OnReceiveLogMessage(LogMsg, ELogMessageType::System);
 
-		// 2. ★復活：回復ログ（FF11風：HPが 50 回復した。）
+		// 2. 回復ログ
 		if (TotalHealed > 0.0f)
 		{
 			FString HealMsg = FString::Printf(TEXT("HPが %.0f 回復した。"), TotalHealed);
@@ -333,6 +327,13 @@ bool UInventoryComponent::UseItem(FName ItemID)
 
 		if (ItemInfo->bConsumeOnUse) { RemoveItem(ItemID, 1); }
 	}
+
+	// 3. バフをまとめて1回だけ実行（使用ログの後に出す）
+	if (TimedEffects.Num() > 0)
+	{
+		OwnerChar->ApplyItemBuff(ItemInfo->Name, ItemInfo->Icon, TimedEffects, TimedEffects[0].EffectDuration);
+	}
+
 	return bAnyEffectApplied;
 }
 

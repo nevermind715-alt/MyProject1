@@ -23,6 +23,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnHPChangedSignature, float, Curre
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnLogScrollToBottomSignature);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnCharacterDeathSignature, AActor*, DeadActor);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnStatsUpdatedSignature);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnBuffListChangedSignature);
 
 
 // クリティカルダメージを識別するための専用クラス
@@ -184,6 +185,15 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Combat|UI")
 	FOnStatsUpdatedSignature OnStatsUpdatedDelegate;
 
+	// 現在かかっているバフのリスト
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|Buff")
+	TArray<FActiveBuff> ActiveBuffs;
+
+	// バフが増減した時にUIへ知らせる合図
+	UPROPERTY(BlueprintAssignable, Category = "Combat|UI")
+	FOnBuffListChangedSignature OnBuffListChangedDelegate;
+
+	
 	UFUNCTION(BlueprintCallable, Category = "Combat|Stats")
 	void NotifyStatsChanged();
 
@@ -300,7 +310,7 @@ public:
 	void ToggleCombatMode();
 	
 	UFUNCTION(BlueprintCallable, Category = "Combat|Buff")
-	void ApplyItemBuff(FString ItemName, const TArray<FItemEffect>& Effects, float Duration);
+	void ApplyItemBuff(FString ItemName, UTexture2D* Icon, const TArray<FItemEffect>& Effects, float Duration);
 
 	UFUNCTION(BlueprintCallable, Category = "Character|Audio")
 	void PlayFootstepSound();
@@ -380,6 +390,10 @@ public:
 	// 装備データテーブルの参照
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment")
 	UDataTable* EquipmentDataTable;
+
+	// バフ専用データテーブルの参照
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Buff")
+	UDataTable* BuffDataTable;
 
 	
 	/**

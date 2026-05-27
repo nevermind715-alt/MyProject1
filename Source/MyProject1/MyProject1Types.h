@@ -215,6 +215,9 @@ struct FCharacterStats
 	float Stamina = 100.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats")
+	float MaxStamina = 100.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats")
 	float Accuracy = 0.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats")
@@ -301,7 +304,7 @@ enum class EItemType : uint8
 	Material    UMETA(DisplayName = "素材")
 };
 
-// ★追加：どのステータスを変化させるかの定義
+//どのステータスを変化させるかの定義
 UENUM(BlueprintType)
 enum class ETargetStat : uint8
 {
@@ -322,6 +325,22 @@ enum class ETargetStat : uint8
 	CustomExtraStat UMETA(DisplayName = "カスタムステータス (ExtraStats)")
 };
 
+// --- バフ・デバフ専用のデータ（データテーブル用） ---
+USTRUCT(BlueprintType)
+struct FBuffData : public FTableRowBase
+{
+	GENERATED_BODY()
+
+	// 画面に表示するバフの名前（「攻撃力アップ」「毒」など）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Buff")
+	FString BuffName;
+
+	// 画面上部に並べる専用アイコン画像
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Buff")
+	UTexture2D* BuffIcon = nullptr;
+
+	// ※将来的に「毒のダメージ量」や「キラキラ光るエフェクトの色」などもここに足せます
+};
 
 USTRUCT(BlueprintType)
 struct FItemEffect
@@ -341,6 +360,28 @@ struct FItemEffect
 	/** 効果時間（0なら即時、0より大きければリジェネやバフとして扱う想定） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	float EffectDuration = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Buff")
+	FName BuffID;
+};
+
+// --- アクティブなバフ・デバフを管理する構造体 ---
+USTRUCT(BlueprintType)
+struct FActiveBuff
+{
+	GENERATED_BODY()
+
+	// バフの名前（"プロテス" など。解除時の検索用にも使います）
+	UPROPERTY(BlueprintReadOnly, Category = "Buff")
+	FString BuffName;
+
+	// 画面に表示するアイコン画像
+	UPROPERTY(BlueprintReadOnly, Category = "Buff")
+	UTexture2D* BuffIcon = nullptr;
+
+	// ゲーム内時間（GetTimeSeconds）を基準にした、このバフが切れる時刻
+	UPROPERTY(BlueprintReadOnly, Category = "Buff")
+	float ExpirationTime = 0.0f;
 };
 
 

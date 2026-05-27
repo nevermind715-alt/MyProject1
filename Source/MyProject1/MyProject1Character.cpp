@@ -1622,11 +1622,30 @@ void AMyProject1Character::TalkToLog(const FString& Message)
 	OnReceiveLogMessage(FormattedMsg, ELogMessageType::Dialogue);
 }
 
-void AMyProject1Character::ApplyItemBuff(FString ItemName, const TArray<FItemEffect>& Effects, float Duration)
+void AMyProject1Character::ApplyItemBuff(FString ItemName, UTexture2D* Icon, const TArray<FItemEffect>& Effects, float Duration)
 {
 	if (bIsDead || Duration <= 0.0f) return;
 
-	// 1. すべての効果を一度に適用する
+	for (const FActiveBuff& ActiveBuff : ActiveBuffs)
+	{
+		// 今使おうとしているアイテム名が、すでにリストに存在する場合
+		if (ActiveBuff.BuffName == ItemName)
+		{
+			// ログに「効果なし」のメッセージを出す
+			FString Msg = FString::Printf(TEXT("%sの効果はすでに発動しているため効果なし。"), *ItemName);
+			if (IsPlayerControlled())
+			{
+				OnReceiveLogMessage(Msg, ELogMessageType::System);
+			}
+
+			// returnでここで処理を強制終了する（ステータス加算もアイコン追加も起きない）
+			return;
+		}
+	}
+
+	bool bHasAddedBuffIcon = false;
+
+	// 1. すべての効果を一度に適用し、必要なら専用バフアイコンを登録する
 	for (const FItemEffect& Effect : Effects)
 	{
 		switch (Effect.TargetStat)
@@ -1641,16 +1660,44 @@ void AMyProject1Character::ApplyItemBuff(FString ItemName, const TArray<FItemEff
 		case ETargetStat::Stamina:     MyStats.Stamina += Effect.EffectAmount;     break;
 		default: break;
 		}
+
+		// ★追加：バフデータテーブルがセットされており、BuffIDが空ではない場合
+		if (BuffDataTable && !Effect.BuffID.IsNone())
+		{
+			// データテーブルから、指定されたIDのバフデータを検索
+			FBuffData* BuffRow = BuffDataTable->FindRow<FBuffData>(Effect.BuffID, TEXT("BuffLookup"));
+			if (BuffRow)
+			{
+				FActiveBuff NewBuff;
+				NewBuff.BuffName = ItemName; // 削除時の目印としてアイテム名を記録
+				NewBuff.BuffIcon = BuffRow->BuffIcon; // ★アイテム画像ではなく、バフ専用画像をセット！
+				NewBuff.ExpirationTime = GetWorld()->GetTimeSeconds() + Duration;
+				ActiveBuffs.Add(NewBuff);
+				bHasAddedBuffIcon = true;
+			}
+		}
+	}
+
+	// 万が一、データテーブルが未設定だったり、BuffIDを書き忘れていた場合の保険（今まで通りアイテムのアイコンを使う）
+	if (!bHasAddedBuffIcon && Icon)
+	{
+		FActiveBuff NewBuff;
+		NewBuff.BuffName = ItemName;
+		NewBuff.BuffIcon = Icon;
+		NewBuff.ExpirationTime = GetWorld()->GetTimeSeconds() + Duration;
+		ActiveBuffs.Add(NewBuff);
 	}
 
 	// 2. タイマーを1つだけセットする
 	FTimerHandle TimerHandle;
 	FTimerDelegate Delegate;
-	// ItemName と Effects 配列をタイマーの引数として渡す
 	Delegate.BindUObject(this, &AMyProject1Character::ExpireItemBuff, ItemName, Effects);
 	GetWorldTimerManager().SetTimer(TimerHandle, Delegate, Duration, false);
 
-	// ※ アイテム使用時のログは InventoryComponent 側で1回出るので、ここでは出さない
+	if (OnBuffListChangedDelegate.IsBound())
+	{
+		OnBuffListChangedDelegate.Broadcast();
+	}
 }
 
 void AMyProject1Character::ExpireItemBuff(FString ItemName, TArray<FItemEffect> Effects)
@@ -1672,7 +1719,22 @@ void AMyProject1Character::ExpireItemBuff(FString ItemName, TArray<FItemEffect> 
 		}
 	}
 
-	// ★ ここでログを1回だけ出す
+	// --- 追加：バフリストから削除してUIに通知 ---
+	// ★ポイント：1つのアイテムから複数のバフアイコンが出ている可能性があるので、
+	// 配列の「後ろから」順番に確認し、名前が一致するものを全て消去します。
+	for (int32 i = ActiveBuffs.Num() - 1; i >= 0; --i)
+	{
+		if (ActiveBuffs[i].BuffName == ItemName)
+		{
+			ActiveBuffs.RemoveAt(i);
+		}
+	}
+
+	if (OnBuffListChangedDelegate.IsBound())
+	{
+		OnBuffListChangedDelegate.Broadcast();
+	}
+
 	FString Msg = FString::Printf(TEXT("%sの効果が切れた。"), *ItemName);
 	OnReceiveLogMessage(Msg, ELogMessageType::System);
 }
