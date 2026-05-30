@@ -5,6 +5,7 @@
 #include "GameFramework/Character.h"
 #include "MyProject1GameInstance.h"
 #include "WarpPortal.h"
+#include "MyProject1HUD.h"
 
 UDialogComponent::UDialogComponent()
 {
@@ -15,6 +16,13 @@ void UDialogComponent::StartDialog(FName RowName, UDataTable* DialogTable, AActo
 {
 	if (!DialogTable) return;
 
+	// --- 【追加】会話が始まったら、プレイヤーのターゲットを強制解除してカーソルを消去する ---
+	if (AMyProject1Character* Player = Cast<AMyProject1Character>(GetOwner()))
+	{
+		Player->CancelTarget();
+	}
+	// --------------------------------------------------------------------------
+
 	CurrentTable = DialogTable;
 	CurrentNPC = InNPC;
 
@@ -24,7 +32,7 @@ void UDialogComponent::StartDialog(FName RowName, UDataTable* DialogTable, AActo
 	{
 		CurrentDialogData = *Data;
 
-		// --- 【追加】テキストの分割処理 ---
+		// --- テキストの分割処理 ---
 		FString RawText = CurrentDialogData.DialogText.ToString();
 		CurrentDialogLines.Empty();
 
@@ -233,8 +241,22 @@ void UDialogComponent::CloseDialog()
 	if (AMyProject1Character* Player = Cast<AMyProject1Character>(GetOwner()))
 	{
 		Player->CancelTarget();
+
+		if (APlayerController* PC = Cast<APlayerController>(Player->GetController()))
+		{
+			// 入力フォーカスをゲーム操作のみに戻す
+			FInputModeGameOnly InputMode;
+			PC->SetInputMode(InputMode);
+
+			// マウスカーソルを非表示にする
+			PC->bShowMouseCursor = false;
+
+			// ついでに、会話中でロックされていたプレイヤーの移動や操作も確実に解除しておく
+			Player->SetInputLocked(false);
+		}
 	}
 
+	// 最後にUI側へ「閉じる」合図を送る
 	OnDialogClosed.Broadcast();
 }
 
@@ -252,7 +274,14 @@ void UDialogComponent::AdvanceDialog()
 	// bEndDialogがTrueになっている、または次の会話IDが設定されていなければ会話を終了する
 	if (CurrentDialogData.bEndDialog || CurrentDialogData.NextDialogID.IsNone())
 	{
-		CloseDialog();
+		FTimerHandle TimerHandle;
+		GetWorld()->GetTimerManager().SetTimer(TimerHandle, [this]()
+			{
+				if (IsValid(this))
+				{
+					CloseDialog();
+				}
+			}, 0.01f, false);
 	}
 	else
 	{
@@ -294,7 +323,7 @@ void UDialogComponent::ShowCurrentLine()
 	// テキスト部分だけを「現在の行」の文字列に差し替える
 	DisplayData.DialogText = FText::FromString(CurrentDialogLines[CurrentLineIndex]);
 
-	// ★ポイント：最後の行に到達するまでは、選択肢を出さないように配列を空にする
+	// 最後の行に到達するまでは、選択肢を出さないように配列を空にする
 	// これにより、UI側は「選択肢がない普通のセリフだ」と認識してくれます。
 	if (CurrentLineIndex < CurrentDialogLines.Num() - 1)
 	{
@@ -303,9 +332,45 @@ void UDialogComponent::ShowCurrentLine()
 		// ダミーのIDを入れて「次へ進むボタン（クリック）」を有効にさせる
 		DisplayData.NextDialogID = FName(TEXT("DummyNextPage"));
 		DisplayData.bEndDialog = false;
-		// ------------------------
 	}
 
-	// UIに「更新したよ！」と合図を送る
+	if (AMyProject1Character* Player = Cast<AMyProject1Character>(GetOwner()))
+	{
+		if (APlayerController* PC = Cast<APlayerController>(Player->GetController()))
+		{
+			// PCから現在のHUDを取得する
+			if (AMyProject1HUD* HUD = Cast<AMyProject1HUD>(PC->GetHUD()))
+			{
+				// HUDに DialogLineSound がセットされていれば鳴らす
+				if (HUD->DialogLineSound)
+				{
+					UGameplayStatics::PlaySound2D(GetWorld(), HUD->DialogLineSound);
+				}
+			}
+		}
+	}
+
+	// UIに「更新したよ！」と合図を送る（ここで画面のログに文字が流れる）
 	OnDialogUpdated.Broadcast(DisplayData, CurrentNPC);
+
+	// --- 【追加】最後のセリフをログに流したと同時に自動終了（オートクローズ）する ---
+	// もし今表示したのが「会話の最後の行」だった場合
+	if (CurrentLineIndex == CurrentDialogLines.Num() - 1)
+	{
+		// 選択肢が存在せず、かつ「会話が終わる設定（EndDialogがTrue、または次のIDがない）」の場合
+		if (CurrentDialogData.Choices.Num() == 0 &&
+			(CurrentDialogData.bEndDialog || CurrentDialogData.NextDialogID.IsNone()))
+		{
+			// UI側に最後のテキストを送信した 0.05秒後 に、自動で会話を終了させる！
+			// （これにより「閉じるための最後のワンクリック」が不要になります）
+			FTimerHandle TimerHandle;
+			GetWorld()->GetTimerManager().SetTimer(TimerHandle, [this]()
+				{
+					if (IsValid(this))
+					{
+						CloseDialog();
+					}
+				}, 0.05f, false);
+		}
+	}
 }

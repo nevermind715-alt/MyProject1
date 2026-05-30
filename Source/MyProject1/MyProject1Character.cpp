@@ -1147,6 +1147,20 @@ void AMyProject1Character::SetCurrentTarget(AActor* NewTarget)
 	if (CurrentTarget)
 	{
 		OnTargetUpdated(CurrentTarget, true);
+
+		if (IsPlayerControlled())
+		{
+			if (APlayerController* PC = Cast<APlayerController>(GetController()))
+			{
+				if (AMyProject1HUD* HUD = Cast<AMyProject1HUD>(PC->GetHUD()))
+				{
+					if (HUD->TargetCursorSound)
+					{
+						UGameplayStatics::PlaySound2D(GetWorld(), HUD->TargetCursorSound);
+					}
+				}
+			}
+		}
 	}
 }
 

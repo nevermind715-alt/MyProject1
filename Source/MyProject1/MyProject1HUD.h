@@ -85,6 +85,12 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "UI|Audio")
 	USoundBase* MenuCloseSound;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "UI|Audio")
+	USoundBase* DialogLineSound;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "UI|Audio")
+	USoundBase* TargetCursorSound;
+
 protected:
 	// ƒQ[ƒ€ŠJn‚ÉŒÄ‚Î‚ê‚éŠÖ”
 	virtual void BeginPlay() override;
