@@ -2127,6 +2127,7 @@ void AMyProject1Character::EquipItem(FName ItemID, FEquipmentData EquipData)
 
 		case EEquipmentSlot::Feet:
 			if (FeetMeshComp) FeetMeshComp->SetSkeletalMesh(EquipData.EquipSkeletalMesh);
+			ApplyShoesOffset(true, EquipData.HeightOffset);
 			break;
 
 		case EEquipmentSlot::Neck:
@@ -2175,6 +2176,7 @@ void AMyProject1Character::UnequipItem(EEquipmentSlot TargetSlot)
 
 	case EEquipmentSlot::Feet:
 		if (FeetMeshComp) FeetMeshComp->SetSkeletalMesh(nullptr);
+		ApplyShoesOffset(false);
 		break;
 
 	case EEquipmentSlot::Neck:
@@ -2215,4 +2217,45 @@ FName AMyProject1Character::GetEquippedItemID(EEquipmentSlot Slot)
 
 	// 登録されていなければ（何も装備していなければ） None を返す
 	return NAME_None;
+}
+
+void AMyProject1Character::ApplyShoesOffset(bool bEquip, float Offset)
+{
+	// メッシュが存在しない場合はエラーになるので弾く
+	if (!GetMesh()) return;
+
+	if (bEquip)
+	{
+		// ★履き替え対策：すでに別の靴を履いていて高さが変わっているなら、一旦元に戻す
+		if (CurrentShoesOffset != 0.0f)
+		{
+			FVector ResetLoc = GetMesh()->GetRelativeLocation();
+			ResetLoc.Z -= CurrentShoesOffset;
+			GetMesh()->SetRelativeLocation(ResetLoc);
+		}
+
+		// 新しい靴の高さを適用する
+		if (Offset != 0.0f)
+		{
+			FVector NewLoc = GetMesh()->GetRelativeLocation();
+			NewLoc.Z += Offset;
+			GetMesh()->SetRelativeLocation(NewLoc);
+		}
+
+		// 今適用した高さを記憶しておく
+		CurrentShoesOffset = Offset;
+	}
+	else
+	{
+		// 【靴を脱いだ時】メッシュを元の高さに戻す
+		if (CurrentShoesOffset != 0.0f)
+		{
+			FVector NewLoc = GetMesh()->GetRelativeLocation();
+			NewLoc.Z -= CurrentShoesOffset;
+			GetMesh()->SetRelativeLocation(NewLoc);
+
+			// 記憶をリセット
+			CurrentShoesOffset = 0.0f;
+		}
+	}
 }

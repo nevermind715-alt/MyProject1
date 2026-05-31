@@ -354,6 +354,12 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Components")
 	USkeletalMeshComponent* FeetMeshComp;
 
+	/** 現在適用されている靴の高さ補正値（脱ぐ時に元に戻すため） */
+	float CurrentShoesOffset = 0.0f;
+
+	/** 靴の高さを適用・解除する内部関数（データテーブルからの引数を受け取る） */
+	void ApplyShoesOffset(bool bEquip, float Offset = 0.0f);
+
 
 	// --- 固いアクセサリー（StaticMesh） ---
 	// ※ソケットに直接アタッチします

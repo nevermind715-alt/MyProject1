@@ -574,7 +574,7 @@ struct FQuestData : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Info")
 	FText QuestName;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Info")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Info", meta = (MultiLine = true))
 	FText Description;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Objective")
@@ -754,4 +754,7 @@ struct FEquipmentData : public FTableRowBase
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment|Stats")
 	int32 AddMND = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment|Offset")
+	float HeightOffset = 0.0f;
 };
