@@ -46,17 +46,18 @@ void UMusicControlComponent::BeginPlay()
 
 	if (LevelMusicManager)
 	{
-		if (LevelMusicManager->FieldMusic)
+		if (!LevelMusicManager->FieldMusic.IsNull())
 		{
-			FieldAudioComp->SetSound(LevelMusicManager->FieldMusic);
+			USoundBase* LoadedFieldMusic = LevelMusicManager->FieldMusic.LoadSynchronous();
+			FieldAudioComp->SetSound(LoadedFieldMusic);
 			FieldAudioComp->Play();
 			CurrentFieldVolume = 1.0f;
 		}
 
-		if (LevelMusicManager->BattleMusic)
+		if (!LevelMusicManager->BattleMusic.IsNull())
 		{
-			BattleAudioComp->SetSound(LevelMusicManager->BattleMusic);
-			// 初期状態も完全に0ではなく SilentVolume にしておく
+			USoundBase* LoadedBattleMusic = LevelMusicManager->BattleMusic.LoadSynchronous();
+			BattleAudioComp->SetSound(LoadedBattleMusic);
 			BattleAudioComp->SetVolumeMultiplier(SilentVolume);
 			CurrentBattleVolume = SilentVolume;
 		}
@@ -146,16 +147,15 @@ void UMusicControlComponent::PlayDeathMusic()
 	TargetFieldVolume = SilentVolume;
 	bIsCombatMusicPlaying = false; // 状態をリセット
 
-	if (DeathMusic)
+	if (!DeathMusic.IsNull())
 	{
-		// 2. 死亡BGMをフェードイン再生（FadeDurationを使って滑らかに導入）
-		UAudioComponent* DeathAudio = UGameplayStatics::SpawnSound2D(this, DeathMusic);
+		USoundBase* LoadedDeathMusic = DeathMusic.LoadSynchronous();
+		UAudioComponent* DeathAudio = UGameplayStatics::SpawnSound2D(this, LoadedDeathMusic);
 		if (DeathAudio)
 		{
 			DeathAudio->FadeIn(FadeDuration, 1.0f);
 
-			// 3. 曲の長さを取得して、鳴り終わるタイミングでフィールド曲に戻すタイマーをセット
-			float MusicDuration = DeathMusic->GetDuration();
+			float MusicDuration = LoadedDeathMusic->GetDuration();
 			GetWorld()->GetTimerManager().SetTimer(DeathMusicTimerHandle, this, &UMusicControlComponent::OnDeathMusicFinished, MusicDuration, false);
 		}
 	}

@@ -1,14 +1,14 @@
 #include "WBP_ShopDetail.h"
-#include "MyProject1Character.h"
 #include "InventoryComponent.h"
+#include "GameFramework/Pawn.h" // 追加
 
 void UWBP_ShopDetail::HandleHoverChanged(FName NewItemID)
 {
-	AMyProject1Character* PC = Cast<AMyProject1Character>(GetOwningPlayerPawn());
-	UInventoryComponent* Inv = PC ? PC->FindComponentByClass<UInventoryComponent>() : nullptr;
+	APawn* PlayerPawn = GetOwningPlayerPawn();
+	UInventoryComponent* Inv = PlayerPawn ? PlayerPawn->FindComponentByClass<UInventoryComponent>() : nullptr;
 
-	if (!Inv) 
-	{		
+	if (!Inv)
+	{
 		OnUpdateDetailDisplay(FItemData(), false);
 		return;
 	}
@@ -19,23 +19,20 @@ void UWBP_ShopDetail::HandleHoverChanged(FName NewItemID)
 		OnUpdateDetailDisplay(Data, true);
 	}
 	else
-	{		
+	{
 		OnUpdateDetailDisplay(FItemData(), false);
 	}
 }
 
 void UWBP_ShopDetail::NativeConstruct()
 {
-	Super::NativeConstruct(); // 親クラス（UserWidget）の初期化を必ず呼ぶ
+	Super::NativeConstruct();
 
-	if (AMyProject1Character* PC = Cast<AMyProject1Character>(GetOwningPlayerPawn()))
+	if (APawn* PlayerPawn = GetOwningPlayerPawn())
 	{
-		if (UInventoryComponent* Inv = PC->FindComponentByClass<UInventoryComponent>())
+		if (UInventoryComponent* Inv = PlayerPawn->FindComponentByClass<UInventoryComponent>())
 		{
-			// 「アイテムホバーが変わったら、私の HandleHoverChanged を実行して！」と予約する
 			Inv->OnItemHoverChanged.AddDynamic(this, &UWBP_ShopDetail::HandleHoverChanged);
 		}
 	}
-
-	
 }

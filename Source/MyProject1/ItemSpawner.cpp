@@ -72,9 +72,10 @@ void AItemSpawner::Interact(AMyProject1Character* InteractingPlayer)
 
 		if (bSuccess)
 		{
-			if (PickupSound)
+			if (!PickupSound.IsNull())
 			{
-				UGameplayStatics::PlaySoundAtLocation(this, PickupSound, GetActorLocation());
+				USoundBase* LoadedSound = PickupSound.LoadSynchronous();
+				UGameplayStatics::PlaySoundAtLocation(this, LoadedSound, GetActorLocation());
 			}
 
 			// éÊìæÇµÇΩÇÃÇ≈UIÇè¡Ç∑

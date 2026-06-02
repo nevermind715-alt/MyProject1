@@ -40,7 +40,7 @@ public:
 	float RespawnTime = 60.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Settings")
-	class USoundBase* PickupSound;
+	TSoftObjectPtr<USoundBase> PickupSound;
 
 	// アイテムの名前を取得するために、データテーブルをセットする枠を追加
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Settings")

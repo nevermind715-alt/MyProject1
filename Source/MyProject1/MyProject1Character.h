@@ -9,6 +9,7 @@
 #include "MyProject1Types.h" // これを追加！
 #include "InventoryComponent.h"
 #include "InputActionValue.h"
+#include "RpgCharacterInterface.h"
 #include "MyProject1Character.generated.h"
 
 class USpringArmComponent;
@@ -20,6 +21,7 @@ struct FInputActionValue;
 
 DECLARE_LOG_CATEGORY_EXTERN(LogTemplateCharacter, Log, All);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnHPChangedSignature, float, CurrentHP, float, MaxHP);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnStaminaChangedDelegate, float, CurrentStamina, float, MaxStamina);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnLogScrollToBottomSignature);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnCharacterDeathSignature, AActor*, DeadActor);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnStatsUpdatedSignature);
@@ -34,7 +36,7 @@ class UCriticalDamageType : public UDamageType
 };
 
 UCLASS(abstract)
-class AMyProject1Character : public ACharacter
+class AMyProject1Character : public ACharacter, public IRpgCharacterInterface
 {
 	GENERATED_BODY()
 
@@ -86,6 +88,14 @@ protected:
 	/** 1回あたりの回復量（最大HPに対する割合 0.05 = 5%） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Regeneration")
 	float AutoRecoveryRate = 0.05f;
+
+	/** 戦闘時の1秒あたりのスタミナ回復量（毎秒どれくらい回復するか） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Regeneration")
+	float StaminaRecoveryCombat = 10.0f;
+
+	/** 非戦闘時の1秒あたりのスタミナ回復量 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Regeneration")
+	float StaminaRecoveryField = 25.0f;
 
 	/** 自動回復を管理するタイマーハンドル */
 	FTimerHandle TimerHandle_AutoRecovery;
@@ -195,20 +205,28 @@ public:
 
 	
 	UFUNCTION(BlueprintCallable, Category = "Combat|Stats")
-	void NotifyStatsChanged();
+	void NotifyStatsChanged() override;
+
+	// --- アビリティコンポーネント ---
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+	class UAbilityComponent* AbilityComp;
+
 
 	// --- フラグ管理 ---
 	/** フラグ（条件）を獲得する */
 	UFUNCTION(BlueprintCallable, Category = "RPG Combat|Flags")
-	void AddFlag(FName FlagName);
+	void AddFlag(FName FlagName) override;
 
 	// フラグを消去する
 	UFUNCTION(BlueprintCallable, Category = "RPG Combat|Flags")
-	void RemoveFlag(FName FlagName);
+	void RemoveFlag(FName FlagName) override;
 
 	/** 指定したフラグ（条件）を持っているか確認する */
 	UFUNCTION(BlueprintPure, Category = "RPG Combat|Flags")
-	bool HasFlag(FName FlagName) const;
+	bool HasFlag(FName FlagName) const override;
+
+	virtual FCharacterStats& GetCharacterStats() override { return MyStats; }
+	virtual UQuestComponent* GetQuestComponent() const override { return QuestComp; }
 
 	// --- 疲労度（Energy）設定 ---
 
@@ -286,7 +304,7 @@ public:
 
 	/** 操作ロックを切り替える関数（BPから呼び出し可能） */
 	UFUNCTION(BlueprintCallable, Category = "Input")
-	void SetInputLocked(bool bLocked);
+	void SetInputLocked(bool bLocked) override;
 
 	UFUNCTION(BlueprintCallable, Category = "Combat|UI")
 	bool IsReadingOldLogs() const;
@@ -298,6 +316,9 @@ public:
 	// 2. WidgetからBindできるように UPROPERTY(BlueprintAssignable) をつける
 	UPROPERTY(BlueprintAssignable, Category = "Combat|UI")
 	FOnHPChangedSignature OnHPChangedDelegate;
+
+	UPROPERTY(BlueprintAssignable, Category = "Combat|UI")
+	FOnStaminaChangedDelegate OnStaminaChangedDelegate;
 
 	UPROPERTY(BlueprintAssignable, Category = "Combat|UI")
 	FOnLogScrollToBottomSignature OnLogScrollToBottomDelegate;
@@ -487,7 +508,7 @@ public:
 
 	/** ログメッセージをUIに送るためのイベント（BPで中身を書く） */
 	UFUNCTION(BlueprintCallable, BlueprintImplementableEvent, Category = "Combat|UI")
-	void OnReceiveLogMessage(const FString& Message, ELogMessageType InLogType);
+	void OnReceiveLogMessage(const FString& Message, ELogMessageType MessageType) override;
 
 	/** 現在ターゲットしている敵（空っぽならターゲットなし） */
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Combat")
@@ -505,11 +526,11 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Combat")
 	void SetCurrentTarget(AActor* NewTarget);
 
-	// ★追加：ターゲットを明示的に解除する関数
+	// ターゲットを明示的に解除する関数
 	UFUNCTION(BlueprintCallable, Category = "Combat")
-	void CancelTarget();
+	void CancelTarget() override;
 
-	// ★追加2：BP側でマーカーの表示/非表示を制御するためのイベント
+	// BP側でマーカーの表示/非表示を制御するためのイベント
 	// C++から呼び出して、BP側に処理を投げます
 	UFUNCTION(BlueprintImplementableEvent, Category = "Combat")
 	void OnTargetUpdated(AActor* TargetActor, bool bIsTargeted);

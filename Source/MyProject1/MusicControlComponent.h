@@ -22,7 +22,7 @@ public:
 
 	// 死亡時のBGM
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Music Control")
-	USoundBase* DeathMusic;
+	TSoftObjectPtr<USoundBase> DeathMusic;
 
 	// 死亡BGMを再生する関数
 	UFUNCTION(BlueprintCallable, Category = "Music Control")

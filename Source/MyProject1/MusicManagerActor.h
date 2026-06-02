@@ -1,4 +1,5 @@
-﻿#pragma once
+﻿// MusicManagerActor.h の中身を以下のように変更
+#pragma once
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
@@ -12,11 +13,9 @@ class MYPROJECT1_API AMusicManagerActor : public AActor
 public:
 	AMusicManagerActor();
 
-	// このレベルで流すフィールド曲
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Level Music")
-	USoundBase* FieldMusic;
+	TSoftObjectPtr<USoundBase> FieldMusic;
 
-	// このレベルで流す戦闘曲
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Level Music")
-	USoundBase* BattleMusic;
+	TSoftObjectPtr<USoundBase> BattleMusic;
 };

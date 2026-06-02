@@ -25,6 +25,7 @@
 #include "Blueprint/UserWidget.h"
 #include "QuestComponent.h"
 #include "DialogComponent.h"
+#include "AbilityComponent.h"
 #include "MyProject1GameInstance.h"
 #include "MusicControlComponent.h"
 #include "Engine/DamageEvents.h"
@@ -35,6 +36,9 @@ AMyProject1Character::AMyProject1Character()
 {
 	PrimaryActorTick.bCanEverTick = true;
 	PrimaryActorTick.bStartWithTickEnabled = true;
+
+
+	AbilityComp = CreateDefaultSubobject<UAbilityComponent>(TEXT("AbilityComp"));
 
 	// --- 武器コンポーネントの作成と設定（ここで行う） ---
 	WeaponMeshComp = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("WeaponMeshComp"));
@@ -142,6 +146,10 @@ AMyProject1Character::AMyProject1Character()
 	QuestComp = CreateDefaultSubobject<UQuestComponent>(TEXT("QuestComp"));
 	DialogComp = CreateDefaultSubobject<UDialogComponent>(TEXT("DialogComp"));
 	MusicComp = CreateDefaultSubobject<UMusicControlComponent>(TEXT("MusicComp"));
+
+	// スタミナ回復のデフォルト値（後でエディタから変更可能です）
+	StaminaRecoveryCombat = 10.0f;
+	StaminaRecoveryField = 25.0f;
 
 }
 
@@ -550,6 +558,21 @@ void AMyProject1Character::Tick(float DeltaTime)
 	{
 		// 通常時の自動まばたき処理
 		UpdateBlink(DeltaTime);
+	}
+
+	if (MyStats.Stamina < MyStats.MaxStamina)
+	{
+		// 戦闘中（ターゲットあり）か、非戦闘中かで回復スピードを切り替える
+		float CurrentRecoveryRate = (CurrentTarget != nullptr) ? StaminaRecoveryCombat : StaminaRecoveryField;
+
+		// 毎フレームの経過時間（DeltaTime）を掛けて滑らかに回復
+		MyStats.Stamina = FMath::Min(MyStats.Stamina + (CurrentRecoveryRate * DeltaTime), MyStats.MaxStamina);
+
+		// 先ほど作ったスタミナ用のデリゲート（合図）を毎フレーム飛ばしてUIをリアルタイム更新
+		if (OnStaminaChangedDelegate.IsBound())
+		{
+			OnStaminaChangedDelegate.Broadcast(MyStats.Stamina, MyStats.MaxStamina);
+		}
 	}
 
 	// --- 2. 基本となる目標速度（TargetSpeed）を計算する ---
@@ -1447,6 +1470,8 @@ void AMyProject1Character::ApplyJobData()
 	}
 	UpdateHealthWidgetName(CharacterName);
 
+	RefreshEquipmentStats();
+
 	if (OnHPChangedDelegate.IsBound())
 	{
 		OnHPChangedDelegate.Broadcast(MyStats.HP, MyStats.MaxHP);
@@ -2102,52 +2127,89 @@ void AMyProject1Character::UpdateBlink(float DeltaTime)
 
 void AMyProject1Character::EquipItem(FName ItemID, FEquipmentData EquipData)
 {
-	
-	switch(EquipData.TargetSlot)
+	switch (EquipData.TargetSlot)
 	{
-		case EEquipmentSlot::Head:
-			if (HeadMeshComp) HeadMeshComp->SetSkeletalMesh(EquipData.EquipSkeletalMesh);
-			break;
+	case EEquipmentSlot::Head:
+		if (HeadMeshComp)
+		{
+			USkeletalMesh* LoadedMesh = EquipData.EquipSkeletalMesh.IsNull() ? nullptr : EquipData.EquipSkeletalMesh.LoadSynchronous();
+			HeadMeshComp->SetSkeletalMesh(LoadedMesh);
+		}
+		break;
 
-		case EEquipmentSlot::Torso:
-			if (TorsoMeshComp) TorsoMeshComp->SetSkeletalMesh(EquipData.EquipSkeletalMesh);
-			break;
+	case EEquipmentSlot::Torso:
+		if (TorsoMeshComp)
+		{
+			USkeletalMesh* LoadedMesh = EquipData.EquipSkeletalMesh.IsNull() ? nullptr : EquipData.EquipSkeletalMesh.LoadSynchronous();
+			TorsoMeshComp->SetSkeletalMesh(LoadedMesh);
+		}
+		break;
 
-		case EEquipmentSlot::Arms:
-			if (ArmsMeshComp) ArmsMeshComp->SetSkeletalMesh(EquipData.EquipSkeletalMesh);
-			break;
+	case EEquipmentSlot::Arms:
+		if (ArmsMeshComp)
+		{
+			USkeletalMesh* LoadedMesh = EquipData.EquipSkeletalMesh.IsNull() ? nullptr : EquipData.EquipSkeletalMesh.LoadSynchronous();
+			ArmsMeshComp->SetSkeletalMesh(LoadedMesh);
+		}
+		break;
 
-		case EEquipmentSlot::Hands:
-			if (HandsMeshComp) HandsMeshComp->SetSkeletalMesh(EquipData.EquipSkeletalMesh);
-			break;
+	case EEquipmentSlot::Hands:
+		if (HandsMeshComp)
+		{
+			USkeletalMesh* LoadedMesh = EquipData.EquipSkeletalMesh.IsNull() ? nullptr : EquipData.EquipSkeletalMesh.LoadSynchronous();
+			HandsMeshComp->SetSkeletalMesh(LoadedMesh);
+		}
+		break;
 
-		case EEquipmentSlot::Legs:
-			if (LegsMeshComp) LegsMeshComp->SetSkeletalMesh(EquipData.EquipSkeletalMesh);
-			break;
+	case EEquipmentSlot::Legs:
+		if (LegsMeshComp)
+		{
+			USkeletalMesh* LoadedMesh = EquipData.EquipSkeletalMesh.IsNull() ? nullptr : EquipData.EquipSkeletalMesh.LoadSynchronous();
+			LegsMeshComp->SetSkeletalMesh(LoadedMesh);
+		}
+		break;
 
-		case EEquipmentSlot::Feet:
-			if (FeetMeshComp) FeetMeshComp->SetSkeletalMesh(EquipData.EquipSkeletalMesh);
-			ApplyShoesOffset(true, EquipData.HeightOffset);
-			break;
+	case EEquipmentSlot::Feet:
+		if (FeetMeshComp)
+		{
+			USkeletalMesh* LoadedMesh = EquipData.EquipSkeletalMesh.IsNull() ? nullptr : EquipData.EquipSkeletalMesh.LoadSynchronous();
+			FeetMeshComp->SetSkeletalMesh(LoadedMesh);
+		}
+		ApplyShoesOffset(true, EquipData.HeightOffset);
+		break;
 
-		case EEquipmentSlot::Neck:
-			if (NeckMeshComp) NeckMeshComp->SetStaticMesh(EquipData.EquipStaticMesh);
-			break;
+	case EEquipmentSlot::Neck:
+		if (NeckMeshComp)
+		{
+			UStaticMesh* LoadedMesh = EquipData.EquipStaticMesh.IsNull() ? nullptr : EquipData.EquipStaticMesh.LoadSynchronous();
+			NeckMeshComp->SetStaticMesh(LoadedMesh);
+		}
+		break;
 
-		case EEquipmentSlot::Wrist:
-			if (WristMeshComp) WristMeshComp->SetStaticMesh(EquipData.EquipStaticMesh);
-			break;
+	case EEquipmentSlot::Wrist:
+		if (WristMeshComp)
+		{
+			UStaticMesh* LoadedMesh = EquipData.EquipStaticMesh.IsNull() ? nullptr : EquipData.EquipStaticMesh.LoadSynchronous();
+			WristMeshComp->SetStaticMesh(LoadedMesh);
+		}
+		break;
 
-		case EEquipmentSlot::Ankle:
-			if (AnkleMeshComp) AnkleMeshComp->SetStaticMesh(EquipData.EquipStaticMesh);
-			break;
+	case EEquipmentSlot::Ankle:
+		if (AnkleMeshComp)
+		{
+			UStaticMesh* LoadedMesh = EquipData.EquipStaticMesh.IsNull() ? nullptr : EquipData.EquipStaticMesh.LoadSynchronous();
+			AnkleMeshComp->SetStaticMesh(LoadedMesh);
+		}
+		break;
 
-		default:
-			break;
+	default:
+		break;
 	}
 
 	// 装備状態の記憶を更新（ここで ItemID が使われます）
 	CurrentEquippedItems.Add(EquipData.TargetSlot, ItemID);
+
+	RefreshEquipmentStats();
 }
 
 void AMyProject1Character::UnequipItem(EEquipmentSlot TargetSlot)
@@ -2197,13 +2259,81 @@ void AMyProject1Character::UnequipItem(EEquipmentSlot TargetSlot)
 
 	// 記憶している装備状態から削除
 	CurrentEquippedItems.Remove(TargetSlot);
+
+	RefreshEquipmentStats();
 }
 
 void AMyProject1Character::RefreshEquipmentStats()
 {
-	// TODO: ここに後で「現在の装備リストをループして、すべての装備の STR増や DEF増 を合計してステータスに反映する処理」を書きます
+	if (JobRow.IsNull()) return;
+	FJobAttributes* JobData = JobRow.GetRow<FJobAttributes>(JobRow.RowName.ToString());
+	if (!JobData) return;
 
-	// UE_LOG(LogTemp, Warning, TEXT("装備ステータスを再計算しました"));
+	// 1. ジョブとレベルから「基礎ステータス」を再計算
+	float BaseMaxHP = JobData->BaseHP + ((MyStats.Level - 1) * 15.0f);
+	float BaseSTR = JobData->BaseSTR + ((MyStats.Level - 1) * 2.0f);
+	float BaseVIT = JobData->BaseVIT + ((MyStats.Level - 1) * 2.0f);
+	float BaseDEX = JobData->BaseDEX + ((MyStats.Level - 1) * 2.0f);
+	float BaseAGI = JobData->BaseAGI + ((MyStats.Level - 1) * 2.0f);
+
+	// 2. 装備品のボーナスを合計
+	float BonusSTR = 0.0f;
+	float BonusDEF = 0.0f;
+	float BonusMND = 0.0f;
+
+	if (EquipmentDataTable)
+	{
+		// 現在装備中のアイテムをループして合計値を出す
+		for (const auto& Pair : CurrentEquippedItems)
+		{
+			FName ItemID = Pair.Value;
+			if (!ItemID.IsNone())
+			{
+				FEquipmentData* EquipData = EquipmentDataTable->FindRow<FEquipmentData>(ItemID, TEXT("EquipmentStats"));
+				if (EquipData)
+				{
+					BonusSTR += EquipData->AddSTR;
+					BonusDEF += EquipData->AddDEF;
+					BonusMND += EquipData->AddMND;
+				}
+			}
+		}
+	}
+
+	// 3. 現在HPの変化前状態を記憶
+	bool bWasFullHP = (MyStats.HP >= MyStats.MaxHP);
+
+	// 4. ステータスの確定（基礎値 ＋ 装備ボーナス）
+	MyStats.MaxHP = BaseMaxHP;
+	MyStats.STR = BaseSTR + BonusSTR;
+	MyStats.VIT = BaseVIT;
+	MyStats.DEX = BaseDEX;
+	MyStats.AGI = BaseAGI;
+	MyStats.Mental = 1.0f + BonusMND; // 初期値1.0 + ボーナス
+
+	// 5. STRやVITから派生する戦闘力（攻撃力・防御力）を計算
+	MyStats.AttackPower = MyStats.STR * 2.0f;
+	MyStats.DefensePower = (MyStats.VIT * 2.0f) + BonusDEF; // 装備のDEFはここに直接足す
+	MyStats.Accuracy = MyStats.DEX * 1.5f;
+	MyStats.Evasion = MyStats.AGI * 1.5f;
+
+	// 6. HPの補正（元々満タンなら満タンを維持、最大値を超えていたら丸める）
+	if (bWasFullHP)
+	{
+		MyStats.HP = MyStats.MaxHP;
+	}
+	else if (MyStats.HP > MyStats.MaxHP)
+	{
+		MyStats.HP = MyStats.MaxHP;
+	}
+
+	// 7. UIへ通知（ステータス画面やHPバーの更新）
+	if (OnHPChangedDelegate.IsBound())
+	{
+		OnHPChangedDelegate.Broadcast(MyStats.HP, MyStats.MaxHP);
+	}
+	OnHPChanged(MyStats.HP, MyStats.MaxHP);
+	NotifyStatsChanged();
 }
 
 FName AMyProject1Character::GetEquippedItemID(EEquipmentSlot Slot)

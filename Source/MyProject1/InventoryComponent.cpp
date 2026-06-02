@@ -6,6 +6,7 @@
 #include "Sound/SoundBase.h"
 #include "MyProject1Character.h"
 #include "QuestComponent.h"
+#include "RpgCharacterInterface.h"
 
 #pragma execution_character_set("utf-8")
 
@@ -82,16 +83,17 @@ bool UInventoryComponent::AddItem(FName ItemID, int32 Amount)
 	// 1個でもカバンに入った場合の処理
 	if (ActuallyAdded > 0)
 	{
+		// クエストへの通知などは、まだ依存関係があるため一旦既存のキャラクターへのキャストを残します
 		AMyProject1Character* OwnerChar = Cast<AMyProject1Character>(GetOwner());
-		if (OwnerChar)
+		if (OwnerChar && OwnerChar->QuestComp)
 		{
-			// クエストに通知
-			if (OwnerChar->QuestComp)
-			{
-				OwnerChar->QuestComp->UpdateGatherObjective(ItemID, ActuallyAdded);
-			}
+			OwnerChar->QuestComp->UpdateGatherObjective(ItemID, ActuallyAdded);
+		}
 
-			// ★ FF11風のアイテム取得ログを表示
+		// ★ログ出力部分をインターフェース（窓口）経由に変更！
+		// これにより、将来プレイヤー以外のNPCがアイテムを拾った時でもエラーにならずログが流せます
+		if (IRpgCharacterInterface* RpgInterface = Cast<IRpgCharacterInterface>(GetOwner()))
+		{
 			FString LogMsg;
 			if (ActuallyAdded == 1)
 			{
@@ -101,14 +103,13 @@ bool UInventoryComponent::AddItem(FName ItemID, int32 Amount)
 			{
 				LogMsg = FString::Printf(TEXT("%sを%d個手に入れた。"), *ItemInfo->Name, ActuallyAdded);
 			}
-			OwnerChar->OnReceiveLogMessage(LogMsg, ELogMessageType::System);
+			RpgInterface->OnReceiveLogMessage(LogMsg, ELogMessageType::System);
 		}
 
 		// UI更新
 		OnInventoryUpdated.Broadcast();
 	}
 
-	// 全部入りきったか（true）、カバンがいっぱいで一部/全部弾かれたか（false）を返す
 	return RemainingAmount <= 0;
 }
 
@@ -224,27 +225,25 @@ bool UInventoryComponent::UseItem(FName ItemID)
 	// ---消費アイテム以外なら使えないように弾く ---
 	if (ItemInfo->ItemType != EItemType::Consumable)
 	{
-		// 「〇〇は使えない。」というメッセージを作る
-		FString CannotUseMsg = FString::Printf(TEXT("%s は使えない。"), *ItemInfo->Name);
-		OwnerChar->OnReceiveLogMessage(CannotUseMsg, ELogMessageType::System);
-
-		// 処理を中断して失敗(false)を返す
+		if (IRpgCharacterInterface* RpgInterface = Cast<IRpgCharacterInterface>(GetOwner()))
+		{
+			FString CannotUseMsg = FString::Printf(TEXT("%s は使えない。"), *ItemInfo->Name);
+			RpgInterface->OnReceiveLogMessage(CannotUseMsg, ELogMessageType::System);
+		}
 		return false;
 	}
 
 	if (!ItemInfo->UseSound.IsNull())
 	{
-		// ソフトポインタを同期ロード
 		USoundBase* SoundToPlay = ItemInfo->UseSound.LoadSynchronous();
 		if (SoundToPlay)
 		{
-			// キャラクターの位置で再生（FF11のように周囲にも聞こえる）
 			UGameplayStatics::PlaySoundAtLocation(this, SoundToPlay, OwnerChar->GetActorLocation());
 		}
 	}
 
 	TArray<FItemEffect> TimedEffects;
-	float TotalHealed = 0.0f; // 回復量の合計
+	float TotalHealed = 0.0f;
 	bool bAnyEffectApplied = false;
 
 	for (const FItemEffect& Effect : ItemInfo->Effects)
@@ -254,7 +253,6 @@ bool UInventoryComponent::UseItem(FName ItemID)
 		case ETargetStat::HP:
 			if (Effect.EffectDuration <= 0.0f)
 			{
-				// ★ UpdateHealth の戻り値（実際の回復量）を足していく
 				TotalHealed += OwnerChar->UpdateHealth(Effect.EffectAmount);
 				bAnyEffectApplied = true;
 			}
@@ -283,12 +281,8 @@ bool UInventoryComponent::UseItem(FName ItemID)
 		case ETargetStat::CustomExtraStat:
 			if (!Effect.ExtraStatName.IsNone())
 			{
-				// FindRefは、名前が見つかればその数値を、無ければ 0.0f を返してくれる超便利機能です
 				float CurrentValue = OwnerChar->MyStats.ExtraStats.FindRef(Effect.ExtraStatName);
-
-				// マップの値を更新（無ければ新規追加される）
 				OwnerChar->MyStats.ExtraStats.Add(Effect.ExtraStatName, CurrentValue + Effect.EffectAmount);
-
 				bAnyEffectApplied = true;
 			}
 			break;
@@ -314,21 +308,22 @@ bool UInventoryComponent::UseItem(FName ItemID)
 
 	if (bAnyEffectApplied)
 	{
-		// 1. 使用ログ（一番最初に出す）
-		FString LogMsg = FString::Printf(TEXT("%sを使用した。"), *ItemInfo->Name);
-		OwnerChar->OnReceiveLogMessage(LogMsg, ELogMessageType::System);
-
-		// 2. 回復ログ
-		if (TotalHealed > 0.0f)
+		// ★ここもインターフェースによる通信に書き換えます
+		if (IRpgCharacterInterface* RpgInterface = Cast<IRpgCharacterInterface>(GetOwner()))
 		{
-			FString HealMsg = FString::Printf(TEXT("HPが %.0f 回復した。"), TotalHealed);
-			OwnerChar->OnReceiveLogMessage(HealMsg, ELogMessageType::System);
+			FString LogMsg = FString::Printf(TEXT("%sを使用した。"), *ItemInfo->Name);
+			RpgInterface->OnReceiveLogMessage(LogMsg, ELogMessageType::System);
+
+			if (TotalHealed > 0.0f)
+			{
+				FString HealMsg = FString::Printf(TEXT("HPが %.0f 回復した。"), TotalHealed);
+				RpgInterface->OnReceiveLogMessage(HealMsg, ELogMessageType::System);
+			}
 		}
 
 		if (ItemInfo->bConsumeOnUse) { RemoveItem(ItemID, 1); }
 	}
 
-	// 3. バフをまとめて1回だけ実行（使用ログの後に出す）
 	if (TimedEffects.Num() > 0)
 	{
 		OwnerChar->ApplyItemBuff(ItemInfo->Name, ItemInfo->Icon, TimedEffects, TimedEffects[0].EffectDuration);
@@ -339,42 +334,44 @@ bool UInventoryComponent::UseItem(FName ItemID)
 
 bool UInventoryComponent::ProcessPurchase(FName ItemID, int32 Amount)
 {
-	FItemData* ItemInfo = GetItemData(ItemID); // アイテム情報を取得
+	FItemData* ItemInfo = GetItemData(ItemID);
 	if (!ItemInfo || Amount <= 0) return false;
 
-	int32 TotalPrice = ItemInfo->Price * Amount; // 合計金額
-	AMyProject1Character* OwnerChar = Cast<AMyProject1Character>(GetOwner());
+	int32 TotalPrice = ItemInfo->Price * Amount;
+
+	// ★インターフェース窓口を確保
+	IRpgCharacterInterface* RpgInterface = Cast<IRpgCharacterInterface>(GetOwner());
 
 	// 1. お金が足りるかチェック
 	if (Gil < TotalPrice)
 	{
-		if (OwnerChar)
+		if (RpgInterface)
 		{
-			OwnerChar->OnReceiveLogMessage(TEXT("お金が足りません。"), ELogMessageType::System);
+			RpgInterface->OnReceiveLogMessage(TEXT("お金が足りません。"), ELogMessageType::System);
 		}
 		return false;
 	}
 
-	// 2. アイテムを追加（AddItemの中でカバンの空きをチェックしている）
+	// 2. アイテムを追加
 	if (AddItem(ItemID, Amount))
 	{
 		// 3. 成功したらお金を支払う
 		TrySpendGil(TotalPrice);
 
-		// 4. システムログを送信（FF11風のメッセージ）
-		if (OwnerChar)
+		// 4. システムログを送信
+		if (RpgInterface)
 		{
 			FString LogMsg = FString::Printf(TEXT("%sを%d個買った。%d￥支払った。"), *ItemInfo->Name, Amount, TotalPrice);
-			OwnerChar->OnReceiveLogMessage(LogMsg, ELogMessageType::System);
+			RpgInterface->OnReceiveLogMessage(LogMsg, ELogMessageType::System);
 		}
 		return true;
 	}
 	else
 	{
 		// カバンがいっぱいで追加できなかった場合
-		if (OwnerChar)
+		if (RpgInterface)
 		{
-			OwnerChar->OnReceiveLogMessage(TEXT("カバンがいっぱいで買えません。"), ELogMessageType::System);
+			RpgInterface->OnReceiveLogMessage(TEXT("カバンがいっぱいで買えません。"), ELogMessageType::System);
 		}
 		return false;
 	}
@@ -385,13 +382,14 @@ bool UInventoryComponent::ProcessSale(FName ItemID, int32 Amount)
 	FItemData* ItemInfo = GetItemData(ItemID);
 	if (!ItemInfo) return false;
 
+	IRpgCharacterInterface* RpgInterface = Cast<IRpgCharacterInterface>(GetOwner());
+
 	// 1. 「だいじなもの」チェック（売却不可なら即終了）
 	if (ItemInfo->ItemType == EItemType::KeyItem)
 	{
-		AMyProject1Character* OwnerChar = Cast<AMyProject1Character>(GetOwner());
-		if (OwnerChar)
+		if (RpgInterface)
 		{
-			OwnerChar->OnReceiveLogMessage(TEXT("それは売却できません。"), ELogMessageType::System);
+			RpgInterface->OnReceiveLogMessage(TEXT("それは売却できません。"), ELogMessageType::System);
 		}
 		return false;
 	}
@@ -399,7 +397,7 @@ bool UInventoryComponent::ProcessSale(FName ItemID, int32 Amount)
 	// 2. 所持数の確認
 	if (GetItemQuantity(ItemID) < Amount) return false;
 
-	// 3. 売却価格の計算（データテーブルの SellPrice を使用）
+	// 3. 売却価格の計算
 	int32 TotalSellPrice = ItemInfo->SellPrice * Amount;
 
 	// 4. アイテムの削除とギルの加算
@@ -408,11 +406,10 @@ bool UInventoryComponent::ProcessSale(FName ItemID, int32 Amount)
 		AddGil(TotalSellPrice);
 
 		// システムログの送信
-		AMyProject1Character* OwnerChar = Cast<AMyProject1Character>(GetOwner());
-		if (OwnerChar)
+		if (RpgInterface)
 		{
 			FString LogMsg = FString::Printf(TEXT("%sを%d個売却した。%d￥手に入れた。"), *ItemInfo->Name, Amount, TotalSellPrice);
-			OwnerChar->OnReceiveLogMessage(LogMsg, ELogMessageType::System);
+			RpgInterface->OnReceiveLogMessage(LogMsg, ELogMessageType::System);
 		}
 		return true;
 	}

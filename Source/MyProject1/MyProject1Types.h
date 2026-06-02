@@ -365,6 +365,85 @@ struct FItemEffect
 	FName BuffID;
 };
 
+// ==========================================
+// ▼ アビリティ（魔法・スキル）システム用の定義 ▼
+// ==========================================
+
+// --- アビリティの使用可能なタイミング ---
+UENUM(BlueprintType)
+enum class EAbilityUsageContext : uint8
+{
+	Anywhere      UMETA(DisplayName = "いつでも（ケアルなど）"),
+	CombatOnly    UMETA(DisplayName = "戦闘中のみ（ウェポンスキルなど）"),
+	FieldOnly     UMETA(DisplayName = "非戦闘時のみ（テレポなど）")
+};
+
+// --- アビリティの対象 ---
+UENUM(BlueprintType)
+enum class EAbilityTargetType : uint8
+{
+	Self          UMETA(DisplayName = "自分自身"),
+	AllySingle    UMETA(DisplayName = "味方単体"),
+	EnemySingle   UMETA(DisplayName = "敵単体"),
+	AreaOfEffect  UMETA(DisplayName = "範囲（AoE）")
+};
+
+// --- アビリティの設計図（データテーブルの1行分） ---
+USTRUCT(BlueprintType)
+struct FAbilityData : public FTableRowBase
+{
+	GENERATED_BODY()
+
+	// アビリティの名前
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	FString AbilityName;
+
+	// 説明文
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (MultiLine = true))
+	FText Description;
+
+	// アイコン画像
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	class UTexture2D* Icon = nullptr;
+
+	// --- 発動条件 ---
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Condition")
+	EAbilityUsageContext UsageContext = EAbilityUsageContext::Anywhere;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Condition")
+	EAbilityTargetType TargetType = EAbilityTargetType::EnemySingle;
+
+	// --- 消費コスト ---
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cost")
+	float CostStamina = 0.0f;
+
+	// ウェポンスキルなどに使用するTP（タクティカルポイント）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cost")
+	int32 CostTP = 0;
+
+	// --- 時間管理 ---
+	// 詠唱にかかる時間（秒）。0なら即時発動（ウェポンスキルなど）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Time")
+	float CastTime = 2.0f;
+
+	// 次に使えるようになるまでのクールタイム（秒）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Time")
+	float RecastTime = 10.0f;
+
+	// --- 演出と効果 ---
+	// 詠唱中にループ再生するモーション（魔法陣を出すなど）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Visual")
+	class UAnimMontage* CastMontage = nullptr;
+
+	// 発動した瞬間に再生するモーション（剣を振り下ろす、杖を掲げるなど）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Visual")
+	class UAnimMontage* ExecuteMontage = nullptr;
+
+	// 既存のアイテム効果（FItemEffect）の仕組みを完全に使い回して、何が起きるかを定義します
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Effect")
+	TArray<FItemEffect> Effects;
+};
+
 // --- アクティブなバフ・デバフを管理する構造体 ---
 USTRUCT(BlueprintType)
 struct FActiveBuff
@@ -739,11 +818,11 @@ struct FEquipmentData : public FTableRowBase
 
 	// 柔らかい服や変形する装備用（Tシャツなど）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment")
-	USkeletalMesh* EquipSkeletalMesh = nullptr;
+	TSoftObjectPtr<USkeletalMesh> EquipSkeletalMesh;
 
 	// 固いアクセサリー用（ネックレス腕輪・足輪など）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment")
-	UStaticMesh* EquipStaticMesh = nullptr;
+	TSoftObjectPtr<UStaticMesh> EquipStaticMesh;
 
 	// ステータス補正値
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment|Stats")
