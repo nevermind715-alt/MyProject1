@@ -1,6 +1,6 @@
 #include "RpgDamageCalculator.h"
 
-FDamageResult URpgDamageCalculator::CalculateDamage(const FCharacterStats& AttackerStats, const FCharacterStats& DefenderStats, float SkillDamageMultiplier, float SkillCriticalBonus)
+FDamageResult URpgDamageCalculator::CalculateDamage(const FCharacterStats& AttackerStats, const FCharacterStats& DefenderStats, float SkillDamageMultiplier, float SkillCriticalBonus, float AbilityDValue)
 
 {
 	FDamageResult Result;
@@ -48,7 +48,7 @@ FDamageResult URpgDamageCalculator::CalculateDamage(const FCharacterStats& Attac
 
 	// --- 2. ダメージ計算 ---
 	// 攻撃力と防御力の基本計算
-	float BaseDamage = (AttackerStats.AttackPower - (DefenderStats.DefensePower / 2.0f)) * DamageMultiplier;
+	float BaseDamage = ((AttackerStats.AttackPower + AbilityDValue) - (DefenderStats.DefensePower / 2.0f)) * DamageMultiplier;
 	if (BaseDamage < 1.0f) BaseDamage = 1.0f;
 
 	// --- 3. クリティカル判定 ---

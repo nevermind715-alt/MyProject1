@@ -15,7 +15,8 @@ public:
 	static FDamageResult CalculateDamage(
 		const FCharacterStats& AttackerStats,
 		const FCharacterStats& DefenderStats,
-		float SkillDamageMultiplier = 1.0f,   // ←追加：特殊技のダメージ倍率
-		float SkillCriticalBonus = 0.0f       // ←追加：特殊技のクリティカルボーナス
+		float SkillDamageMultiplier = 1.0f,
+		float SkillCriticalBonus = 0.0f,
+		float AbilityDValue = 0.0f
 	);
 };

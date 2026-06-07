@@ -63,7 +63,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Settings")
 	float RespawnTime = 10.0f;
 
-	//ここを追加：ゲーム開始から最初にスポーンするまでの時間（秒）
+	//ゲーム開始から最初にスポーンするまでの時間（秒）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Settings")
 	float InitialSpawnDelay = 5.0f;
 
@@ -73,7 +73,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Overrides")
 	FDataTableRowHandle SpawnerJobRow;
 
-	// --- 追加：NM（レア敵）抽選ポップ設定 ---
+	// --- NM（レア敵）抽選ポップ設定 ---
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Overrides|NM")
 	bool bEnableRareSpawn = false;
 
@@ -87,7 +87,10 @@ public:
 
 	/** NMの名前 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Overrides|NM", meta = (EditCondition = "bEnableRareSpawn"))
-	FString RareNPCName = TEXT("Leaping Lizzy"); // FF11風に
+	FString RareNPCName = TEXT("NM Name");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Overrides|NM", meta = (EditCondition = "bEnableRareSpawn"))
+	FVector RareScale = FVector(1.5f, 1.5f, 1.5f);
 
 	/** スポーンする敵のレベル */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Overrides|Base Stats")
@@ -131,6 +134,14 @@ public:
 	/** 聴覚を有効にするか */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Overrides|AI Sensors")
 	bool bSpawnerEnableHearing = true;
+
+	/** Trueにすると、ジョブ本来のドロップ（データテーブル）を無視してこのスポーナーの設定だけにする */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Overrides|Loot")
+	bool bOverrideBaseLoot = false;
+
+	/** この場所で湧いた敵が特別に落とすアイテムリスト */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Overrides|Loot")
+	TArray<FLootItem> SpawnerLootTable;
 
 	/** 聴覚の範囲 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Overrides|AI Sensors")

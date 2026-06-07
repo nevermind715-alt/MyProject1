@@ -110,6 +110,24 @@ struct FSpecialAttackData
 	TArray<FSpecialEffectInfo> SpecialEffects;
 };
 
+USTRUCT(BlueprintType)
+struct FLootItem
+{
+	GENERATED_BODY()
+
+	// 落とすアイテムのID（FItemDataの行名）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	FName ItemID;
+
+	// ドロップする確率（%）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	float DropRate = 5.0f;
+
+	// 落とす個数
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	int32 Quantity = 1;
+};
+
 // --- 追加：ジョブの基本データ（データテーブル用） ---
 USTRUCT(BlueprintType)
 struct FJobAttributes : public FTableRowBase
@@ -131,6 +149,10 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "JobData|Base Stats")
 	float BaseAGI = 10.f;
+
+	// そのジョブ（敵）が共通で落とすアイテムリスト
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "JobData|Loot")
+	TArray<FLootItem> BaseLootTable;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "JobData")
 	EWeaponType DefaultWeapon = EWeaponType::HandToHand;
@@ -413,6 +435,26 @@ struct FAbilityData : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Condition")
 	EAbilityTargetType TargetType = EAbilityTargetType::EnemySingle;
 
+	// =========================================================
+	// ★追加：攻撃アビリティ専用のパラメータ
+	// =========================================================
+	/** このアビリティが直接ダメージを与える「攻撃技」かどうか */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Damage")
+	bool bIsAttackAbility = false;
+
+	/** 基本ダメージ（D値） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Damage", meta = (EditCondition = "bIsAttackAbility"))
+	float BaseDamage = 10.0f;
+
+	/** 攻撃回数（ヒット数） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Damage", meta = (EditCondition = "bIsAttackAbility", ClampMin = "1"))
+	int32 HitCount = 1;
+
+	/** クリティカル発生率（％） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Damage", meta = (EditCondition = "bIsAttackAbility"))
+	float CriticalRate = 5.0f;
+	// =========================================================
+
 	// --- 消費コスト ---
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cost")
 	float CostStamina = 0.0f;
@@ -476,6 +518,18 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (MultiLine = true))
 	FText Description;
+
+	// 落とすアイテムのID（FItemDataの行名）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	FName ItemID;
+
+	// ドロップする確率（%）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	float DropRate = 5.0f;
+
+	// 落とす個数
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	int32 Quantity = 1;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	UTexture2D* Icon;
@@ -836,4 +890,10 @@ struct FEquipmentData : public FTableRowBase
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment|Offset")
 	float HeightOffset = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment|Offset")
+	FRotator AnkleRotationOffset = FRotator::ZeroRotator;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment|Offset")
+	FRotator ToeRotationOffset = FRotator::ZeroRotator;
 };

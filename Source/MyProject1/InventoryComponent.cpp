@@ -244,6 +244,7 @@ bool UInventoryComponent::UseItem(FName ItemID)
 
 	TArray<FItemEffect> TimedEffects;
 	float TotalHealed = 0.0f;
+	float TotalStaminaHealed = 0.0f; // ← 【追加】スタミナ回復量を記録する変数
 	bool bAnyEffectApplied = false;
 
 	for (const FItemEffect& Effect : ItemInfo->Effects)
@@ -254,6 +255,29 @@ bool UInventoryComponent::UseItem(FName ItemID)
 			if (Effect.EffectDuration <= 0.0f)
 			{
 				TotalHealed += OwnerChar->UpdateHealth(Effect.EffectAmount);
+				bAnyEffectApplied = true;
+			}
+			else
+			{
+				TimedEffects.Add(Effect);
+				bAnyEffectApplied = true;
+			}
+			break;
+
+			// ▼▼ Stamina を他のステータスから独立させる ▼▼
+		case ETargetStat::Stamina:
+			if (Effect.EffectDuration <= 0.0f)
+			{
+				// スタミナの即時回復処理
+				float OldStamina = OwnerChar->MyStats.Stamina;
+				OwnerChar->MyStats.Stamina = FMath::Clamp(OwnerChar->MyStats.Stamina + Effect.EffectAmount, 0.0f, OwnerChar->MyStats.MaxStamina);
+				TotalStaminaHealed += (OwnerChar->MyStats.Stamina - OldStamina);
+
+				// UIのスタミナバーをリアルタイムで更新する合図を送る
+				if (OwnerChar->OnStaminaChangedDelegate.IsBound())
+				{
+					OwnerChar->OnStaminaChangedDelegate.Broadcast(OwnerChar->MyStats.Stamina, OwnerChar->MyStats.MaxStamina);
+				}
 				bAnyEffectApplied = true;
 			}
 			else
@@ -291,7 +315,6 @@ bool UInventoryComponent::UseItem(FName ItemID)
 		case ETargetStat::DEX:
 		case ETargetStat::VIT:
 		case ETargetStat::AGI:
-		case ETargetStat::Stamina:
 		case ETargetStat::Accuracy:
 		case ETargetStat::Evasion:
 		case ETargetStat::AttackPower:
@@ -308,7 +331,7 @@ bool UInventoryComponent::UseItem(FName ItemID)
 
 	if (bAnyEffectApplied)
 	{
-		// ★ここもインターフェースによる通信に書き換えます
+		
 		if (IRpgCharacterInterface* RpgInterface = Cast<IRpgCharacterInterface>(GetOwner()))
 		{
 			FString LogMsg = FString::Printf(TEXT("%sを使用した。"), *ItemInfo->Name);
@@ -318,6 +341,12 @@ bool UInventoryComponent::UseItem(FName ItemID)
 			{
 				FString HealMsg = FString::Printf(TEXT("HPが %.0f 回復した。"), TotalHealed);
 				RpgInterface->OnReceiveLogMessage(HealMsg, ELogMessageType::System);
+			}
+
+			if (TotalStaminaHealed > 0.0f)
+			{
+				FString StaminaMsg = FString::Printf(TEXT("スタミナが %.0f 回復した。"), TotalStaminaHealed);
+				RpgInterface->OnReceiveLogMessage(StaminaMsg, ELogMessageType::System);
 			}
 		}
 
@@ -339,7 +368,7 @@ bool UInventoryComponent::ProcessPurchase(FName ItemID, int32 Amount)
 
 	int32 TotalPrice = ItemInfo->Price * Amount;
 
-	// ★インターフェース窓口を確保
+	// インターフェース窓口を確保
 	IRpgCharacterInterface* RpgInterface = Cast<IRpgCharacterInterface>(GetOwner());
 
 	// 1. お金が足りるかチェック

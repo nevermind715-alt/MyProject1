@@ -211,6 +211,9 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
 	class UAbilityComponent* AbilityComp;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Combat|Loot")
+	TArray<FLootItem> PersonalLootTable;
+
 
 	// --- フラグ管理 ---
 	/** フラグ（条件）を獲得する */
@@ -378,8 +381,15 @@ public:
 	/** 現在適用されている靴の高さ補正値（脱ぐ時に元に戻すため） */
 	float CurrentShoesOffset = 0.0f;
 
-	/** 靴の高さを適用・解除する内部関数（データテーブルからの引数を受け取る） */
-	void ApplyShoesOffset(bool bEquip, float Offset = 0.0f);
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Offset")
+	FRotator CurrentAnkleRotationOffset = FRotator::ZeroRotator;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Offset")
+	FRotator CurrentToeRotationOffset = FRotator::ZeroRotator;
+
+	
+	// --- FRotator ToeRotation を引数に追加 ---
+	void ApplyShoesOffset(bool bEquip, float Offset = 0.0f, FRotator RotationOffset = FRotator::ZeroRotator, FRotator ToeRotation = FRotator::ZeroRotator);
 
 
 	// --- 固いアクセサリー（StaticMesh） ---

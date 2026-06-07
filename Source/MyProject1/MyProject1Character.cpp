@@ -464,18 +464,31 @@ void AMyProject1Character::CancelTarget()
 
 void AMyProject1Character::CycleTarget()
 {
-	// 1. 周囲の敵を全員探す
+	// 1. 周囲のアクターを全員探す
 	TArray<AActor*> FoundActors;
 	UGameplayStatics::GetAllActorsOfClass(GetWorld(), AActor::StaticClass(), FoundActors);
 
-	// 2. 「射程内」の敵だけのリストを作る
+	// 2. 「射程内」のアクターだけのリストを作る
 	TArray<AActor*> ValidTargets;
+
+	// 現在自分が戦闘モード（抜刀または準備中）かどうかを判定
+	bool bIsInCombatMode = (bIsAutoAttacking || bIsPreparingAttack);
+
 	for (AActor* Actor : FoundActors)
 	{
 		if (Actor == this || !Actor) continue;
 
-		// キャストする前に、Actor自体が対象のタグを持っているかチェックする！
-		if (!Actor->ActorHasTag(FName("Enemy")) && !Actor->ActorHasTag(FName("NPC"))) continue;
+		// 自分が戦闘モードの時は、NPCを除外し、Enemyだけを対象にする
+		if (bIsInCombatMode)
+		{
+			if (Actor->ActorHasTag(FName("NPC"))) continue;
+			if (!Actor->ActorHasTag(FName("Enemy"))) continue;
+		}
+		else
+		{
+			// 非戦闘時は、EnemyとNPCの両方を対象にする
+			if (!Actor->ActorHasTag(FName("Enemy")) && !Actor->ActorHasTag(FName("NPC"))) continue;
+		}
 
 		// 戦闘キャラ(MyProject1Character)の場合のみ、死んでいるかをチェックする
 		AMyProject1Character* TargetChar = Cast<AMyProject1Character>(Actor);
@@ -487,12 +500,13 @@ void AMyProject1Character::CycleTarget()
 		}
 	}
 
-	// 敵がいなければ終了
+	// 候補がいなければ終了
 	if (ValidTargets.Num() == 0) return;
 
-	// 3. もし今のターゲットがいなければ、一番近い敵を選ぶ（TargetNearestと同じ動き）
+	// 3. もし今のターゲットがいなければ、一番近いアクターを選ぶ
 	if (CurrentTarget == nullptr)
 	{
+		// ※ TargetNearestEnemy() も内部でEnemyとNPC両方を拾う設定なのでそのまま使えます
 		TargetNearestEnemy();
 		return;
 	}
@@ -504,7 +518,7 @@ void AMyProject1Character::CycleTarget()
 	int32 NextIndex;
 	if (CurrentIndex == INDEX_NONE)
 	{
-		// リストに見つからなかったら0番目（最初の敵）にする
+		// リストに見つからなかったら0番目（最初の候補）にする
 		NextIndex = 0;
 	}
 	else
@@ -515,8 +529,6 @@ void AMyProject1Character::CycleTarget()
 
 	// 6. 新しいターゲットをセット
 	SetCurrentTarget(ValidTargets[NextIndex]);
-
-	
 }
 
 void AMyProject1Character::Tick(float DeltaTime)
@@ -844,6 +856,19 @@ float AMyProject1Character::TakeDamage(float DamageAmount, FDamageEvent const& D
 
 				// 計算した経験値を加算
 				Killer->AddExperience(FinalExp);
+
+				for (const FLootItem& Loot : this->PersonalLootTable)
+				{
+					// 0.0〜100.0のサイコロを振り、確率以下ならアタリ！
+					if (FMath::RandRange(0.0f, 100.0f) <= Loot.DropRate)
+					{
+						if (Killer->InventoryComp)
+						{
+							Killer->InventoryComp->AddItem(Loot.ItemID, Loot.Quantity);
+
+						}
+					}
+				}
 
 				if (Killer->QuestComp)
 				{
@@ -1235,6 +1260,16 @@ void AMyProject1Character::StartAutoAttack()
 	// ターゲットがいる 且つ まだ戦闘中でも準備中でもない場合のみ開始
 	if (CurrentTarget && !bIsAutoAttacking && !bIsPreparingAttack)
 	{
+		// 自分がプレイヤー操作の時だけ、「相手がEnemyか」をチェックして攻撃を制限する
+		if (IsPlayerControlled())
+		{
+			if (!CurrentTarget->ActorHasTag(FName("Enemy")))
+			{
+				OnReceiveLogMessage(TEXT("この対象には攻撃できません。"), ELogMessageType::System);
+				return; // ここで処理を強制終了
+			}
+		}
+
 		bIsPreparingAttack = true;
 		StartAttackTimestamp = GetWorld()->GetTimeSeconds();
 
@@ -1425,6 +1460,8 @@ void AMyProject1Character::ApplyJobData()
 		bool bWasFullHP = (MyStats.HP >= MyStats.MaxHP);
 		// 疲労度が初期値のままかどうかを記憶
 		bool bWasFullEnergy = (MyStats.Energy <= MyStats.BaseEnergy);
+
+		PersonalLootTable = JobData->BaseLootTable;
 
 
 		// --- C. ステータスの再計算 ---
@@ -1622,6 +1659,7 @@ AActor* AMyProject1Character::FindBestNextTarget()
 
 		// 自分以外、かつ生きていて、射程内にいるか
 		if (!PotentialEnemy || PotentialEnemy == this || PotentialEnemy->IsDead()) continue;
+		if (!PotentialEnemy->ActorHasTag(FName("Enemy"))) continue;
 
 		float Dist = GetDistanceTo(PotentialEnemy);
 		if (Dist > TargetingRange) continue;
@@ -2175,7 +2213,7 @@ void AMyProject1Character::EquipItem(FName ItemID, FEquipmentData EquipData)
 			USkeletalMesh* LoadedMesh = EquipData.EquipSkeletalMesh.IsNull() ? nullptr : EquipData.EquipSkeletalMesh.LoadSynchronous();
 			FeetMeshComp->SetSkeletalMesh(LoadedMesh);
 		}
-		ApplyShoesOffset(true, EquipData.HeightOffset);
+		ApplyShoesOffset(true, EquipData.HeightOffset, EquipData.AnkleRotationOffset, EquipData.ToeRotationOffset);
 		break;
 
 	case EEquipmentSlot::Neck:
@@ -2349,7 +2387,7 @@ FName AMyProject1Character::GetEquippedItemID(EEquipmentSlot Slot)
 	return NAME_None;
 }
 
-void AMyProject1Character::ApplyShoesOffset(bool bEquip, float Offset)
+void AMyProject1Character::ApplyShoesOffset(bool bEquip, float Offset, FRotator RotationOffset, FRotator ToeRotation)
 {
 	// メッシュが存在しない場合はエラーになるので弾く
 	if (!GetMesh()) return;
@@ -2372,8 +2410,19 @@ void AMyProject1Character::ApplyShoesOffset(bool bEquip, float Offset)
 			GetMesh()->SetRelativeLocation(NewLoc);
 		}
 
-		// 今適用した高さを記憶しておく
+	
 		CurrentShoesOffset = Offset;
+		CurrentAnkleRotationOffset = RotationOffset;
+
+		if (ToeRotation == FRotator::ZeroRotator && RotationOffset != FRotator::ZeroRotator)
+		{
+			CurrentToeRotationOffset = RotationOffset * -1.0f;
+		}
+		else
+		{
+			// データテーブルで個別に設定されている場合は、その数値を優先する
+			CurrentToeRotationOffset = ToeRotation;
+		}
 	}
 	else
 	{
@@ -2387,5 +2436,8 @@ void AMyProject1Character::ApplyShoesOffset(bool bEquip, float Offset)
 			// 記憶をリセット
 			CurrentShoesOffset = 0.0f;
 		}
+
+		CurrentAnkleRotationOffset = FRotator::ZeroRotator;
+		CurrentToeRotationOffset = FRotator::ZeroRotator;
 	}
 }

@@ -64,6 +64,7 @@ void ANPCSpawner::SpawnEnemy()
 		// --- NM抽選処理 ---
 		FDataTableRowHandle FinalJobRow = this->SpawnerJobRow;
 		FString FinalNPCName = this->SpawnerNPCName;
+		FVector FinalScale = FVector(1.0f, 1.0f, 1.0f);
 
 		if (bEnableRareSpawn)
 		{
@@ -72,13 +73,14 @@ void ANPCSpawner::SpawnEnemy()
 			{
 				FinalJobRow = this->RareJobRow;
 				FinalNPCName = this->RareNPCName;
-				// ※必要ならここでレベルやサイズを大きくする処理を入れてもOK
+				FinalScale = this->RareScale;
 			}
 		}
 
 		SpawnedEnemy->JobRow = FinalJobRow;           // 抽選結果のジョブをセット
 		SpawnedEnemy->MyStats.NPCName = FinalNPCName; // 抽選結果の名前をセット
 		SpawnedEnemy->MyStats.Level = this->SpawnerLevel; // レベルはそのまま渡す
+		SpawnedEnemy->SetActorScale3D(FinalScale);
 
 		// AI設定と知覚設定の上書き
 		if (bOverridePatrolSettings)
@@ -108,6 +110,20 @@ void ANPCSpawner::SpawnEnemy()
 		// 5.UIの準備が完了した「後」にステータスを計算する
 		// ---------------------------------------------------------
 		SpawnedEnemy->ApplyJobData();
+
+		
+		// ドロップテーブルの合成・上書き
+		
+		if (bOverrideBaseLoot)
+		{
+			// データテーブルを無視して、スポーナーの設定で完全に上書きする
+			SpawnedEnemy->PersonalLootTable = this->SpawnerLootTable;
+		}
+		else
+		{
+			// ゴブリン本来のドロップリストに、スポーナー限定のドロップを「追加」する
+			SpawnedEnemy->PersonalLootTable.Append(this->SpawnerLootTable);
+		}
 
 		// =========================================================
 		// 6.データテーブルの自動計算が終わった直後に、ボーナス値を足し算する！
