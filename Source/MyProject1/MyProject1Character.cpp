@@ -55,6 +55,11 @@ AMyProject1Character::AMyProject1Character()
 	// ==========================================
 
 	// 1. 柔らかい装備群（SkeletalMesh）の生成とウェイト連動設定
+
+	HairMeshComp = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("HairMeshComp"));
+	HairMeshComp->SetupAttachment(GetMesh());
+	HairMeshComp->SetLeaderPoseComponent(GetMesh());
+
 	HeadMeshComp = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("HeadMeshComp"));
 	HeadMeshComp->SetupAttachment(GetMesh());
 	HeadMeshComp->SetLeaderPoseComponent(GetMesh());
@@ -86,6 +91,18 @@ AMyProject1Character::AMyProject1Character()
 	FeetMeshComp = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("FeetMeshComp"));
 	FeetMeshComp->SetupAttachment(GetMesh());
 	FeetMeshComp->SetLeaderPoseComponent(GetMesh());
+
+	WristSkeletalMeshComp = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("WristSkeletalMeshComp"));
+	WristSkeletalMeshComp->SetupAttachment(GetMesh());
+	WristSkeletalMeshComp->SetLeaderPoseComponent(GetMesh());
+
+	NeckSkeletalMeshComp = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("NeckSkeletalMeshComp"));
+	NeckSkeletalMeshComp->SetupAttachment(GetMesh());
+	NeckSkeletalMeshComp->SetLeaderPoseComponent(GetMesh());
+
+	AnkleSkeletalMeshComp = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("AnkleSkeletalMeshComp"));
+	AnkleSkeletalMeshComp->SetupAttachment(GetMesh());
+	AnkleSkeletalMeshComp->SetLeaderPoseComponent(GetMesh());
 
 
 	// 2. 固いアクセサリー群（StaticMesh）の生成とソケットへのアタッチ
@@ -1390,6 +1407,20 @@ void AMyProject1Character::ApplyJobData()
 			GetMesh()->SetSkeletalMesh(JobData->CharacterMesh.LoadSynchronous());
 		}
 
+		if (HairMeshComp)
+		{
+			// 1. DT_Jobs に髪のメッシュがセットされているかチェック（未設定なら完全に無視）
+			if (!JobData->HairMesh.IsNull())
+			{
+				// 2. プレイヤーが「装備品」として別の髪型を適用しているかチェック
+				// （装備枠の Hair に何も入っていない場合のみ、ジョブのデフォルト髪型を適用する）
+				if (!CurrentEquippedItems.Contains(EEquipmentSlot::Hair))
+				{
+					HairMeshComp->SetSkeletalMesh(JobData->HairMesh.LoadSynchronous());
+				}
+			}
+		}
+
 		if (WeaponMeshComp)
 		{
 			if (!JobData->WeaponMesh.IsNull())
@@ -2167,6 +2198,15 @@ void AMyProject1Character::EquipItem(FName ItemID, FEquipmentData EquipData)
 {
 	switch (EquipData.TargetSlot)
 	{
+
+	case EEquipmentSlot::Hair:
+		if (HairMeshComp)
+		{
+			USkeletalMesh* LoadedMesh = EquipData.EquipSkeletalMesh.IsNull() ? nullptr : EquipData.EquipSkeletalMesh.LoadSynchronous();
+			HairMeshComp->SetSkeletalMesh(LoadedMesh);
+		}
+		break;
+
 	case EEquipmentSlot::Head:
 		if (HeadMeshComp)
 		{
@@ -2217,26 +2257,46 @@ void AMyProject1Character::EquipItem(FName ItemID, FEquipmentData EquipData)
 		break;
 
 	case EEquipmentSlot::Neck:
+		if (NeckSkeletalMeshComp)
+		{
+			USkeletalMesh* LoadedSkelMesh = EquipData.EquipSkeletalMesh.IsNull() ? nullptr : EquipData.EquipSkeletalMesh.LoadSynchronous();
+			NeckSkeletalMeshComp->SetSkeletalMesh(LoadedSkelMesh);
+		}
+		// ▼ スタティックメッシュ（ペンダントなど）が設定されていれば読み込む
 		if (NeckMeshComp)
 		{
-			UStaticMesh* LoadedMesh = EquipData.EquipStaticMesh.IsNull() ? nullptr : EquipData.EquipStaticMesh.LoadSynchronous();
-			NeckMeshComp->SetStaticMesh(LoadedMesh);
+			UStaticMesh* LoadedStatMesh = EquipData.EquipStaticMesh.IsNull() ? nullptr : EquipData.EquipStaticMesh.LoadSynchronous();
+			NeckMeshComp->SetStaticMesh(LoadedStatMesh);
 		}
 		break;
 
 	case EEquipmentSlot::Wrist:
+		// ▼ スケルタルメッシュ（カフスなど）が設定されていれば読み込む、なければ空にする
+		if (WristSkeletalMeshComp)
+		{
+			USkeletalMesh* LoadedSkelMesh = EquipData.EquipSkeletalMesh.IsNull() ? nullptr : EquipData.EquipSkeletalMesh.LoadSynchronous();
+			WristSkeletalMeshComp->SetSkeletalMesh(LoadedSkelMesh);
+		}
+
+		// ▼ スタティックメッシュ（固い腕輪など）が設定されていれば読み込む、なければ空にする
 		if (WristMeshComp)
 		{
-			UStaticMesh* LoadedMesh = EquipData.EquipStaticMesh.IsNull() ? nullptr : EquipData.EquipStaticMesh.LoadSynchronous();
-			WristMeshComp->SetStaticMesh(LoadedMesh);
+			UStaticMesh* LoadedStatMesh = EquipData.EquipStaticMesh.IsNull() ? nullptr : EquipData.EquipStaticMesh.LoadSynchronous();
+			WristMeshComp->SetStaticMesh(LoadedStatMesh);
 		}
 		break;
 
 	case EEquipmentSlot::Ankle:
+		if (AnkleSkeletalMeshComp)
+		{
+			USkeletalMesh* LoadedSkelMesh = EquipData.EquipSkeletalMesh.IsNull() ? nullptr : EquipData.EquipSkeletalMesh.LoadSynchronous();
+			AnkleSkeletalMeshComp->SetSkeletalMesh(LoadedSkelMesh);
+		}
+		// ▼ スタティックメッシュ（アンクレットなど）が設定されていれば読み込む
 		if (AnkleMeshComp)
 		{
-			UStaticMesh* LoadedMesh = EquipData.EquipStaticMesh.IsNull() ? nullptr : EquipData.EquipStaticMesh.LoadSynchronous();
-			AnkleMeshComp->SetStaticMesh(LoadedMesh);
+			UStaticMesh* LoadedStatMesh = EquipData.EquipStaticMesh.IsNull() ? nullptr : EquipData.EquipStaticMesh.LoadSynchronous();
+			AnkleMeshComp->SetStaticMesh(LoadedStatMesh);
 		}
 		break;
 
@@ -2254,6 +2314,10 @@ void AMyProject1Character::UnequipItem(EEquipmentSlot TargetSlot)
 {
 	switch (TargetSlot)
 	{
+	case EEquipmentSlot::Hair:
+		if (HairMeshComp) HairMeshComp->SetSkeletalMesh(nullptr);
+		break;
+
 	case EEquipmentSlot::Head:
 		if (HeadMeshComp) HeadMeshComp->SetSkeletalMesh(nullptr);
 		break;
@@ -2280,14 +2344,17 @@ void AMyProject1Character::UnequipItem(EEquipmentSlot TargetSlot)
 		break;
 
 	case EEquipmentSlot::Neck:
+		if (NeckSkeletalMeshComp) NeckSkeletalMeshComp->SetSkeletalMesh(nullptr);
 		if (NeckMeshComp) NeckMeshComp->SetStaticMesh(nullptr);
 		break;
 
 	case EEquipmentSlot::Wrist:
+		if (WristSkeletalMeshComp) WristSkeletalMeshComp->SetSkeletalMesh(nullptr);
 		if (WristMeshComp) WristMeshComp->SetStaticMesh(nullptr);
 		break;
 
 	case EEquipmentSlot::Ankle:
+		if (AnkleSkeletalMeshComp) AnkleSkeletalMeshComp->SetSkeletalMesh(nullptr);
 		if (AnkleMeshComp) AnkleMeshComp->SetStaticMesh(nullptr);
 		break;
 
@@ -2300,6 +2367,7 @@ void AMyProject1Character::UnequipItem(EEquipmentSlot TargetSlot)
 
 	RefreshEquipmentStats();
 }
+
 
 void AMyProject1Character::RefreshEquipmentStats()
 {

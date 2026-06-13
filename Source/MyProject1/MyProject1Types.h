@@ -166,6 +166,9 @@ public:
 	TSoftObjectPtr<USkeletalMesh> CharacterMesh;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "JobData")
+	TSoftObjectPtr<USkeletalMesh> HairMesh;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "JobData")
 	TSoftObjectPtr<USoundBase> AttackSound;
 
 	// そのジョブが装備する武器のメッシュ
@@ -838,6 +841,7 @@ struct FWarpDestination : public FTableRowBase
 UENUM(BlueprintType)
 enum class EEquipmentSlot : uint8
 {
+	Hair          UMETA(DisplayName = "髪型"),
 	Head          UMETA(DisplayName = "頭防具"),
 	Torso         UMETA(DisplayName = "胴防具"),
 	InnerUpper    UMETA(DisplayName = "上半身インナー"),

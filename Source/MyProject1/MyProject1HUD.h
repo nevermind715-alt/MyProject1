@@ -4,6 +4,8 @@
 #include "GameFramework/HUD.h"
 #include "MyProject1HUD.generated.h"
 
+class UChestComponent;
+
 UCLASS()
 class MYPROJECT1_API AMyProject1HUD : public AHUD
 {
@@ -36,6 +38,20 @@ public:
 	// 現在開いているすべての「サブメニュー（一覧画面など）」を記憶する汎用変数
 	UPROPERTY(BlueprintReadWrite, Category = "UI")
 	class UUserWidget* ActiveSubMenuWidget;
+
+	UPROPERTY(EditAnywhere, Category = "UI")
+	TSubclassOf<class UUserWidget> ChestMenuClass;
+
+	UPROPERTY(BlueprintReadOnly, Category = "UI")
+	class UUserWidget* ChestMenuWidget;
+
+	// 現在アクセスしているチェストコンポーネントを記憶
+	UPROPERTY(BlueprintReadWrite, Category = "UI")
+	UChestComponent* CurrentChestComp;
+
+	// チェストメニューの開閉関数
+	UFUNCTION(BlueprintCallable, Category = "UI")
+	void ToggleChestMenu();
 
 	// --- クエストメニュー用の変数 ---
 	UPROPERTY(EditAnywhere, Category = "UI")

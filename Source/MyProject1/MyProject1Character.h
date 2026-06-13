@@ -354,6 +354,10 @@ public:
 	// ==========================================
 
 	// --- 柔らかい装備（SkeletalMesh） ---
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Components")
+	USkeletalMeshComponent* HairMeshComp;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Components")
 	USkeletalMeshComponent* HeadMeshComp;
 
@@ -377,6 +381,15 @@ public:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Components")
 	USkeletalMeshComponent* FeetMeshComp;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Components")
+	USkeletalMeshComponent* WristSkeletalMeshComp;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Components")
+	USkeletalMeshComponent* NeckSkeletalMeshComp;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Components")
+	USkeletalMeshComponent* AnkleSkeletalMeshComp;
 
 	/** 現在適用されている靴の高さ補正値（脱ぐ時に元に戻すため） */
 	float CurrentShoesOffset = 0.0f;
@@ -420,6 +433,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Equipment")
 	void UnequipItem(EEquipmentSlot TargetSlot);
 
+	
 	// 全装備のステータス補正を再計算して適用する
 	UFUNCTION(BlueprintCallable, Category = "Equipment")
 	void RefreshEquipmentStats();

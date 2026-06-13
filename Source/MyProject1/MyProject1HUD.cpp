@@ -43,6 +43,12 @@ void AMyProject1HUD::ToggleCommandMenu()
         return; // ここで処理を終了させることで、後ろの「EquipmentMenuWidgetを消す処理」に行かせない！
     }
 
+    if (ChestMenuWidget && ChestMenuWidget->IsInViewport())
+    {
+        ToggleChestMenu();
+        return;
+    }
+
     // もしインベントリメニューが存在し、画面に表示されているなら
     if (InventoryMenuWidget && InventoryMenuWidget->IsInViewport())
     {
@@ -329,6 +335,69 @@ void AMyProject1HUD::ToggleStatusMenu()
                 {
                     UGameplayStatics::PlaySound2D(this, MenuCloseSound);
                 }
+            }
+        }
+    }
+}
+
+// --- チェストメニューの開閉処理 ---
+void AMyProject1HUD::ToggleChestMenu()
+{
+    APlayerController* PC = GetOwningPlayerController();
+    if (!PC || !ChestMenuClass) return;
+
+    if (!ChestMenuWidget)
+    {
+        // まだ作られていなければ生成する
+        ChestMenuWidget = CreateWidget<UUserWidget>(GetWorld(), ChestMenuClass);
+    }
+
+    if (ChestMenuWidget)
+    {
+        if (!ChestMenuWidget->IsInViewport())
+        {
+            // ★排他制御：もし他のメニューが開いていたら全て閉じる（操作不能バグ防止）
+            if (InventoryMenuWidget && InventoryMenuWidget->IsInViewport()) ToggleInventoryMenu();
+            if (EquipmentMenuWidget && EquipmentMenuWidget->IsInViewport()) ToggleEquipmentMenu();
+            if (StatusMenuWidget && StatusMenuWidget->IsInViewport()) ToggleStatusMenu();
+            if (QuestMenuWidget && QuestMenuWidget->IsInViewport()) ToggleQuestMenu();
+
+            // Z-Orderを20にして手前に表示
+            ChestMenuWidget->AddToViewport(20);
+
+            // 背後のメニュー（WBP_CommandMenu等）を念のため隠す
+            if (CommandMenuWidget) CommandMenuWidget->SetVisibility(ESlateVisibility::Collapsed);
+
+            // 入力フォーカスをチェスト画面に向け、マウスカーソルを表示
+            FInputModeGameAndUI InputMode;
+            InputMode.SetWidgetToFocus(ChestMenuWidget->TakeWidget());
+            PC->SetInputMode(InputMode);
+            PC->bShowMouseCursor = true;
+
+            if (MenuOpenSound) UGameplayStatics::PlaySound2D(this, MenuOpenSound);
+        }
+        else
+        {
+            // 閉じる処理
+            ChestMenuWidget->RemoveFromParent();
+
+            // 閉じたので、記憶していたチェストをクリア
+            CurrentChestComp = nullptr;
+
+            // フィールド操作に戻す（ゲームオンリー・マウス非表示）
+            FInputModeGameOnly InputMode;
+            PC->SetInputMode(InputMode);
+            PC->bShowMouseCursor = false;
+
+            // 背後のコマンドメニューを再表示可能にする
+            if (CommandMenuWidget)
+            {
+                CommandMenuWidget->SetVisibility(ESlateVisibility::Visible);
+            }
+
+            if (MenuCloseSound)
+            {
+                UGameplayStatics::PlaySound2D(this, MenuCloseSound);
             }
         }
     }
