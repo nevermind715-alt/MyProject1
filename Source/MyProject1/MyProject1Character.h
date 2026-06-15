@@ -701,6 +701,18 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RPG Stats")
 	FCharacterStats MyStats;
 
+	/** 現在のサイクルの状態（状態A, B, C） */
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Time Cycle")
+	ECycleState CurrentCycleState;
+
+	/** 現在のサイクルにおける日数（1〜30） */
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Time Cycle")
+	int32 CurrentCycleDay;
+
+	/** サイクルを計算して状態を更新する関数 */
+	UFUNCTION(BlueprintCallable, Category = "Time Cycle")
+	void UpdateCycleState();
+
 public:
 	// --- RPGシステム用の追加関数 ---
 
@@ -775,7 +787,15 @@ public:
 public:
 	/** リンクする範囲（半径）。FF11なら1000〜1500くらいが目安 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|AI")
-	float LinkRadius = 1500.0f;
+	float LinkRadius = 1000.0f;
+
+	/** アクティブな敵かどうか（Trueなら見つけ次第攻撃、Falseなら攻撃されるまで襲ってこないノンアクティブ） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|AI")
+	bool bIsActiveEnemy = true;
+
+	/** 周囲の仲間が攻撃された時にリンク（加勢）するかどうか */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|AI")
+	bool bCanLink = true;
 
 	/** 周囲の仲間にターゲットを通知する関数 */
 	void NotifyNearbyAllies(AActor* TargetToAttack);

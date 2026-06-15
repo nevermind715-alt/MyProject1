@@ -114,6 +114,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Overrides|AI")
 	bool bSpawnerCanPatrol = true;
 
+	/** このスポーナーから出る敵はアクティブ（見つけ次第攻撃）か？ */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Overrides|AI")
+	bool bSpawnerIsActiveEnemy = true;
+
+	/** このスポーナーから出る敵はリンク（加勢）するか？ */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Overrides|AI")
+	bool bSpawnerCanLink = true;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Overrides|AI")
 	float SpawnerPatrolRadius = 1000.0f;
 

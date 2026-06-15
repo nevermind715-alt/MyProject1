@@ -54,6 +54,11 @@ void UMyProject1GameInstance::AdvanceDay()
 			CurrentYear++;
 		}
 	}
+
+	if (OnDayChangedDelegate.IsBound())
+	{
+		OnDayChangedDelegate.Broadcast();
+	}
 }
 
 // 指定した「年・月」の日数を計算する処理

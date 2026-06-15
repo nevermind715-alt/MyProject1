@@ -87,6 +87,8 @@ void ANPCSpawner::SpawnEnemy()
 		{
 			SpawnedEnemy->PatrolRadius = this->SpawnerPatrolRadius;
 			SpawnedEnemy->bCanPatrol = this->bSpawnerCanPatrol;
+			SpawnedEnemy->bIsActiveEnemy = this->bSpawnerIsActiveEnemy;
+			SpawnedEnemy->bCanLink = this->bSpawnerCanLink;
 
 			//AIの視覚と聴覚をすべてスポーナー側の値で上書きする！
 			SpawnedEnemy->AISightRadius = this->SpawnerSightRadius;

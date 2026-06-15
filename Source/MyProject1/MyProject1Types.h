@@ -57,6 +57,36 @@ enum class ESpecialEffectType : uint8
 	LowerDefense UMETA(DisplayName = "防御ダウン")
 };
 
+// --- 30日サイクルの状態 ---
+UENUM(BlueprintType)
+enum class ECycleState : uint8
+{
+	StateA      UMETA(DisplayName = "状態A"),
+	StateB      UMETA(DisplayName = "状態B"),
+	StateC      UMETA(DisplayName = "状態C"),
+	StateD      UMETA(DisplayName = "状態D")
+};
+
+USTRUCT(BlueprintType)
+struct FCyclePhaseSettings
+{
+	GENERATED_BODY()
+
+	/** どの状態にするか（状態A、状態B、状態C） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cycle")
+	ECycleState TargetState = ECycleState::StateA;
+
+	/** 開始日（例：1） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cycle", meta = (ClampMin = "1"))
+	int32 MinDay = 1;
+
+	/** 終了日（例：10） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cycle", meta = (ClampMin = "1"))
+	int32 MaxDay = 10;
+
+	// 💡将来の拡張：ここに「この状態の時の攻撃力補正倍率」などを足すことも可能です！
+};
+
 // --- 特殊効果の設定構造体 ---
 USTRUCT(BlueprintType)
 struct FSpecialEffectInfo

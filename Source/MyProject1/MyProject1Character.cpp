@@ -20,6 +20,7 @@
 #include "GameFramework/CharacterMovementComponent.h" 
 #include "Kismet/KismetSystemLibrary.h"
 #include "AIController.h"
+#include "BehaviorTree/BlackboardComponent.h"
 #include "NavigationSystem.h"
 #include "MyProject1HUD.h"
 #include "Blueprint/UserWidget.h"
@@ -210,6 +211,11 @@ void AMyProject1Character::BeginPlay()
 			int32 Hour = GameInst->CurrentTimeInMinutes / 60;
 			int32 Minute = GameInst->CurrentTimeInMinutes % 60;
 			GameInst->OnInGameTimeChanged.Broadcast(GameInst->CurrentYear, GameInst->CurrentMonth, GameInst->CurrentDay, Hour, Minute);
+		}
+
+		if (!GameInst->OnDayChangedDelegate.IsAlreadyBound(this, &AMyProject1Character::UpdateCycleState))
+		{
+			GameInst->OnDayChangedDelegate.AddDynamic(this, &AMyProject1Character::UpdateCycleState);
 		}
 
 	}
@@ -958,7 +964,7 @@ void AMyProject1Character::OnDeath()
 			GetMesh()->GetRelativeRotation(),
 			false, // イーズアウト（ゆっくり止まるか）
 			false, // イーズイン（ゆっくり動き出すか）
-			1.0f,  // ★ここで「1秒かけて落とす」を直接指定しています！
+			1.0f,  // ここで「1秒かけて落とす」を直接指定しています！
 			false,
 			EMoveComponentAction::Move,
 			LatentInfo
@@ -968,7 +974,7 @@ void AMyProject1Character::OnDeath()
 	else // --- 【ここから追加】地上にいるキャラ（VRMなど）の浮きを補正する ---
 	{
 		FVector CurrentLoc = GetMesh()->GetRelativeLocation();
-		// ★浮き具合に合わせて数値を調整してください（-15.0fなど）
+		// 浮き具合に合わせて数値を調整してください（-15.0fなど）
 		CurrentLoc.Z -= 5.0f;
 		GetMesh()->SetRelativeLocation(CurrentLoc);
 	}
@@ -1009,7 +1015,7 @@ void AMyProject1Character::PerformAutoAttack()
 	// データがあり、かつモンタージュが1つ以上登録されているかチェック
 	if (JobData && JobData->AttackMontages.Num() > 0)
 	{
-		// ★ランダムにインデックスを選択 (0 ～ 配列の最後)
+		// ランダムにインデックスを選択 (0 ～ 配列の最後)
 		int32 RandomIndex = FMath::RandRange(0, JobData->AttackMontages.Num() - 1);
 		UAnimMontage* SelectedMontage = JobData->AttackMontages[RandomIndex];
 
@@ -1213,6 +1219,11 @@ void AMyProject1Character::SetCurrentTarget(AActor* NewTarget)
 	{
 		OnTargetUpdated(CurrentTarget, true);
 
+		if (AIC && AIC->GetBlackboardComponent())
+		{
+			AIC->GetBlackboardComponent()->SetValueAsObject(TEXT("TargetActor"), CurrentTarget);
+		}
+
 		if (IsPlayerControlled())
 		{
 			if (APlayerController* PC = Cast<APlayerController>(GetController()))
@@ -1261,7 +1272,7 @@ void AMyProject1Character::NotifyNearbyAllies(AActor* TargetToAttack)
 		AMyProject1Character* Ally = Cast<AMyProject1Character>(Actor);
 
 		// 自分と同じクラス（同じ種類の敵）で、まだターゲットがいない場合
-		if (Ally && Ally->GetClass() == this->GetClass() && Ally->CurrentTarget == nullptr)
+		if (Ally && Ally->bCanLink && Ally->GetClass() == this->GetClass() && Ally->CurrentTarget == nullptr)
 		{
 			Ally->SetCurrentTarget(TargetToAttack);
 
@@ -2507,5 +2518,62 @@ void AMyProject1Character::ApplyShoesOffset(bool bEquip, float Offset, FRotator 
 
 		CurrentAnkleRotationOffset = FRotator::ZeroRotator;
 		CurrentToeRotationOffset = FRotator::ZeroRotator;
+	}
+}
+
+void AMyProject1Character::UpdateCycleState()
+{
+	// プレイヤー以外（敵やNPC）は計算しなくてよい場合は弾く
+	if (!IsPlayerControlled()) return;
+
+	UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetGameInstance());
+	if (!GameInst) return;
+
+	// 1. TotalElapsedDays から「1〜30」などの数値を割り出す
+	// 💡全体のサイクル日数も、エディタ側で設定されたルールの一番大きい終了日から自動計算するようにします
+	int32 MaxCycleDays = 30; // ルールが空の時のための保険のデフォルト値
+	if (GameInst->CyclePhaseRules.Num() > 0)
+	{
+		// リストの最後の要素の MaxDay を全体のサイクル日数とする（例：最後の要素が「21〜30」なら30日サイクル）
+		MaxCycleDays = GameInst->CyclePhaseRules.Last().MaxDay;
+	}
+
+	CurrentCycleDay = (GameInst->TotalElapsedDays % MaxCycleDays) + 1;
+
+	// 古い状態を記憶しておく（切り替わった時だけログを出すため）
+	ECycleState OldState = CurrentCycleState;
+
+	// 2.エディタで設定したルールを上から順にチェックする！
+	bool bFoundMatchingState = false;
+
+	for (const FCyclePhaseSettings& Rule : GameInst->CyclePhaseRules)
+	{
+		// 今の日数が、設定された「MinDay 〜 MaxDay」の範囲内に入っているかチェック
+		if (CurrentCycleDay >= Rule.MinDay && CurrentCycleDay <= Rule.MaxDay)
+		{
+			CurrentCycleState = Rule.TargetState;
+			GameInst->CurrentCycleState = Rule.TargetState;
+			bFoundMatchingState = true;
+			break; // 一致するものが見つかったのでループを抜ける
+		}
+	}
+
+	// もしエディタの設定ミスなどでどの範囲にも当てはまらなかった場合の保険
+	if (!bFoundMatchingState)
+	{
+		CurrentCycleState = ECycleState::StateA;
+		GameInst->CurrentCycleState = ECycleState::StateA;
+	}
+
+	// 3. もし状態が切り替わったらログでお知らせ
+	if (OldState != CurrentCycleState)
+	{
+		FString StateName;
+		if (CurrentCycleState == ECycleState::StateA) StateName = TEXT("状態A");
+		else if (CurrentCycleState == ECycleState::StateB) StateName = TEXT("状態B");
+		else StateName = TEXT("状態C");
+
+		FString Msg = FString::Printf(TEXT("月の満ち欠けが変化した。現在は【%s】の影響下にある…"), *StateName);
+		OnReceiveLogMessage(Msg, ELogMessageType::System);
 	}
 }

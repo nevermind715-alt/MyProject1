@@ -134,11 +134,23 @@ void AMyAIController::OnTargetDetected(AActor* Actor, FAIStimulus Stimulus)
     // --- パターンA: 発見した時 ---
     if (Stimulus.WasSuccessfullySensed())
     {
+        //自分がノンアクティブ（非アクティブ）なら、視界に入っても襲わない！
+        if (MyChar && !MyChar->bIsActiveEnemy)
+        {
+            // ただし、すでに攻撃されてターゲットとして認識している相手なら追跡を許可する
+            AActor* CurrentBBTarget = Cast<AActor>(BB->GetValueAsObject(TEXT("TargetActor")));
+            if (CurrentBBTarget != Actor)
+            {
+                // まだ戦闘状態でなければ、無視して帰る（攻撃しない）
+                return;
+            }
+        }
+
         BB->SetValueAsObject(TEXT("TargetActor"), Actor);
 
         if (MyChar)
         {
-            // ★追加：見つけた瞬間に速度を ChaseRunSpeed（走り）に切り替える
+            //見つけた瞬間に速度を ChaseRunSpeed（走り）に切り替える
             if (MoveComp)
             {
                 MoveComp->MaxWalkSpeed = MyChar->ChaseRunSpeed;
@@ -198,7 +210,7 @@ void AMyAIController::Tick(float DeltaTime)
     AMyProject1Character* TargetChar = Cast<AMyProject1Character>(Target);
     if (TargetChar && TargetChar->IsDead())
     {
-        // --- ★ここを修正：死んだら「勝利モード」へ移行 ---
+        // --- 死んだら「勝利モード」へ移行 ---
 
         // すでに勝利フラグが立っていれば何もしない
         bool bHasWon = BB->GetValueAsBool(TEXT("HasWon"));

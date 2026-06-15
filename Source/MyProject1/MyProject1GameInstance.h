@@ -9,6 +9,7 @@
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnWarpFadeOutRequested);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_FiveParams(FOnInGameTimeChanged, int32, Year, int32, Month, int32, Day, int32, Hour, int32, Minute);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnDayChangedSignature);
 
 UCLASS()
 class MYPROJECT1_API UMyProject1GameInstance : public UGameInstance
@@ -19,6 +20,9 @@ public:
 
 	UPROPERTY(BlueprintAssignable, Category = "Time")
 	FOnInGameTimeChanged OnInGameTimeChanged;
+
+	UPROPERTY(BlueprintAssignable, Category = "Time")
+	FOnDayChangedSignature OnDayChangedDelegate;
 
 	// 現在のゲーム内時間を「分」だけで持つ（0〜1439） 例：8時間 * 60 = 480
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Time")
@@ -41,6 +45,12 @@ public:
 	// （ゲーム内時間が1日進むたびに+1される絶対的なカウンター）
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Time|Calendar")
 	int32 TotalElapsedDays = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Time|Calendar")
+	TArray<FCyclePhaseSettings> CyclePhaseRules;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Time|Calendar")
+	ECycleState CurrentCycleState;
 
 	// ゲーム開始時に呼ばれる関数（ここでタイマーを動かします）
 	virtual void Init() override;
