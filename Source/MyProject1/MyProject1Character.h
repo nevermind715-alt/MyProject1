@@ -701,6 +701,22 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RPG Stats")
 	FCharacterStats MyStats;
 
+	// エディタ（BP）上で「ExtraStatsのキー名」と「モーフ設定」を紐付けるためのリスト
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RPG Stats|Extra")
+	TMap<FName, FExtraStatMorphConfig> ExtraStatMorphLinks;
+
+	// ExtraStatの値を取得する
+	UFUNCTION(BlueprintPure, Category = "RPG Stats|Extra")
+	float GetExtraStat(FName StatName) const;
+
+	// ExtraStatの値を直接上書き（Set）する
+	UFUNCTION(BlueprintCallable, Category = "RPG Stats|Extra")
+	void SetExtraStat(FName StatName, float Value);
+
+	// ExtraStatの値を増減（Add/Sub）する（ダメージや回復のように使う）
+	UFUNCTION(BlueprintCallable, Category = "RPG Stats|Extra")
+	void AddExtraStat(FName StatName, float Amount);
+
 	/** 現在のサイクルの状態（状態A, B, C） */
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Time Cycle")
 	ECycleState CurrentCycleState;
@@ -712,6 +728,10 @@ public:
 	/** サイクルを計算して状態を更新する関数 */
 	UFUNCTION(BlueprintCallable, Category = "Time Cycle")
 	void UpdateCycleState();
+
+protected:
+		// モーフターゲットを更新する内部処理
+		void UpdateMorphTargetFromStat(FName StatName, float Value);
 
 public:
 	// --- RPGシステム用の追加関数 ---

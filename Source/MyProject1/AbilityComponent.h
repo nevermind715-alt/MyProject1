@@ -41,6 +41,9 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ability|Casting")
 	bool bIsCasting;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ability|Casting")
+	class UNiagaraComponent* ActiveCastEffectComponent = nullptr;
+
 	// 現在詠唱しているアビリティのID
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ability|Casting")
 	FName CurrentCastingAbilityID;

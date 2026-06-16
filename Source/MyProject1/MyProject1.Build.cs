@@ -15,13 +15,14 @@ public class MyProject1 : ModuleRules
 			"InputCore",
 			"EnhancedInput",
 			"AIModule",
-            "GameplayTasks",   // Åöí«â¡
-            "NavigationSystem",// Åöí«â¡
+            "GameplayTasks",   
+            "NavigationSystem",
             "StateTreeModule",
 			"GameplayStateTreeModule",
 			"UMG",
 			"Slate",
-            "PhysicsCore"
+            "PhysicsCore",
+			"Niagara"
 
         });
 

@@ -2577,3 +2577,64 @@ void AMyProject1Character::UpdateCycleState()
 		OnReceiveLogMessage(Msg, ELogMessageType::System);
 	}
 }
+
+float AMyProject1Character::GetExtraStat(FName StatName) const
+{
+	// マップの中にキーが存在するかチェックし、あればその値を返す
+	if (const float* FoundValue = MyStats.ExtraStats.Find(StatName))
+	{
+		return *FoundValue;
+	}
+	return 0.0f; // 存在しない場合は0を返す
+}
+
+void AMyProject1Character::SetExtraStat(FName StatName, float Value)
+{
+	// 値を追加、または既存のキーがあれば上書きする
+	MyStats.ExtraStats.Add(StatName, Value);
+
+	// 値が変更されたので、モーフターゲットの更新処理を呼ぶ
+	UpdateMorphTargetFromStat(StatName, Value);
+
+	// ステータス画面などのUIへ通知（既存のシステムを流用）
+	NotifyStatsChanged();
+}
+
+void AMyProject1Character::AddExtraStat(FName StatName, float Amount)
+{
+	// 現在の値を取得して加算し、SetExtraStatに流す
+	float CurrentValue = GetExtraStat(StatName);
+	SetExtraStat(StatName, CurrentValue + Amount);
+}
+
+void AMyProject1Character::UpdateMorphTargetFromStat(FName StatName, float Value)
+{
+	// メッシュが存在しない場合は処理しない
+	if (!GetMesh()) return;
+
+	// このStatNameが、モーフ連動設定リストに登録されているかチェック
+	if (FExtraStatMorphConfig* MorphConfig = ExtraStatMorphLinks.Find(StatName))
+	{
+		// 登録されていれば、名前が空でないか確認
+		if (!MorphConfig->MorphTargetName.IsNone())
+		{
+			// 0割り防止
+			float MaxVal = MorphConfig->MaxStatValue > 0.0f ? MorphConfig->MaxStatValue : 1.0f;
+
+			// ステータスの値を 0.0 ～ 1.0 のモーフ用割合に変換する
+			// 例：Valueが50、Maxが100 なら 50 / 100 = 0.5f になる
+			float MorphRatio = FMath::Clamp(Value / MaxVal, 0.0f, 1.0f);
+
+			// 本体のメッシュにモーフを適用する
+			GetMesh()->SetMorphTarget(MorphConfig->MorphTargetName, MorphRatio);
+
+			// ★重要：LeaderPoseComponentを使用している場合、
+			// 基本的には本体(GetMesh)のモーフを動かせば、同期している装備(服など)のモーフも自動連動しますが、
+			// もし連動しないパーツがある場合は、ここで個別に SetMorphTarget を呼んでください。
+			/*
+			if (TorsoMeshComp) TorsoMeshComp->SetMorphTarget(MorphConfig->MorphTargetName, MorphRatio);
+			if (HeadMeshComp)  HeadMeshComp->SetMorphTarget(MorphConfig->MorphTargetName, MorphRatio);
+			*/
+		}
+	}
+}

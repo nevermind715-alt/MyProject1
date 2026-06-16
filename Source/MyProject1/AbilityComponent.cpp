@@ -7,6 +7,9 @@
 #include "GameFramework/Character.h"
 #include "RpgDamageCalculator.h"
 #include "MyProject1Character.h"
+#include "NiagaraFunctionLibrary.h"
+#include "NiagaraSystem.h"
+#include "NiagaraComponent.h"
 
 UAbilityComponent::UAbilityComponent()
 {
@@ -70,7 +73,7 @@ bool UAbilityComponent::TryCastAbility(FName AbilityID, AActor* TargetActor)
 	FCharacterStats& Stats = RpgInterface->GetCharacterStats();
 
 	// =========================================================
-	// ★追加：対象（ターゲット）の自動決定と有効性チェック
+	// 対象（ターゲット）の自動決定と有効性チェック
 	// =========================================================
 	AActor* FinalTarget = TargetActor;
 
@@ -98,6 +101,22 @@ bool UAbilityComponent::TryCastAbility(FName AbilityID, AActor* TargetActor)
 		{
 			RpgInterface->OnReceiveLogMessage(TEXT("その相手はすでに倒されています。"), ELogMessageType::System);
 			return false;
+		}
+	}
+
+	if (FinalTarget && FinalTarget != GetOwner())
+	{
+		if (Data->AbilityRange > 0.0f) // 0以上の制限値が設定されている場合のみ
+		{
+			// 自分とターゲットの距離を計算
+			float Distance = GetOwner()->GetDistanceTo(FinalTarget);
+
+			// 距離が射程をオーバーしていたら発動キャンセル
+			if (Distance > Data->AbilityRange)
+			{
+				RpgInterface->OnReceiveLogMessage(TEXT("ターゲットが遠すぎます。"), ELogMessageType::Default);
+				return false;
+			}
 		}
 	}
 
@@ -133,6 +152,24 @@ bool UAbilityComponent::TryCastAbility(FName AbilityID, AActor* TargetActor)
 	FString LogMsg = FString::Printf(TEXT("%s は %s の構え。"), *Stats.NPCName, *Data->AbilityName);
 	RpgInterface->OnReceiveLogMessage(LogMsg, ELogMessageType::Default);
 
+	if (!Data->CastEffect.IsNull())
+	{
+		UNiagaraSystem* CastNiagaraSys = Data->CastEffect.LoadSynchronous();
+		if (CastNiagaraSys)
+		{
+			// 詠唱エフェクトは「自分」の足元に追従するようにアタッチ（吸着）して発生させる
+			ActiveCastEffectComponent = UNiagaraFunctionLibrary::SpawnSystemAttached(
+				CastNiagaraSys,
+				GetOwner()->GetRootComponent(), // キャラクターの根本にアタッチ
+				NAME_None,
+				FVector(0.0f, 0.0f, -90.0f),    // 足元の高さになるように少し下げる
+				FRotator::ZeroRotator,
+				EAttachLocation::KeepRelativeOffset,
+				true
+			);
+		}
+	}
+
 	if (Data->CastTime > 0.0f)
 	{
 		GetWorld()->GetTimerManager().SetTimer(CastTimerHandle, this, &UAbilityComponent::ExecuteAbility, Data->CastTime, false);
@@ -152,6 +189,12 @@ void UAbilityComponent::CancelCasting()
 		GetWorld()->GetTimerManager().ClearTimer(CastTimerHandle);
 		bIsCasting = false;
 
+		if (IsValid(ActiveCastEffectComponent))
+		{
+			ActiveCastEffectComponent->Deactivate();
+			ActiveCastEffectComponent = nullptr;
+		}
+
 		if (IRpgCharacterInterface* RpgInterface = Cast<IRpgCharacterInterface>(GetOwner()))
 		{
 			RpgInterface->OnReceiveLogMessage(TEXT("動作が中断された！"), ELogMessageType::System);
@@ -162,6 +205,12 @@ void UAbilityComponent::CancelCasting()
 void UAbilityComponent::ExecuteAbility()
 {
 	bIsCasting = false;
+
+	if (IsValid(ActiveCastEffectComponent))
+	{
+		ActiveCastEffectComponent->Deactivate();
+		ActiveCastEffectComponent = nullptr; // 記憶をリセット
+	}
 
 	if (!AbilityDataTable) return;
 	FAbilityData* Data = AbilityDataTable->FindRow<FAbilityData>(CurrentCastingAbilityID, TEXT("AbilityExecute"));
@@ -179,6 +228,31 @@ void UAbilityComponent::ExecuteAbility()
 			if (ACharacter* OwnerChar = Cast<ACharacter>(GetOwner()))
 			{
 				OwnerChar->PlayAnimMontage(Data->ExecuteMontage);
+			}
+		}
+
+		if (!Data->ExecuteEffect.IsNull())
+		{
+			// エフェクトを非同期でロード（すでにメモリにあれば一瞬でロードされます）
+			UNiagaraSystem* NiagaraSys = Data->ExecuteEffect.LoadSynchronous();
+			if (NiagaraSys)
+			{
+				// 自分用バフなら自分、攻撃魔法ならターゲットを中心にエフェクトを出す
+				AActor* EffectTarget = nullptr;
+				if (Data->TargetType == EAbilityTargetType::EnemySingle) EffectTarget = CurrentTarget;
+				else if (Data->TargetType == EAbilityTargetType::Self) EffectTarget = GetOwner();
+				else EffectTarget = CurrentTarget ? CurrentTarget : GetOwner();
+
+				if (EffectTarget)
+				{
+					// 対象の「足元」にエフェクトをスポーンする
+					UNiagaraFunctionLibrary::SpawnSystemAtLocation(
+						GetWorld(),
+						NiagaraSys,
+						EffectTarget->GetActorLocation(),     // 足元に出す
+						EffectTarget->GetActorRotation()      // 向きを合わせる
+					);
+				}
 			}
 		}
 

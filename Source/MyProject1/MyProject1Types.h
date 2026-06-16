@@ -468,8 +468,11 @@ struct FAbilityData : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Condition")
 	EAbilityTargetType TargetType = EAbilityTargetType::EnemySingle;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Condition")
+	float AbilityRange = 150.0f;
+
 	// =========================================================
-	// ★追加：攻撃アビリティ専用のパラメータ
+	// 攻撃アビリティ専用のパラメータ
 	// =========================================================
 	/** このアビリティが直接ダメージを与える「攻撃技」かどうか */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Damage")
@@ -513,6 +516,14 @@ struct FAbilityData : public FTableRowBase
 	// 発動した瞬間に再生するモーション（剣を振り下ろす、杖を掲げるなど）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Visual")
 	class UAnimMontage* ExecuteMontage = nullptr;
+
+	// 詠唱中に発生するエフェクト（足元の魔法陣やオーラなど。今回は枠だけ用意）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Visual|Effect")
+	TSoftObjectPtr<class UNiagaraSystem> CastEffect;
+
+	// 発動時（ダメージ発生時）に対象に発生するエフェクト（爆発や斬撃など）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Visual|Effect")
+	TSoftObjectPtr<class UNiagaraSystem> ExecuteEffect;
 
 	// 既存のアイテム効果（FItemEffect）の仕組みを完全に使い回して、何が起きるかを定義します
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Effect")
@@ -930,4 +941,20 @@ struct FEquipmentData : public FTableRowBase
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment|Offset")
 	FRotator ToeRotationOffset = FRotator::ZeroRotator;
+};
+
+// --- ExtraStatsとモーフターゲットを連動させるための設定 ---
+USTRUCT(BlueprintType)
+struct FExtraStatMorphConfig
+{
+	GENERATED_BODY()
+
+	// 連動させたいメッシュ側のモーフターゲット名
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Morph")
+	FName MorphTargetName;
+
+	// ステータスの数値をモーフ値(0.0〜1.0)に変換するための基準値（最大値）
+	// 例：100.0 に設定すると、ステータスが 50 の時にモーフは 0.5 になります。
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Morph")
+	float MaxStatValue = 100.0f;
 };
