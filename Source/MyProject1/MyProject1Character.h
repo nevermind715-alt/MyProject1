@@ -425,6 +425,9 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment")
 	TMap<EEquipmentSlot, FName> CurrentEquippedItems;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Chain")
+	TMap<EEquipmentSlot, class APhysicsChainActor*> ActiveEquipmentChains;
+
 	// アイテムIDと装備データの両方を受け取るようにします
 	UFUNCTION(BlueprintCallable, Category = "Equipment")
 	void EquipItem(FName ItemID, FEquipmentData EquipData);

@@ -67,6 +67,46 @@ enum class ECycleState : uint8
 	StateD      UMETA(DisplayName = "状態D")
 };
 
+// --- 鎖の接続パターンの定義 ---
+UENUM(BlueprintType)
+enum class EChainAttachType : uint8
+{
+	None            UMETA(DisplayName = "鎖を使わない"),
+	OneSide         UMETA(DisplayName = "片方固定（ダランと垂らす）"),
+	BothSides       UMETA(DisplayName = "両端固定（ソケットからソケットへ）"),
+	WithEndMesh     UMETA(DisplayName = "先端にメッシュを付ける（モーニングスター等）")
+};
+
+// --- 鎖の汎用設定データ ---
+USTRUCT(BlueprintType)
+struct FEquipmentChainConfig
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chain")
+	EChainAttachType AttachType = EChainAttachType::None;
+
+	// 生成する鎖のBPクラス
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chain", meta = (EditCondition = "AttachType != EChainAttachType::None"))
+	TSubclassOf<class APhysicsChainActor> ChainClass;
+
+	// 根本を繋ぐソケット名（必須）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chain", meta = (EditCondition = "AttachType != EChainAttachType::None"))
+	FName StartSocketName;
+
+	// 先端を繋ぐソケット名（手枷・足枷用）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chain", meta = (EditCondition = "AttachType == EChainAttachType::BothSides"))
+	FName EndSocketName;
+
+	// 先端にぶら下げるスタティックメッシュ（モーニングスター等の鉄球）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chain", meta = (EditCondition = "AttachType == EChainAttachType::WithEndMesh"))
+	TSoftObjectPtr<class UStaticMesh> EndMesh;
+
+	// 先端にぶら下げるメッシュの大きさ
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chain", meta = (EditCondition = "AttachType == EChainAttachType::WithEndMesh"))
+	FVector EndMeshScale = FVector(1.0f, 1.0f, 1.0f);
+};
+
 USTRUCT(BlueprintType)
 struct FCyclePhaseSettings
 {
@@ -227,6 +267,9 @@ public:
 	/** クリティカルヒット時の音 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "JobData")
 	TSoftObjectPtr<USoundBase> CriticalSound;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment|Chain")
+	FEquipmentChainConfig ChainConfig;
 };
 
 // ... FCharacterStats などの既存コード
@@ -941,6 +984,9 @@ struct FEquipmentData : public FTableRowBase
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment|Offset")
 	FRotator ToeRotationOffset = FRotator::ZeroRotator;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment|Chain")
+	FEquipmentChainConfig ChainConfig;
 };
 
 // --- ExtraStatsとモーフターゲットを連動させるための設定 ---

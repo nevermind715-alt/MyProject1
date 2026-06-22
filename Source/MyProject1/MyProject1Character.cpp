@@ -31,6 +31,7 @@
 #include "MusicControlComponent.h"
 #include "Engine/DamageEvents.h"
 #include "GameFramework/PhysicsVolume.h"
+#include "PhysicsChainActor.h"
 
 
 AMyProject1Character::AMyProject1Character()
@@ -1002,6 +1003,17 @@ void AMyProject1Character::OnDeath()
 	{
 		OnDeathDelegate.Broadcast(this);
 	}
+
+	// 装着中の全ての鎖アクターを消滅させる
+	for (auto& Pair : ActiveEquipmentChains)
+	{
+		if (Pair.Value)
+		{
+			Pair.Value->Destroy();
+		}
+	}
+	// リストを空っぽにする
+	ActiveEquipmentChains.Empty();
 }
 
 
@@ -2318,6 +2330,53 @@ void AMyProject1Character::EquipItem(FName ItemID, FEquipmentData EquipData)
 	// 装備状態の記憶を更新（ここで ItemID が使われます）
 	CurrentEquippedItems.Add(EquipData.TargetSlot, ItemID);
 
+	// ==========================================
+	// ▼ 鎖の自動生成・管理システム ▼
+	// ==========================================
+
+	// もしすでに同じ部位に鎖があったら一旦消去する
+	if (ActiveEquipmentChains.Contains(EquipData.TargetSlot))
+	{
+		if (APhysicsChainActor* OldChain = ActiveEquipmentChains[EquipData.TargetSlot])
+		{
+			OldChain->Destroy();
+		}
+		ActiveEquipmentChains.Remove(EquipData.TargetSlot);
+	}
+
+	// データテーブルの設定で「鎖を使う（None以外）」になっていて、BPが設定されていれば生成
+	if (EquipData.ChainConfig.AttachType != EChainAttachType::None && EquipData.ChainConfig.ChainClass)
+	{
+		FActorSpawnParameters SpawnParams;
+		SpawnParams.Owner = this;
+		APhysicsChainActor* NewChain = GetWorld()->SpawnActor<APhysicsChainActor>(EquipData.ChainConfig.ChainClass, GetActorLocation(), GetActorRotation(), SpawnParams);
+
+		if (NewChain)
+		{
+			// ① 根本をアタッチ
+			NewChain->AttachChainStart(GetMesh(), EquipData.ChainConfig.StartSocketName);
+
+			// ② パターンに応じて先端の処理を変える
+			if (EquipData.ChainConfig.AttachType == EChainAttachType::BothSides)
+			{
+				// 両端固定（手枷・足枷）
+				NewChain->AttachChainEnd(GetMesh(), EquipData.ChainConfig.EndSocketName);
+			}
+			else if (EquipData.ChainConfig.AttachType == EChainAttachType::WithEndMesh)
+			{
+				// 先端に鉄球などのメッシュを付ける（モーニングスター）
+				if (!EquipData.ChainConfig.EndMesh.IsNull())
+				{
+					NewChain->AttachMeshToLastLink(EquipData.ChainConfig.EndMesh.LoadSynchronous(), EquipData.ChainConfig.EndMeshScale);
+				}
+			}
+
+			// マップに登録して、後で外せるように記憶しておく
+			ActiveEquipmentChains.Add(EquipData.TargetSlot, NewChain);
+		}
+	}
+	// ==========================================
+
 	RefreshEquipmentStats();
 }
 
@@ -2375,6 +2434,15 @@ void AMyProject1Character::UnequipItem(EEquipmentSlot TargetSlot)
 
 	// 記憶している装備状態から削除
 	CurrentEquippedItems.Remove(TargetSlot);
+
+	if (ActiveEquipmentChains.Contains(TargetSlot))
+	{
+		if (APhysicsChainActor* OldChain = ActiveEquipmentChains[TargetSlot])
+		{
+			OldChain->Destroy();
+		}
+		ActiveEquipmentChains.Remove(TargetSlot);
+	}
 
 	RefreshEquipmentStats();
 }
