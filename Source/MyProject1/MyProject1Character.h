@@ -10,6 +10,7 @@
 #include "InventoryComponent.h"
 #include "InputActionValue.h"
 #include "RpgCharacterInterface.h"
+#include "CableComponent.h"
 #include "MyProject1Character.generated.h"
 
 class USpringArmComponent;
@@ -17,6 +18,9 @@ class UCameraComponent;
 class UInputAction;
 class UInputMappingContext;
 class UDialogComponent;
+class UStaticMeshComponent;
+class USkeletalMeshComponent;
+class UCableComponent;
 struct FInputActionValue;
 
 DECLARE_LOG_CATEGORY_EXTERN(LogTemplateCharacter, Log, All);
@@ -454,6 +458,43 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Equipment")
 	FName GetEquippedItemID(EEquipmentSlot Slot);
+
+	/** 動的な鎖を表現するコンポーネント */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Cable")
+	UCableComponent* EquipmentCableComp;
+		
+	/** 鎖の始点スケールバグを中継して消し去るための、スケール1の透明なダミーコンポーネント */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Cable")
+	USceneComponent* CableDummyStart;
+
+	/** 鎖の終点スケールバグを中継して消し去るための、スケール1の透明なダミーコンポーネント */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Cable")
+	USceneComponent* CableDummyEnd;
+
+	/** 武器の鉄球など、鎖の先端にぶら下がるサブメッシュ（スタティック） */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+	UStaticMeshComponent* WeaponSubMeshComp;
+
+	/** 現在の鎖の始点ソケット名（毎フレームの追従バグ回避用） */
+	FName CurrentCableSourceSocket;
+
+	/** 現在の鎖の始点コンポーネント */
+	UPROPERTY()
+	USceneComponent* CurrentCableSourceComponent;
+
+	/** 現在の鎖の終点ソケット名（右足用） */
+	FName CurrentCableTargetSocket;
+
+	/** 現在の鎖の終点コンポーネント */
+	UPROPERTY()
+	USceneComponent* CurrentCableTargetComponent;
+
+protected:
+	/** 鎖設定に基づいてコンポーネントの状態を再構築する内部関数 */
+	void SetupCableSystem(const FCableAttachmentSettings& Settings, USceneComponent* AssociatedComponent = nullptr);
+
+	/** 現在有効な鎖を安全に消去する関数 */
+	void ClearCableSystem();
 
 protected:
 

@@ -903,6 +903,48 @@ enum class EEquipmentSlot : uint8
 	Max           UMETA(Hidden)
 };
 
+UENUM(BlueprintType)
+enum class ECableAttachType : uint8
+{
+	None          UMETA(DisplayName = "鎖なし"),
+	WeaponToSub   UMETA(DisplayName = "武器本体からサブメッシュ/鉄球へ"),
+	LeftToRight   UMETA(DisplayName = "左手足から右手足へ（左右連結）"),
+	ToWorldObject UMETA(DisplayName = "装備からワールド上の別アクター/鉄球へ")
+};
+
+USTRUCT(BlueprintType)
+struct FCableAttachmentSettings
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cable")
+	ECableAttachType AttachType = ECableAttachType::None;
+
+	/** 鎖の見た目（マテリアル：鎖のテクスチャやタイリングを設定したもの） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cable")
+	TSoftObjectPtr<UMaterialInterface> CableMaterial;
+
+	/** 鎖の太さ */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cable")
+	float CableThickness = 2.0f;
+
+	/** 鎖のセグメント数（多いほど滑らかですが物理負荷が上がります。10~20推奨） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cable", meta = (ClampMin = "1"))
+	int32 NumSegments = 15;
+
+	/** 鎖の本来の長さ（たるみ具合に影響します） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cable")
+	float CableLength = 100.0f;
+
+	/** 接続元のソケット名（例: "hand_l_socket", "Weapon_Handle"） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cable")
+	FName SourceSocketName;
+
+	/** 接続先のソケット名（例: "hand_r_socket", "Ball_Socket"） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cable")
+	FName TargetSocketName;
+};
+
 // --- 装備品データの構造体 ---
 USTRUCT(BlueprintType)
 struct FEquipmentData : public FTableRowBase
@@ -941,6 +983,9 @@ struct FEquipmentData : public FTableRowBase
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment|Offset")
 	FRotator ToeRotationOffset = FRotator::ZeroRotator;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment|Cable")
+	FCableAttachmentSettings CableSettings;
 };
 
 // --- ExtraStatsとモーフターゲットを連動させるための設定 ---

@@ -22,7 +22,8 @@ public class MyProject1 : ModuleRules
 			"UMG",
 			"Slate",
             "PhysicsCore",
-			"Niagara"
+			"Niagara",
+			"CableComponent"
 
         });
 
