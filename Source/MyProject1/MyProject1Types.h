@@ -945,6 +945,58 @@ struct FCableAttachmentSettings
 	FName TargetSocketName;
 };
 
+// ==========================================
+// デカール（傷・入れ墨・化粧）専用の部位スロット定義
+// ==========================================
+UENUM(BlueprintType)
+enum class EDecalSlot : uint8
+{
+	Face       UMETA(DisplayName = "顔（化粧・目の傷など）"),
+	Chest      UMETA(DisplayName = "胸元・お腹"),
+	Back       UMETA(DisplayName = "背中"),
+	LeftArm    UMETA(DisplayName = "左腕（肩・二の腕など）"),
+	RightArm   UMETA(DisplayName = "右腕（肩・二の腕など）"),
+	Legs       UMETA(DisplayName = "脚・太もも"),
+	Max        UMETA(Hidden)
+};
+
+// ==========================================
+// デカール専用データテーブル（DT_DecalOverlay）の1行分の構造体
+// ==========================================
+USTRUCT(BlueprintType)
+struct FOverlayDecalData : public FTableRowBase
+{
+	GENERATED_BODY()
+
+	/** このデカールが適用される体の部位（スロット） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Decal")
+	EDecalSlot TargetDecalSlot = EDecalSlot::Face;
+
+	/** アタッチ先のボーン名（例: "head", "upperarm_l", "spine_03" など、VRMの骨の名前） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Decal")
+	FName AttachBoneName = NAME_None;
+
+	/** 傷やタトゥー、化粧のテクスチャ（背景が透明なPNG画像を想定） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Decal")
+	TSoftObjectPtr<UTexture2D> OverlayTexture;
+
+	/** 衣服・傷・タトゥー・メイクの色（データテーブルから自由に変更可能） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Decal")
+	FLinearColor OverlayColor = FLinearColor::White;
+
+	/** 選択したボーンからの位置の微調整オフセット (X, Y, Z) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Decal")
+	FVector LocationOffset = FVector::ZeroVector;
+
+	/** 貼り付ける向き・角度の微調整 (Pitch, Yaw, Roll) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Decal")
+	FRotator RotationOffset = FRotator::ZeroRotator;
+
+	/** 投影ボックスのサイズ（傷やタトゥーの大きさ・厚み） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Decal")
+	FVector DecalSize = FVector(64.0f, 64.0f, 64.0f);
+};
+
 // --- 装備品データの構造体 ---
 USTRUCT(BlueprintType)
 struct FEquipmentData : public FTableRowBase
@@ -986,6 +1038,8 @@ struct FEquipmentData : public FTableRowBase
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment|Cable")
 	FCableAttachmentSettings CableSettings;
+
+	
 };
 
 // --- ExtraStatsとモーフターゲットを連動させるための設定 ---

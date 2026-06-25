@@ -10,7 +10,6 @@
 #include "InventoryComponent.h"
 #include "InputActionValue.h"
 #include "RpgCharacterInterface.h"
-#include "CableComponent.h"
 #include "MyProject1Character.generated.h"
 
 class USpringArmComponent;
@@ -180,6 +179,9 @@ protected:
 
 	/** 毎フレーム呼び出されてまばたきを計算する関数 */
 	void UpdateBlink(float DeltaTime);
+
+	UPROPERTY()
+	UMaterialInstanceDynamic* DynamicBodyMaterialInstance;
 
 	
 	
@@ -446,6 +448,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment")
 	UDataTable* EquipmentDataTable;
 
+	// デカール専用データテーブルの参照（エディタからDT_DecalOverlayをセットする枠）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment")
+	UDataTable* DecalDataTable;
+
 	// バフ専用データテーブルの参照
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Buff")
 	UDataTable* BuffDataTable;
@@ -471,6 +477,24 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Cable")
 	USceneComponent* CableDummyEnd;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Cable")
+	UCableComponent* EquipmentCableComp_Hands;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Cable")
+	USceneComponent* CableDummyStart_Hands;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Cable")
+	USceneComponent* CableDummyEnd_Hands;
+
+	// 手・腕用の鎖の追従状態を管理する変数群
+	FName CurrentCableSourceSocket_Hands;
+	UPROPERTY()
+	USceneComponent* CurrentCableSourceComponent_Hands;
+
+	FName CurrentCableTargetSocket_Hands;
+	UPROPERTY()
+	USceneComponent* CurrentCableTargetComponent_Hands;
+
 	/** 武器の鉄球など、鎖の先端にぶら下がるサブメッシュ（スタティック） */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
 	UStaticMeshComponent* WeaponSubMeshComp;
@@ -491,10 +515,10 @@ public:
 
 protected:
 	/** 鎖設定に基づいてコンポーネントの状態を再構築する内部関数 */
-	void SetupCableSystem(const FCableAttachmentSettings& Settings, USceneComponent* AssociatedComponent = nullptr);
+	void SetupCableSystem(const FCableAttachmentSettings& Settings, EEquipmentSlot Slot, USceneComponent* AssociatedComponent = nullptr);
 
 	/** 現在有効な鎖を安全に消去する関数 */
-	void ClearCableSystem();
+	void ClearCableSystem(EEquipmentSlot Slot);
 
 protected:
 
@@ -898,6 +922,30 @@ public:
 	// BGM管理コンポーネント
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Audio")
 	class UMusicControlComponent* MusicComp;
+
+	public:
+		// === ★完全独立したデカール管理システム変数と関数 ===
+
+		/** 【デカールインベントリ箱】現在キャラクターの体に適用されているデカールの行名（セーブ保存可能） */
+		UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Decal")
+		TMap<EDecalSlot, FName> CurrentActiveDecals;
+
+		/** 行名を1つ指定して実行するだけで、自動で適切な部位に傷やタトゥーをスタンプする関数 */
+		UFUNCTION(BlueprintCallable, Category = "Decal")
+		void ApplyDecal(FName DecalRowName);
+
+		/** 指定した部位のデカール（傷やタトゥー）を完全に消去する関数 */
+		UFUNCTION(BlueprintCallable, Category = "Decal")
+		void RemoveDecal(EDecalSlot Slot);
+
+		/** エディタで作った共通デカールマスターマテリアル（M_BaseDecalMaster）をセットしておく枠 */
+		UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Decal")
+		UMaterialInterface* BaseDecalMasterMaterial;
+
+protected:
+	/** ランタイムで生成されたデカールコンポーネントを部位ごとに記憶しておくマップ */
+	UPROPERTY()
+	TMap<EDecalSlot, class UDecalComponent*> SpawnedDecalComponents;
 
 
 };

@@ -31,6 +31,9 @@
 #include "MusicControlComponent.h"
 #include "Engine/DamageEvents.h"
 #include "GameFramework/PhysicsVolume.h"
+#include "CableComponent.h"
+#include "Components/DecalComponent.h"
+#include "DrawDebugHelpers.h"
 
 
 AMyProject1Character::AMyProject1Character()
@@ -131,6 +134,19 @@ AMyProject1Character::AMyProject1Character()
 	CableDummyEnd = CreateDefaultSubobject<USceneComponent>(TEXT("CableDummyEnd"));
 	CableDummyEnd->SetupAttachment(RootComponent);   // スケールが1,1,1のカプセル直下に配置
 
+	EquipmentCableComp_Hands = CreateDefaultSubobject<UCableComponent>(TEXT("EquipmentCableComp_Hands"));
+	EquipmentCableComp_Hands->SetupAttachment(GetMesh());
+	EquipmentCableComp_Hands->bAttachEnd = true;
+	EquipmentCableComp_Hands->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	EquipmentCableComp_Hands->SetVisibility(false);
+	EquipmentCableComp_Hands->NumSegments = 15;
+
+	CableDummyStart_Hands = CreateDefaultSubobject<USceneComponent>(TEXT("CableDummyStart_Hands"));
+	CableDummyStart_Hands->SetupAttachment(RootComponent);
+
+	CableDummyEnd_Hands = CreateDefaultSubobject<USceneComponent>(TEXT("CableDummyEnd_Hands"));
+	CableDummyEnd_Hands->SetupAttachment(RootComponent);
+
 	
 	// 武器のサブコンポーネント（鉄球など物理で揺れるパーツ）の生成
 	WeaponSubMeshComp = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("WeaponSubMeshComp"));
@@ -197,7 +213,11 @@ void AMyProject1Character::BeginPlay()
 {
 	Super::BeginPlay();
 
-	ClearCableSystem();
+	CurrentActiveDecals.Empty();
+	SpawnedDecalComponents.Empty();
+
+	ClearCableSystem(EEquipmentSlot::Feet);
+	ClearCableSystem(EEquipmentSlot::Hands);
 
 	// --- 疑似飛行の処理：設定した高さだけメッシュを上に持ち上げる ---
 	if (HoverHeight > 0.0f)
@@ -581,21 +601,79 @@ void AMyProject1Character::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
-	// 鎖の中継ダミーワールド同期システム（物理を麻痺させずにスケールバグのみを完全に消去）
+#if WITH_EDITOR
+	// === ★開発効率爆上げ：エディタプレイ中限定でデータテーブルの数値を毎フレーム強制同期 ===
+	// デカールデータテーブルが存在し、かつ現在体にデカールが1つでも貼られている場合のみ処理
+	if (DecalDataTable && SpawnedDecalComponents.Num() > 0)
+	{
+		for (auto& Pair : SpawnedDecalComponents)
+		{
+			EDecalSlot Slot = Pair.Key;
+			UDecalComponent* DecalComp = Pair.Value;
+
+			// デカールコンポーネントが有効で、インベントリ箱（行名）が記憶されているか確認
+			if (DecalComp && DecalComp->IsValidLowLevel() && CurrentActiveDecals.Contains(Slot))
+			{
+				FName RowName = CurrentActiveDecals[Slot];
+
+				// 最新のデータテーブルの数値をその場で FindRow して引っ張ってくる
+				FOverlayDecalData* DecalData = DecalDataTable->FindRow<FOverlayDecalData>(RowName, TEXT("DecalRealtimeTickUpdate"));
+				if (DecalData)
+				{
+					// ★重要：位置、角度、サイズをデータテーブルの最新値で毎フレーム強制上書き！
+					DecalComp->SetRelativeLocation(DecalData->LocationOffset);
+					DecalComp->SetRelativeRotation(DecalData->RotationOffset);
+					DecalComp->DecalSize = DecalData->DecalSize;
+
+					// ★重要：色（OverlayColor）の変更もその場で即座に反映！
+					if (UMaterialInstanceDynamic* DynamicDecalMat = Cast<UMaterialInstanceDynamic>(DecalComp->GetDecalMaterial()))
+					{
+						DynamicDecalMat->SetVectorParameterValue(FName("Decal_Color"), DecalData->OverlayColor);
+					}
+					DrawDebugBox(
+						GetWorld(),
+						DecalComp->GetComponentLocation(),              // デカールの中心座標
+						DecalComp->DecalSize,                          // ⭕ 直接メンバー変数を参照します
+						DecalComp->GetComponentRotation().Quaternion(), // デカールの傾き
+						FColor::Green,                                 // 枠線の色（緑色）
+						false,                                         // 永続表示にしない（毎フレーム消す）
+						-1.0f,                                         // 寿命（-1.0fでそのフレームのみ表示）
+						0,                                             // 描画の優先順位
+						1.5f                                           // 線の太さ（お好みで 2.0f など太くしてもOK）
+					);
+				}
+			}
+		}
+	}
+#endif
+
+	// 1. 既存の鎖システム（足・その他用）のワールド同期
 	if (EquipmentCableComp && EquipmentCableComp->IsVisible())
 	{
-		// 1. 始点ダミーを現在のソケット位置（左足など）にワールド空間で完全吸着
 		if (CurrentCableSourceComponent && !CurrentCableSourceSocket.IsNone() && CableDummyStart)
 		{
 			FVector SourceLocation = CurrentCableSourceComponent->GetSocketLocation(CurrentCableSourceSocket);
 			CableDummyStart->SetWorldLocation(SourceLocation);
 		}
-
-		// 2. 終点ダミーを現在のソケット位置（右足など）にワールド空間で完全吸着
 		if (CurrentCableTargetComponent && !CurrentCableTargetSocket.IsNone() && CableDummyEnd)
 		{
 			FVector TargetLocation = CurrentCableTargetComponent->GetSocketLocation(CurrentCableTargetSocket);
 			CableDummyEnd->SetWorldLocation(TargetLocation);
+		}
+	}
+
+	// === 手・腕用の鎖システムのワールド同期 ===
+	if (EquipmentCableComp_Hands && EquipmentCableComp_Hands->IsVisible())
+	{
+		if (CurrentCableSourceComponent_Hands && !CurrentCableSourceSocket_Hands.IsNone() && CableDummyStart_Hands)
+		{
+			FVector SourceLocation = CurrentCableSourceComponent_Hands->GetSocketLocation(CurrentCableSourceSocket_Hands);
+			CableDummyStart_Hands->SetWorldLocation(SourceLocation);
+		}
+		if (CurrentCableTargetComponent_Hands && !CurrentCableTargetSocket_Hands.IsNone() && CableDummyEnd_Hands)
+		{
+			FVector TargetLocation = CurrentCableTargetComponent_Hands->GetSocketLocation(CurrentCableTargetSocket_Hands);
+			CableDummyEnd_Hands->SetWorldLocation(TargetLocation);
 		}
 	}
 
@@ -2356,16 +2434,53 @@ void AMyProject1Character::EquipItem(FName ItemID, FEquipmentData EquipData)
 		break;
 	}
 
-	// 例として、足（Feet）や首（Neck）、あるいはメイン武器が選択された時の処理に組み込む
+	// 鎖の基準となるコンポーネントをスロットに応じて決定
 	USceneComponent* CurrentActiveComp = nullptr;
-	if (EquipData.TargetSlot == EEquipmentSlot::Feet) CurrentActiveComp = FeetMeshComp;
-	else if (EquipData.TargetSlot == EEquipmentSlot::Neck) CurrentActiveComp = NeckMeshComp;
-	// 武器がJobRow経由ではなくEquipmentDataTable経由で処理される場合は、WeaponMeshComp等を指定
+
+	if (EquipData.TargetSlot == EEquipmentSlot::Feet)
+	{
+		CurrentActiveComp = FeetMeshComp;
+	}
+	else if (EquipData.TargetSlot == EEquipmentSlot::Neck)
+	{
+		CurrentActiveComp = NeckMeshComp;
+	}
+	else if (EquipData.TargetSlot == EEquipmentSlot::Hands)
+	{
+		// 手袋・小手などのスケルタルメッシュを対象にする
+		CurrentActiveComp = HandsMeshComp;
+	}
+	else if (EquipData.TargetSlot == EEquipmentSlot::Wrist)
+	{
+		// 腕輪（手枷）はStaticMeshとSkeletalMeshの両方があるため、
+		// StaticMeshが設定されていればそれを使い、なければSkeletalMeshを対象にする
+		if (WristMeshComp && WristMeshComp->GetStaticMesh())
+		{
+			CurrentActiveComp = WristMeshComp;
+		}
+		else
+		{
+			CurrentActiveComp = WristSkeletalMeshComp;
+		}
+	}
+	else if (EquipData.TargetSlot == EEquipmentSlot::Ankle) // ★ここから追加！
+	{
+		// 足輪（足枷）はStaticMeshとSkeletalMeshの両方があるため、手首と同様に判定
+		if (AnkleMeshComp && AnkleMeshComp->GetStaticMesh())
+		{
+			CurrentActiveComp = AnkleMeshComp;
+		}
+		else
+		{
+			CurrentActiveComp = AnkleSkeletalMeshComp;
+		}
+	} 
 
 	// 鎖の設定があれば構築を実行する
 	if (EquipData.CableSettings.AttachType != ECableAttachType::None)
 	{
-		SetupCableSystem(EquipData.CableSettings, CurrentActiveComp);
+		// ★引数に現在の TargetSlot を追加
+		SetupCableSystem(EquipData.CableSettings, EquipData.TargetSlot, CurrentActiveComp);
 	}
 
 	// 装備状態の記憶を更新（ここで ItemID が使われます）
@@ -2376,6 +2491,19 @@ void AMyProject1Character::EquipItem(FName ItemID, FEquipmentData EquipData)
 
 void AMyProject1Character::UnequipItem(EEquipmentSlot TargetSlot)
 {
+	bool bHasCable = false;
+	FName EquippedItemID = GetEquippedItemID(TargetSlot);
+	if (!EquippedItemID.IsNone() && EquipmentDataTable)
+	{
+		FEquipmentData* EquipData = EquipmentDataTable->FindRow<FEquipmentData>(EquippedItemID, TEXT("UnequipCableCheck"));
+		if (EquipData && EquipData->CableSettings.AttachType != ECableAttachType::None)
+		{
+			bHasCable = true;
+		}
+
+		
+	}
+
 	switch (TargetSlot)
 	{
 	case EEquipmentSlot::Hair:
@@ -2426,9 +2554,9 @@ void AMyProject1Character::UnequipItem(EEquipmentSlot TargetSlot)
 		break;
 	}
 
-	if (TargetSlot == EEquipmentSlot::Feet || TargetSlot == EEquipmentSlot::Neck)
+	if (bHasCable)
 	{
-		ClearCableSystem();
+		ClearCableSystem(TargetSlot);
 	}
 
 	// 記憶している装備状態から削除
@@ -2701,24 +2829,57 @@ void AMyProject1Character::UpdateMorphTargetFromStat(FName StatName, float Value
 // 鎖（ケーブル）システムの実装群
 // ==========================================
 
-void AMyProject1Character::ClearCableSystem()
+void AMyProject1Character::ClearCableSystem(EEquipmentSlot Slot)
 {
-	CurrentCableSourceSocket = NAME_None;
-	CurrentCableSourceComponent = nullptr;
-	CurrentCableTargetSocket = NAME_None;
-	CurrentCableTargetComponent = nullptr;
+	// 手・腕スロットかどうかの判定
+	bool bIsHands = (Slot == EEquipmentSlot::Hands || Slot == EEquipmentSlot::Wrist);
 
-	if (EquipmentCableComp)
+	if (bIsHands)
 	{
-		EquipmentCableComp->SetVisibility(false);
-		EquipmentCableComp->bAttachEnd = false;
-		EquipmentCableComp->DetachFromComponent(FDetachmentTransformRules::KeepRelativeTransform);
-		EquipmentCableComp->SetAttachEndToComponent(nullptr, NAME_None);
-		EquipmentCableComp->EndLocation = FVector::ZeroVector;
+		CurrentCableSourceSocket_Hands = NAME_None;
+		CurrentCableSourceComponent_Hands = nullptr;
+		CurrentCableTargetSocket_Hands = NAME_None;
+		CurrentCableTargetComponent_Hands = nullptr;
+
+		if (EquipmentCableComp_Hands)
+		{
+			EquipmentCableComp_Hands->SetVisibility(false);
+			EquipmentCableComp_Hands->SetHiddenInGame(true);
+			EquipmentCableComp_Hands->Deactivate();            // 物理シミュレーションを止める
+			EquipmentCableComp_Hands->CableLength = 0.0f;       // 長さを0にして潰す
+			EquipmentCableComp_Hands->bAttachEnd = false;
+
+			// ★核心：親を中継ダミーからキャラクター本体のMeshに強制アタッチで引き戻す！
+			EquipmentCableComp_Hands->AttachToComponent(GetMesh(), FAttachmentTransformRules::SnapToTargetNotIncludingScale);
+
+			EquipmentCableComp_Hands->SetAttachEndToComponent(nullptr, NAME_None);
+			EquipmentCableComp_Hands->EndLocation = FVector::ZeroVector;
+		}
+	}
+	else
+	{
+		CurrentCableSourceSocket = NAME_None;
+		CurrentCableSourceComponent = nullptr;
+		CurrentCableTargetSocket = NAME_None;
+		CurrentCableTargetComponent = nullptr;
+
+		if (EquipmentCableComp)
+		{
+			EquipmentCableComp->SetVisibility(false);
+			EquipmentCableComp->SetHiddenInGame(true);
+			EquipmentCableComp->Deactivate();                  // 物理シミュレーションを止める
+			EquipmentCableComp->CableLength = 0.0f;             // 長さを0にして潰す
+			EquipmentCableComp->bAttachEnd = false;
+
+			// ★核心：親を中継ダミーからキャラクター本体のMeshに強制アタッチで引き戻す！
+			EquipmentCableComp->AttachToComponent(GetMesh(), FAttachmentTransformRules::SnapToTargetNotIncludingScale);
+
+			EquipmentCableComp->SetAttachEndToComponent(nullptr, NAME_None);
+			EquipmentCableComp->EndLocation = FVector::ZeroVector;
+		}
 	}
 
-	
-	if (WeaponSubMeshComp)
+	if (!bIsHands && WeaponSubMeshComp)
 	{
 		WeaponSubMeshComp->SetVisibility(false);
 		WeaponSubMeshComp->SetSimulatePhysics(false);
@@ -2727,54 +2888,61 @@ void AMyProject1Character::ClearCableSystem()
 	}
 }
 
-void AMyProject1Character::SetupCableSystem(const FCableAttachmentSettings& Settings, USceneComponent* AssociatedComponent)
+void AMyProject1Character::SetupCableSystem(const FCableAttachmentSettings& Settings, EEquipmentSlot Slot, USceneComponent* AssociatedComponent)
 {
-	// 一度リセット
-	ClearCableSystem();
+	// まず指定されたスロットの鎖を一度リセット
+	ClearCableSystem(Slot);
 
-	if (Settings.AttachType == ECableAttachType::None || !EquipmentCableComp) return;
+	bool bIsHands = (Slot == EEquipmentSlot::Hands || Slot == EEquipmentSlot::Wrist);
+
+	// 操作対象のコンポーネントとダミーをスロットに応じて切り替える
+	UCableComponent* TargetCable = bIsHands ? EquipmentCableComp_Hands : EquipmentCableComp;
+	USceneComponent* TargetDummyStart = bIsHands ? CableDummyStart_Hands : CableDummyStart;
+	USceneComponent* TargetDummyEnd = bIsHands ? CableDummyEnd_Hands : CableDummyEnd;
+
+	if (Settings.AttachType == ECableAttachType::None || !TargetCable) return;
 
 	UMaterialInterface* LoadedMaterial = Settings.CableMaterial.IsNull() ? nullptr : Settings.CableMaterial.LoadSynchronous();
 
+	// 眠らせたコンポーネントを完全に再起動
+	TargetCable->Activate(true);
+	TargetCable->SetHiddenInGame(false);
+
 	// --- 鎖パラメータ適用 ---
-	EquipmentCableComp->CableWidth = Settings.CableThickness;
-	EquipmentCableComp->CableLength = Settings.CableLength; // データテーブルの Range（長さ）が100%効くようになります
-
-	// ★ 鎖の引き伸ばしバグを100%解決する自動タイリング計算
-	// 長さ（CableLength）に応じてマテリアルを繰り返す回数を自動計算します。
-	// 下記の「10.0f」の数値を小さくする（例: 5.0f）と輪っかが細かくなり、大きくする（例: 20.0f）と輪っかが大きくなります。
-	EquipmentCableComp->TileMaterial = FMath::Max(1.0f, Settings.CableLength / 6.0f);
-
-	// ★ 動きの制限（Damper/硬さ）を最大まで強化する設定
-	// デフォルトの4から「32」まで引き上げることで、ゴムのような伸縮やフワフワ感が消え、ズッシリとした鉄の鎖になります。
-	EquipmentCableComp->SolverIterations = 32;
+	TargetCable->CableWidth = Settings.CableThickness;
+	TargetCable->CableLength = Settings.CableLength;
+	TargetCable->TileMaterial = FMath::Max(1.0f, Settings.CableLength / 6.0f);
+	TargetCable->SolverIterations = 32;
 
 	if (LoadedMaterial)
 	{
-		if (EquipmentCableComp->OverrideMaterials.Num() == 0) EquipmentCableComp->OverrideMaterials.Add(LoadedMaterial);
-		else EquipmentCableComp->OverrideMaterials[0] = LoadedMaterial;
-		EquipmentCableComp->MarkRenderStateDirty();
+		if (TargetCable->OverrideMaterials.Num() == 0) TargetCable->OverrideMaterials.Add(LoadedMaterial);
+		else TargetCable->OverrideMaterials[0] = LoadedMaterial;
+		TargetCable->MarkRenderStateDirty();
 	}
-	EquipmentCableComp->SetVisibility(true);
+	TargetCable->SetVisibility(true);
 
-	// 始点・終点コンポーネントの記憶
-	CurrentCableSourceSocket = Settings.SourceSocketName;
+	// 変数の格納先を分岐
+	if (bIsHands)
+	{
+		CurrentCableSourceSocket_Hands = Settings.SourceSocketName;
+	}
+	else
+	{
+		CurrentCableSourceSocket = Settings.SourceSocketName;
+	}
 
 	switch (Settings.AttachType)
 	{
 	case ECableAttachType::WeaponToSub:
 	{
-		if (WeaponSubMeshComp && AssociatedComponent)
+		if (!bIsHands && WeaponSubMeshComp && AssociatedComponent)
 		{
 			WeaponSubMeshComp->SetVisibility(true);
 			CurrentCableSourceComponent = AssociatedComponent;
-
-			// 武器の柄ソケット位置に追従するダミーStartに鎖の始点をアタッチ
-			EquipmentCableComp->AttachToComponent(CableDummyStart, FAttachmentTransformRules::SnapToTargetNotIncludingScale);
-
-			// 終点は物理でぶら下がる鉄球に直接正規接続
-			EquipmentCableComp->bAttachEnd = true;
-			EquipmentCableComp->SetAttachEndToComponent(WeaponSubMeshComp, Settings.TargetSocketName);
+			TargetCable->AttachToComponent(TargetDummyStart, FAttachmentTransformRules::SnapToTargetNotIncludingScale);
+			TargetCable->bAttachEnd = true;
+			TargetCable->SetAttachEndToComponent(WeaponSubMeshComp, Settings.TargetSocketName);
 			WeaponSubMeshComp->SetSimulatePhysics(true);
 		}
 	}
@@ -2782,34 +2950,49 @@ void AMyProject1Character::SetupCableSystem(const FCableAttachmentSettings& Sett
 
 	case ECableAttachType::LeftToRight:
 	{
-		// 左右連結（手枷・足枷）モード
-		CurrentCableSourceComponent = GetMesh(); // 左足の親
-		CurrentCableTargetComponent = GetMesh(); // 右足の親
-		CurrentCableTargetSocket = Settings.TargetSocketName; // 右足ソケット名
+		USceneComponent* BestComp = AssociatedComponent ? AssociatedComponent : GetMesh();
+		USceneComponent* FinalSourceComp = GetMesh();
+		USceneComponent* FinalTargetComp = GetMesh();
 
-		// 鎖の始点をダミーStart（左足ソケットに追従）にアタッチ
-		EquipmentCableComp->AttachToComponent(CableDummyStart, FAttachmentTransformRules::SnapToTargetNotIncludingScale);
+		if (USkeletalMeshComponent* SkelComp = Cast<USkeletalMeshComponent>(BestComp))
+		{
+			if (SkelComp->DoesSocketExist(Settings.SourceSocketName)) FinalSourceComp = SkelComp;
+			if (SkelComp->DoesSocketExist(Settings.TargetSocketName)) FinalTargetComp = SkelComp;
+		}
 
-		// ★核心：鎖の終点をダミーEnd（右足ソケットに追従）に正規アタッチして結合！
-		// これにより手動書き換えが不要になり、たるみ（Length）が完璧に機能します
-		EquipmentCableComp->bAttachEnd = true;
-		EquipmentCableComp->SetAttachEndToComponent(CableDummyEnd, NAME_None);
+		if (bIsHands)
+		{
+			CurrentCableSourceComponent_Hands = FinalSourceComp;
+			CurrentCableTargetComponent_Hands = FinalTargetComp;
+			CurrentCableTargetSocket_Hands = Settings.TargetSocketName;
+		}
+		else
+		{
+			CurrentCableSourceComponent = FinalSourceComp;
+			CurrentCableTargetComponent = FinalTargetComp;
+			CurrentCableTargetSocket = Settings.TargetSocketName;
+		}
+
+		// 鎖の始点をそれぞれのダミーStartに接続
+		TargetCable->AttachToComponent(TargetDummyStart, FAttachmentTransformRules::SnapToTargetNotIncludingScale);
+
+		// 鎖の終点をそれぞれのダミーEndに正規接続
+		TargetCable->bAttachEnd = true;
+		TargetCable->SetAttachEndToComponent(TargetDummyEnd, NAME_None);
 	}
 	break;
 
 	case ECableAttachType::ToWorldObject:
 	{
-		if (WeaponSubMeshComp)
+		if (!bIsHands && WeaponSubMeshComp)
 		{
 			WeaponSubMeshComp->SetVisibility(true);
 			CurrentCableSourceComponent = GetMesh();
-
 			WeaponSubMeshComp->DetachFromComponent(FDetachmentTransformRules::KeepWorldTransform);
 			WeaponSubMeshComp->SetSimulatePhysics(true);
-
-			EquipmentCableComp->AttachToComponent(CableDummyStart, FAttachmentTransformRules::SnapToTargetNotIncludingScale);
-			EquipmentCableComp->bAttachEnd = true;
-			EquipmentCableComp->SetAttachEndToComponent(WeaponSubMeshComp, Settings.TargetSocketName);
+			TargetCable->AttachToComponent(TargetDummyStart, FAttachmentTransformRules::SnapToTargetNotIncludingScale);
+			TargetCable->bAttachEnd = true;
+			TargetCable->SetAttachEndToComponent(WeaponSubMeshComp, Settings.TargetSocketName);
 		}
 	}
 	break;
@@ -2818,13 +3001,104 @@ void AMyProject1Character::SetupCableSystem(const FCableAttachmentSettings& Sett
 		break;
 	}
 
-	// 初回のダミー位置を強制同期してブレを防ぐ
-	if (CurrentCableSourceComponent && !CurrentCableSourceSocket.IsNone() && CableDummyStart)
+	// 初回位置の強制同期
+	if (bIsHands)
 	{
-		CableDummyStart->SetWorldLocation(CurrentCableSourceComponent->GetSocketLocation(CurrentCableSourceSocket));
+		if (CurrentCableSourceComponent_Hands && !CurrentCableSourceSocket_Hands.IsNone() && TargetDummyStart)
+		{
+			TargetDummyStart->SetWorldLocation(CurrentCableSourceComponent_Hands->GetSocketLocation(CurrentCableSourceSocket_Hands));
+		}
+		if (CurrentCableTargetComponent_Hands && !CurrentCableTargetSocket_Hands.IsNone() && TargetDummyEnd)
+		{
+			TargetDummyEnd->SetWorldLocation(CurrentCableTargetComponent_Hands->GetSocketLocation(CurrentCableTargetSocket_Hands));
+		}
 	}
-	if (CurrentCableTargetComponent && !CurrentCableTargetSocket.IsNone() && CableDummyEnd)
+	else
 	{
-		CableDummyEnd->SetWorldLocation(CurrentCableTargetComponent->GetSocketLocation(CurrentCableTargetSocket));
+		if (CurrentCableSourceComponent && !CurrentCableSourceSocket.IsNone() && TargetDummyStart)
+		{
+			TargetDummyStart->SetWorldLocation(CurrentCableSourceComponent->GetSocketLocation(CurrentCableSourceSocket));
+		}
+		if (CurrentCableTargetComponent && !CurrentCableTargetSocket.IsNone() && TargetDummyEnd)
+		{
+			TargetDummyEnd->SetWorldLocation(CurrentCableTargetComponent->GetSocketLocation(CurrentCableTargetSocket));
+		}
+	}
+}
+
+// ==========================================
+// ★完全独立デカール（傷・入れ墨・化粧）システムの実装
+// ==========================================
+
+void AMyProject1Character::ApplyDecal(FName DecalRowName)
+{
+	if (DecalRowName.IsNone() || !DecalDataTable || !BaseDecalMasterMaterial || !GetMesh()) return;
+
+	// 1. デカール専用データテーブルから行データを引き出す
+	FOverlayDecalData* DecalData = DecalDataTable->FindRow<FOverlayDecalData>(DecalRowName, TEXT("DecalApplyLookup"));
+	if (!DecalData) return;
+
+	EDecalSlot TargetSlot = DecalData->TargetDecalSlot;
+
+	// 2. 重複防止：すでにその部位（スロット）に何か貼られていれば、先にコンポーネントを完全に消去する
+	RemoveDecal(TargetSlot);
+
+	// 3. ランタイムでデカールコンポーネントを動的に生成
+	UDecalComponent* NewDecalComp = NewObject<UDecalComponent>(this);
+	if (NewDecalComp)
+	{
+		NewDecalComp->RegisterComponent();
+
+		// データテーブルで指定された骨（ボーン）へ正確にアタッチ（吸着）
+		NewDecalComp->AttachToComponent(GetMesh(), FAttachmentTransformRules::SnapToTargetNotIncludingScale, DecalData->AttachBoneName);
+
+		// データテーブルのオフセット数値（位置・角度・サイズ）をミリ単位で完全同期
+		NewDecalComp->SetRelativeLocation(DecalData->LocationOffset);
+		NewDecalComp->SetRelativeRotation(DecalData->RotationOffset);
+		NewDecalComp->DecalSize = DecalData->DecalSize;
+
+		// 1. 先にベースとなるマスターマテリアル（M_BaseDecalMaster）をデカールに適用する
+		NewDecalComp->SetDecalMaterial(BaseDecalMasterMaterial);
+
+		// 2. 引数なしでデカールの動的マテリアルインスタンスを生成する（UE5デカールの仕様）
+		UMaterialInstanceDynamic* DynamicDecalMat = NewDecalComp->CreateDynamicMaterialInstance();
+
+		if (DynamicDecalMat && !DecalData->OverlayTexture.IsNull())
+		{
+			UTexture2D* LoadedTex = DecalData->OverlayTexture.LoadSynchronous();
+			DynamicDecalMat->SetTextureParameterValue(FName("Decal_Tex"), LoadedTex);
+			DynamicDecalMat->SetVectorParameterValue(FName("Decal_Color"), DecalData->OverlayColor);
+		}
+
+		// 4. 【管理箱インベントリへ記憶】
+		// 現在の適用状態（行名）と、生成されたコンポーネントをそれぞれ別々の箱に大切に保管する
+		CurrentActiveDecals.Add(TargetSlot, DecalRowName);
+		SpawnedDecalComponents.Add(TargetSlot, NewDecalComp);
+
+		// ログに通知
+		FString DebugMsg = FString::Printf(TEXT("デカール適用: 部位[%d] に 行名[%s] を貼り付けました。"), (int32)TargetSlot, *DecalRowName.ToString());
+		OnReceiveLogMessage(DebugMsg, ELogMessageType::System);
+	}
+}
+
+void AMyProject1Character::RemoveDecal(EDecalSlot Slot)
+{
+	// 生成されたコンポーネントの管理箱をチェック
+	if (SpawnedDecalComponents.Contains(Slot))
+	{
+		if (UDecalComponent* TargetComp = SpawnedDecalComponents[Slot])
+		{
+			if (TargetComp->IsValidLowLevel())
+			{
+				TargetComp->DestroyComponent(); // ワールド空間から完全に消滅させる
+			}
+		}
+		SpawnedDecalComponents.Remove(Slot);
+	}
+
+	// 行名記憶の管理箱（インベントリ）からも綺麗サッパリ削除する
+	if (CurrentActiveDecals.Contains(Slot))
+	{
+		CurrentActiveDecals.Remove(Slot);
 	}
 }
