@@ -1121,3 +1121,33 @@ struct FPiercingDataRow : public FTableRowBase
 
 	// 💡将来の拡張項目：耳や口元にアタッチするStaticMeshの参照をここに足せる
 };
+
+USTRUCT(BlueprintType)
+struct FOverlayShopItemInfo
+{
+	GENERATED_BODY()
+
+	/** データテーブル上の共通ID（"1", "2" など） */
+	UPROPERTY(BlueprintReadOnly, Category = "Shop Item")
+	FName RowName = NAME_None;
+
+	/** 表示用の日本語アイテム名 */
+	UPROPERTY(BlueprintReadOnly, Category = "Shop Item")
+	FString DisplayName = TEXT("");
+
+	/** アイテムの説明テキスト */
+	UPROPERTY(BlueprintReadOnly, Category = "Shop Item")
+	FText Description = FText::GetEmpty();
+
+	/** 施術（購入・追加）に必要な費用 */
+	UPROPERTY(BlueprintReadOnly, Category = "Shop Item")
+	int32 BuyPrice = 0;
+
+	/** 除去（消去・治療）に必要な費用 */
+	UPROPERTY(BlueprintReadOnly, Category = "Shop Item")
+	int32 RemovePrice = 0;
+
+	/** 【重要】現在プレイヤーが既にこれを施術・装着・感染しているかどうかのフラグ */
+	UPROPERTY(BlueprintReadOnly, Category = "Shop Item")
+	bool bIsOwned = false;
+};

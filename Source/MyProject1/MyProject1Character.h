@@ -29,6 +29,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnLogScrollToBottomSignature);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnCharacterDeathSignature, AActor*, DeadActor);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnStatsUpdatedSignature);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnBuffListChangedSignature);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnSkinOverlayUIChangedSignature);
 
 
 // クリティカルダメージを識別するための専用クラス
@@ -517,6 +518,9 @@ public:
 	/** ショップやNPCから呼ばれる、タトゥー/傷跡/治療/ピアスの消去を試みる共通窓口 */
 	UFUNCTION(BlueprintCallable, Category = "Skin Overlay|Shop")
 	void TryRemoveSkinOverlay(FName RowName, bool bIsShopPurchase, int32 OverridePrice = 0, FString DisplayName = TEXT(""), FName ShopCategory = NAME_None);
+
+	UPROPERTY(BlueprintAssignable, Category = "Skin Overlay|UI")
+	FOnSkinOverlayUIChangedSignature OnSkinOverlayUIChangedDelegate;
 
 protected:
 	/** 鎖設定に基づいてコンポーネントの状態を再構築する内部関数 */

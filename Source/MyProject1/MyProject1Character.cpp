@@ -2984,8 +2984,7 @@ void AMyProject1Character::TryAddSkinOverlay(FName RowName, bool bIsShopPurchase
 {
 	if (!SkinOverlayComp || RowName.IsNone()) return;
 
-	// 1. 重複チェック（すでに持っている場合はアナウンスしてブロック）
-	if (SkinOverlayComp->IsOverlayActive(RowName))
+	if (SkinOverlayComp->IsOverlayActive(RowName, ShopCategory))
 	{
 		if (bIsShopPurchase)
 		{
@@ -2994,18 +2993,30 @@ void AMyProject1Character::TryAddSkinOverlay(FName RowName, bool bIsShopPurchase
 		return;
 	}
 
-	// 2. 価格の決定（Widgetから有効な価格が来ている場合はそれを最優先。0以下の場合のみ刺青・傷跡の自動取得を行う）
 	int32 FinalPrice = OverridePrice;
-	if (bIsShopPurchase && FinalPrice <= 0 && SkinOverlayComp->GetOverlayDataTable() && (ShopCategory == FName("Tattoo") || ShopCategory == FName("Scar") || ShopCategory.IsNone()))
+	if (bIsShopPurchase && FinalPrice <= 0)
 	{
-		FSkinOverlayDataRow* Data = SkinOverlayComp->GetOverlayDataTable()->FindRow<FSkinOverlayDataRow>(RowName, TEXT("ShopAddPriceLookup"));
-		if (Data)
+		UDataTable* TargetDT = SkinOverlayComp->GetOverlayDataTableByCategory(ShopCategory);
+		if (TargetDT)
 		{
-			FinalPrice = Data->BuyPrice;
+			if (ShopCategory == FName("Tattoo") || ShopCategory == FName("Scar") || ShopCategory.IsNone())
+			{
+				FSkinOverlayDataRow* Data = TargetDT->FindRow<FSkinOverlayDataRow>(RowName, TEXT("ShopAddPriceLookup"));
+				if (Data) FinalPrice = Data->BuyPrice;
+			}
+			else if (ShopCategory == FName("Disease"))
+			{
+				FDiseaseTreatmentDataRow* Data = TargetDT->FindRow<FDiseaseTreatmentDataRow>(RowName, TEXT("ShopAddPriceLookup"));
+				if (Data) FinalPrice = Data->TreatmentPrice;
+			}
+			else if (ShopCategory == FName("Piercing"))
+			{
+				FPiercingDataRow* Data = TargetDT->FindRow<FPiercingDataRow>(RowName, TEXT("ShopAddPriceLookup"));
+				if (Data) FinalPrice = Data->PiercingPrice;
+			}
 		}
 	}
 
-	// 3. 所持金チェックとお金の引き落とし（通貨単位の文言を「円」に完全統一）
 	if (InventoryComp)
 	{
 		if (!InventoryComp->TrySpendGil(FinalPrice))
@@ -3014,61 +3025,40 @@ void AMyProject1Character::TryAddSkinOverlay(FName RowName, bool bIsShopPurchase
 			{
 				OnReceiveLogMessage(TEXT("お金（円）が足りません。"), ELogMessageType::System);
 			}
-			return; // お金が足りないのでここで処理をブロック
+			return;
 		}
 	}
 
-	// 4. 条件をすべてクリアしたら、スキンコンポーネントへ登録
 	SkinOverlayComp->AddOverlay(RowName, -1.0f, ShopCategory);
 
-	// 5. カテゴリ名（Tattoo, Disease, Scar, Piercing）に応じてログの文言を完璧に出し分け
-	FString TargetName = DisplayName.IsEmpty() ? RowName.ToString() : DisplayName;
+	// ============================================================================
+	// 状態変化通知をリアルタイムにWidgetへ通知！
+	// ============================================================================
+	if (OnSkinOverlayUIChangedDelegate.IsBound())
+	{
+		OnSkinOverlayUIChangedDelegate.Broadcast();
+	}
 
+	FString TargetName = DisplayName.IsEmpty() ? RowName.ToString() : DisplayName;
 	if (bIsShopPurchase)
 	{
-		// --- ショップでの購入（施術）時 ---
-		if (ShopCategory == FName("Disease"))
-		{
-			OnReceiveLogMessage(FString::Printf(TEXT("【%s】を治療した。%d円を支払った。"), *TargetName, FinalPrice), ELogMessageType::System);
-		}
-		else if (ShopCategory == FName("Scar"))
-		{
-			OnReceiveLogMessage(FString::Printf(TEXT("【%s】を綺麗に整形した。%d円を支払った。"), *TargetName, FinalPrice), ELogMessageType::System);
-		}
-		else if (ShopCategory == FName("Piercing"))
-		{
-			OnReceiveLogMessage(FString::Printf(TEXT("【%s】にピアスした。%d円を支払った。"), *TargetName, FinalPrice), ELogMessageType::System);
-		}
-		else // デフォルト（Tattooなど）
-		{
-			OnReceiveLogMessage(FString::Printf(TEXT("体に新たな紋様【%s】を刻んだ。%d円を支払った。"), *TargetName, FinalPrice), ELogMessageType::System);
-		}
+		if (ShopCategory == FName("Disease")) OnReceiveLogMessage(FString::Printf(TEXT("【%s】を治療した。%d円を支払った。"), *TargetName, FinalPrice), ELogMessageType::System);
+		else if (ShopCategory == FName("Scar")) OnReceiveLogMessage(FString::Printf(TEXT("【%s】を綺麗に整形した。%d円を支払った。"), *TargetName, FinalPrice), ELogMessageType::System);
+		else if (ShopCategory == FName("Piercing")) OnReceiveLogMessage(FString::Printf(TEXT("【%s】にピアスした。%d円を支払った.。"), *TargetName, FinalPrice), ELogMessageType::System);
+		else OnReceiveLogMessage(FString::Printf(TEXT("体に新たな紋様【%s】を刻んだ。%d円を支払った。"), *TargetName, FinalPrice), ELogMessageType::System);
 	}
 	else
 	{
-		// --- NPC会話イベントなどでの強制付与（無料）時 ---
-		if (ShopCategory == FName("Disease"))
-		{
-			OnReceiveLogMessage(FString::Printf(TEXT("【%s】が治癒した。"), *TargetName), ELogMessageType::System);
-		}
-		else if (ShopCategory == FName("Scar"))
-		{
-			OnReceiveLogMessage(FString::Printf(TEXT("【%s】が綺麗に整形された。"), *TargetName), ELogMessageType::System);
-		}
-		else if (ShopCategory == FName("Piercing"))
-		{
-			OnReceiveLogMessage(FString::Printf(TEXT("【%s】にピアスが施された。"), *TargetName), ELogMessageType::System);
-		}
-		else
-		{
-			OnReceiveLogMessage(FString::Printf(TEXT("体に新たな紋様【%s】が刻まれた。"), *TargetName), ELogMessageType::System);
-		}
+		if (ShopCategory == FName("Disease")) OnReceiveLogMessage(FString::Printf(TEXT("【%s】が治癒した。"), *TargetName), ELogMessageType::System);
+		else if (ShopCategory == FName("Scar")) OnReceiveLogMessage(FString::Printf(TEXT("【%s】が綺麗に整形された。"), *TargetName), ELogMessageType::System);
+		else if (ShopCategory == FName("Piercing")) OnReceiveLogMessage(FString::Printf(TEXT("【%s】にピアスが施された。"), *TargetName), ELogMessageType::System);
+		else OnReceiveLogMessage(FString::Printf(TEXT("体に新たな紋様【%s】が刻まれた。"), *TargetName), ELogMessageType::System);
 	}
 }
 
 void AMyProject1Character::TryRemoveSkinOverlay(FName RowName, bool bIsShopPurchase, int32 OverridePrice, FString DisplayName, FName ShopCategory)
 {
-	if (!SkinOverlayComp || !SkinOverlayComp->IsOverlayActive(RowName))
+	if (!SkinOverlayComp || !SkinOverlayComp->IsOverlayActive(RowName, ShopCategory))
 	{
 		if (bIsShopPurchase)
 		{
@@ -3077,18 +3067,20 @@ void AMyProject1Character::TryRemoveSkinOverlay(FName RowName, bool bIsShopPurch
 		return;
 	}
 
-	// 1. 除去費用の決定（Widgetからの価格を最優先、0以下の時だけ自動取得）
 	int32 FinalPrice = OverridePrice;
-	if (bIsShopPurchase && FinalPrice <= 0 && SkinOverlayComp->GetOverlayDataTable() && (ShopCategory == FName("Tattoo") || ShopCategory == FName("Scar") || ShopCategory.IsNone()))
+	if (bIsShopPurchase && FinalPrice <= 0)
 	{
-		FSkinOverlayDataRow* Data = SkinOverlayComp->GetOverlayDataTable()->FindRow<FSkinOverlayDataRow>(RowName, TEXT("ShopRemovePriceLookup"));
-		if (Data)
+		UDataTable* TargetDT = SkinOverlayComp->GetOverlayDataTableByCategory(ShopCategory);
+		if (TargetDT)
 		{
-			FinalPrice = Data->RemovePrice;
+			if (ShopCategory == FName("Tattoo") || ShopCategory == FName("Scar") || ShopCategory.IsNone())
+			{
+				FSkinOverlayDataRow* Data = TargetDT->FindRow<FSkinOverlayDataRow>(RowName, TEXT("ShopRemovePriceLookup"));
+				if (Data) FinalPrice = Data->RemovePrice;
+			}
 		}
 	}
 
-	// 2. 所持金チェックと引き落とし
 	if (InventoryComp)
 	{
 		if (!InventoryComp->TrySpendGil(FinalPrice))
@@ -3101,32 +3093,25 @@ void AMyProject1Character::TryRemoveSkinOverlay(FName RowName, bool bIsShopPurch
 		}
 	}
 
-	// 3. 完全に消去
 	SkinOverlayComp->RemoveOverlay(RowName, ShopCategory);
 
-	// 4. 除去・取り外し時のログの出し分け
-	FString TargetName = DisplayName.IsEmpty() ? RowName.ToString() : DisplayName;
+	// ============================================================================
+	// 状態変化通知をリアルタイムにWidgetへ通知！
+	// ============================================================================
+	if (OnSkinOverlayUIChangedDelegate.IsBound())
+	{
+		OnSkinOverlayUIChangedDelegate.Broadcast();
+	}
 
+	FString TargetName = DisplayName.IsEmpty() ? RowName.ToString() : DisplayName;
 	if (bIsShopPurchase)
 	{
-		if (ShopCategory == FName("Piercing"))
-		{
-			OnReceiveLogMessage(FString::Printf(TEXT("【%s】を取り外した。%d円を支払った。"), *TargetName, FinalPrice), ELogMessageType::System);
-		}
-		else
-		{
-			OnReceiveLogMessage(FString::Printf(TEXT("体から【%s】を消去した。%d円を支払った。"), *TargetName, FinalPrice), ELogMessageType::System);
-		}
+		if (ShopCategory == FName("Piercing")) OnReceiveLogMessage(FString::Printf(TEXT("【%s】を取り外した。%d円を支払った。"), *TargetName, FinalPrice), ELogMessageType::System);
+		else OnReceiveLogMessage(FString::Printf(TEXT("体から【%s】を消去した。%d円を支払った。"), *TargetName, FinalPrice), ELogMessageType::System);
 	}
 	else
 	{
-		if (ShopCategory == FName("Piercing"))
-		{
-			OnReceiveLogMessage(FString::Printf(TEXT("【%s】が取り外された。"), *TargetName), ELogMessageType::System);
-		}
-		else
-		{
-			OnReceiveLogMessage(FString::Printf(TEXT("体から【%s】が消滅した。"), *TargetName), ELogMessageType::System);
-		}
+		if (ShopCategory == FName("Piercing")) OnReceiveLogMessage(FString::Printf(TEXT("【%s】が取り外された。"), *TargetName), ELogMessageType::System);
+		else OnReceiveLogMessage(FString::Printf(TEXT("体から【%s】が消滅した。"), *TargetName), ELogMessageType::System);
 	}
 }
