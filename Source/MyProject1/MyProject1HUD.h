@@ -1,4 +1,4 @@
-#pragma once
+ï»¿#pragma once
 
 #include "CoreMinimal.h"
 #include "GameFramework/HUD.h"
@@ -12,11 +12,11 @@ class MYPROJECT1_API AMyProject1HUD : public AHUD
 	GENERATED_BODY()
 
 public:
-	// ƒGƒfƒBƒ^iBlueprintj‘¤‚ÅA‚Ç‚ÌWBP‚ğ•\¦‚·‚é‚©w’è‚·‚é‚½‚ß‚ÌƒNƒ‰ƒX
+	// ã‚¨ãƒ‡ã‚£ã‚¿ï¼ˆBlueprintï¼‰å´ã§ã€ã©ã®WBPã‚’è¡¨ç¤ºã™ã‚‹ã‹æŒ‡å®šã™ã‚‹ãŸã‚ã®ã‚¯ãƒ©ã‚¹
 	UPROPERTY(EditAnywhere, Category = "UI")
 	TSubclassOf<class UUserWidget> PlayerStatusWidgetClass;
 
-	// ÀÛ‚É‰æ–Ê‚É¶¬‚³‚ê‚½ƒEƒBƒWƒFƒbƒg‚ÌƒCƒ“ƒXƒ^ƒ“ƒX‚ğ•Û
+	// å®Ÿéš›ã«ç”»é¢ã«ç”Ÿæˆã•ã‚ŒãŸã‚¦ã‚£ã‚¸ã‚§ãƒƒãƒˆã®ã‚¤ãƒ³ã‚¹ã‚¿ãƒ³ã‚¹ã‚’ä¿æŒ
 	UPROPERTY(BlueprintReadOnly, Category = "UI")
 	class UUserWidget* PlayerStatusWidget;
 
@@ -32,10 +32,34 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "UI")
 	class UUserWidget* InventoryMenuWidget;
 
+	// --- æ–½è¡“ã‚·ãƒ§ãƒƒãƒ—ï¼ˆç·åˆãƒ¡ãƒ‹ãƒ¥ãƒ¼ï¼‰ç”¨ã®å¤‰æ•° ---
+	UPROPERTY(EditAnywhere, Category = "UI")
+	TSubclassOf<class UUserWidget> TreatmentMenuClass;
+
+	UPROPERTY(BlueprintReadOnly, Category = "UI")
+	class UUserWidget* TreatmentMenuWidget;
+
+	// --- æ–½è¡“ã‚·ãƒ§ãƒƒãƒ—ãƒ¡ãƒ‹ãƒ¥ãƒ¼ã®å¼€é—­é–¢æ•° ---
+	UFUNCTION(BlueprintCallable, Category = "UI")
+	void ToggleTreatmentMenu();
+
+	// --- ã€ã“ã“ã‚’è¿½åŠ ã€‘åˆºé’å°‚é–€åº—ãƒ¡ãƒ‹ãƒ¥ãƒ¼ç”¨ã®å¤‰æ•°ã¨é–¢æ•° ---
+	UPROPERTY(EditAnywhere, Category = "UI")
+	TSubclassOf<class UUserWidget> TattooMenuClass;
+
+	UPROPERTY(BlueprintReadOnly, Category = "UI")
+	class UUserWidget* TattooMenuWidget;
+
+	UPROPERTY(BlueprintReadWrite, Category = "UI|Tattoo")
+	TArray<int32> CurrentNPCShopIDs;
+
+	UFUNCTION(BlueprintCallable, Category = "UI")
+	void ToggleTattooMenu();
+
 	UFUNCTION(BlueprintPure, Category = "UI")
 	bool IsCommandMenuOpen() const;
 
-	// Œ»İŠJ‚¢‚Ä‚¢‚é‚·‚×‚Ä‚ÌuƒTƒuƒƒjƒ…[iˆê——‰æ–Ê‚È‚Çjv‚ğ‹L‰¯‚·‚é”Ä—p•Ï”
+	// ç¾åœ¨é–‹ã„ã¦ã„ã‚‹ã™ã¹ã¦ã®ã€Œã‚µãƒ–ãƒ¡ãƒ‹ãƒ¥ãƒ¼ï¼ˆä¸€è¦§ç”»é¢ãªã©ï¼‰ã€ã‚’è¨˜æ†¶ã™ã‚‹æ±ç”¨å¤‰æ•°
 	UPROPERTY(BlueprintReadWrite, Category = "UI")
 	class UUserWidget* ActiveSubMenuWidget;
 
@@ -45,59 +69,59 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "UI")
 	class UUserWidget* ChestMenuWidget;
 
-	// Œ»İƒAƒNƒZƒX‚µ‚Ä‚¢‚éƒ`ƒFƒXƒgƒRƒ“ƒ|[ƒlƒ“ƒg‚ğ‹L‰¯
+	// ç¾åœ¨ã‚¢ã‚¯ã‚»ã‚¹ã—ã¦ã„ã‚‹ãƒã‚§ã‚¹ãƒˆã‚³ãƒ³ãƒãƒ¼ãƒãƒ³ãƒˆã‚’è¨˜æ†¶
 	UPROPERTY(BlueprintReadWrite, Category = "UI")
 	UChestComponent* CurrentChestComp;
 
-	// ƒ`ƒFƒXƒgƒƒjƒ…[‚ÌŠJ•ÂŠÖ”
+	// ãƒã‚§ã‚¹ãƒˆãƒ¡ãƒ‹ãƒ¥ãƒ¼ã®é–‹é–‰é–¢æ•°
 	UFUNCTION(BlueprintCallable, Category = "UI")
 	void ToggleChestMenu();
 
-	// --- ƒNƒGƒXƒgƒƒjƒ…[—p‚Ì•Ï” ---
+	// --- ã‚¯ã‚¨ã‚¹ãƒˆãƒ¡ãƒ‹ãƒ¥ãƒ¼ç”¨ã®å¤‰æ•° ---
 	UPROPERTY(EditAnywhere, Category = "UI")
 	TSubclassOf<class UUserWidget> QuestMenuClass;
 
 	UPROPERTY(BlueprintReadOnly, Category = "UI")
 	class UUserWidget* QuestMenuWidget;
 
-	// --- ƒNƒGƒXƒgƒƒjƒ…[‚ÌŠJ•ÂŠÖ” ---
+	// --- ã‚¯ã‚¨ã‚¹ãƒˆãƒ¡ãƒ‹ãƒ¥ãƒ¼ã®é–‹é–‰é–¢æ•° ---
 	UFUNCTION(BlueprintCallable, Category = "UI")
 	void ToggleQuestMenu();
 
-	// --- ‘•”õƒƒjƒ…[—p‚Ì•Ï” ---
+	// --- è£…å‚™ãƒ¡ãƒ‹ãƒ¥ãƒ¼ç”¨ã®å¤‰æ•° ---
 	UPROPERTY(EditAnywhere, Category = "UI")
 	TSubclassOf<class UUserWidget> EquipmentMenuClass;
 
 	UPROPERTY(BlueprintReadOnly, Category = "UI")
 	class UUserWidget* EquipmentMenuWidget;
 
-	// --- ‘•”õƒƒjƒ…[‚ÌŠJ•ÂŠÖ” ---
+	// --- è£…å‚™ãƒ¡ãƒ‹ãƒ¥ãƒ¼ã®é–‹é–‰é–¢æ•° ---
 	UFUNCTION(BlueprintCallable, Category = "UI")
 	void ToggleEquipmentMenu();
 
-	// ---ƒXƒe[ƒ^ƒXƒƒjƒ…[—p‚Ì•Ï” ---
+	// ---ã‚¹ãƒ†ãƒ¼ã‚¿ã‚¹ãƒ¡ãƒ‹ãƒ¥ãƒ¼ç”¨ã®å¤‰æ•° ---
 	UPROPERTY(EditAnywhere, Category = "UI")
 	TSubclassOf<class UUserWidget> StatusMenuClass;
 
 	UPROPERTY(BlueprintReadOnly, Category = "UI")
 	class UUserWidget* StatusMenuWidget;
 
-	// --- ƒXƒe[ƒ^ƒXƒƒjƒ…[‚ÌŠJ•ÂŠÖ” ---
+	// --- ã‚¹ãƒ†ãƒ¼ã‚¿ã‚¹ãƒ¡ãƒ‹ãƒ¥ãƒ¼ã®é–‹é–‰é–¢æ•° ---
 	UFUNCTION(BlueprintCallable, Category = "UI")
 	void ToggleStatusMenu();
 
-	// ƒƒjƒ…[‚Ì•\¦E”ñ•\¦‚ğØ‚è‘Ö‚¦‚éŠÖ”
+	// ãƒ¡ãƒ‹ãƒ¥ãƒ¼ã®è¡¨ç¤ºãƒ»éè¡¨ç¤ºã‚’åˆ‡ã‚Šæ›¿ãˆã‚‹é–¢æ•°
 	UFUNCTION(BlueprintCallable, Category = "UI")
 	void ToggleCommandMenu();
 
 	UFUNCTION(BlueprintCallable, Category = "UI")
 	void ToggleInventoryMenu();
 
-	// ƒƒjƒ…[‚ğŠJ‚­‚Ì‰¹
+	// ãƒ¡ãƒ‹ãƒ¥ãƒ¼ã‚’é–‹ãæ™‚ã®éŸ³
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "UI|Audio")
 	USoundBase* MenuOpenSound;
 
-	// ƒƒjƒ…[‚ğ•Â‚¶‚é‚Ì‰¹
+	// ãƒ¡ãƒ‹ãƒ¥ãƒ¼ã‚’é–‰ã˜ã‚‹æ™‚ã®éŸ³
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "UI|Audio")
 	USoundBase* MenuCloseSound;
 
@@ -108,6 +132,6 @@ public:
 	USoundBase* TargetCursorSound;
 
 protected:
-	// ƒQ[ƒ€ŠJn‚ÉŒÄ‚Î‚ê‚éŠÖ”
+	// ã‚²ãƒ¼ãƒ é–‹å§‹æ™‚ã«å‘¼ã°ã‚Œã‚‹é–¢æ•°
 	virtual void BeginPlay() override;
 };

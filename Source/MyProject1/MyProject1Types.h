@@ -634,7 +634,9 @@ enum class EDialogActionType : uint8
 	AddFlag         UMETA(DisplayName = "フラグを獲得する"),
 	RemoveFlag      UMETA(DisplayName = "フラグを消去する"),
 	Warp            UMETA(DisplayName = "ワープを実行する"),
-	Close           UMETA(DisplayName = "会話を終了する")
+	Close           UMETA(DisplayName = "会話を終了する"),
+	AddSkinOverlay     UMETA(DisplayName = "タトゥー/傷跡を強制追加"),
+	RemoveSkinOverlay  UMETA(DisplayName = "タトゥー/傷跡を強制削除")
 };
 
 // --- 選択肢1つ分のデータ ---
@@ -945,57 +947,6 @@ struct FCableAttachmentSettings
 	FName TargetSocketName;
 };
 
-// ==========================================
-// デカール（傷・入れ墨・化粧）専用の部位スロット定義
-// ==========================================
-UENUM(BlueprintType)
-enum class EDecalSlot : uint8
-{
-	Face       UMETA(DisplayName = "顔（化粧・目の傷など）"),
-	Chest      UMETA(DisplayName = "胸元・お腹"),
-	Back       UMETA(DisplayName = "背中"),
-	LeftArm    UMETA(DisplayName = "左腕（肩・二の腕など）"),
-	RightArm   UMETA(DisplayName = "右腕（肩・二の腕など）"),
-	Legs       UMETA(DisplayName = "脚・太もも"),
-	Max        UMETA(Hidden)
-};
-
-// ==========================================
-// デカール専用データテーブル（DT_DecalOverlay）の1行分の構造体
-// ==========================================
-USTRUCT(BlueprintType)
-struct FOverlayDecalData : public FTableRowBase
-{
-	GENERATED_BODY()
-
-	/** このデカールが適用される体の部位（スロット） */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Decal")
-	EDecalSlot TargetDecalSlot = EDecalSlot::Face;
-
-	/** アタッチ先のボーン名（例: "head", "upperarm_l", "spine_03" など、VRMの骨の名前） */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Decal")
-	FName AttachBoneName = NAME_None;
-
-	/** 傷やタトゥー、化粧のテクスチャ（背景が透明なPNG画像を想定） */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Decal")
-	TSoftObjectPtr<UTexture2D> OverlayTexture;
-
-	/** 衣服・傷・タトゥー・メイクの色（データテーブルから自由に変更可能） */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Decal")
-	FLinearColor OverlayColor = FLinearColor::White;
-
-	/** 選択したボーンからの位置の微調整オフセット (X, Y, Z) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Decal")
-	FVector LocationOffset = FVector::ZeroVector;
-
-	/** 貼り付ける向き・角度の微調整 (Pitch, Yaw, Roll) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Decal")
-	FRotator RotationOffset = FRotator::ZeroRotator;
-
-	/** 投影ボックスのサイズ（傷やタトゥーの大きさ・厚み） */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Decal")
-	FVector DecalSize = FVector(64.0f, 64.0f, 64.0f);
-};
 
 // --- 装備品データの構造体 ---
 USTRUCT(BlueprintType)
@@ -1056,4 +1007,117 @@ struct FExtraStatMorphConfig
 	// 例：100.0 に設定すると、ステータスが 50 の時にモーフは 0.5 になります。
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Morph")
 	float MaxStatValue = 100.0f;
+};
+
+// --- オーバーレイ（テクスチャ）のカテゴリ ---
+UENUM(BlueprintType)
+enum class EOverlayCategory : uint8
+{
+	Scar    UMETA(DisplayName = "傷（Scar）"),
+	Tattoo  UMETA(DisplayName = "タトゥー（Tattoo）"),
+	Makeup  UMETA(DisplayName = "化粧（Makeup）")
+};
+
+// --- データテーブル（DT_SkinOverlays）の行構造 ---
+USTRUCT(BlueprintType)
+struct FSkinOverlayDataRow : public FTableRowBase
+{
+	GENERATED_BODY()
+
+	/** カテゴリ（傷・タトゥー・化粧） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skin Overlay")
+	EOverlayCategory Category = EOverlayCategory::Tattoo;
+
+	/** 表示名（デバッグやUI用） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skin Overlay")
+	FString DisplayName = TEXT("新しいテクスチャ");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skin Overlay|Info", meta = (MultiLine = true))
+	FText Description;
+
+	/** 素体と同一UVで作られた背景透過のテクスチャ（SoftPtrでメモリ負荷を軽減） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skin Overlay")
+	TSoftObjectPtr<UTexture2D> OverlayTexture;
+
+	/** マテリアル側で定義するテクスチャパラメータ名
+	 * （例: "TattooTex01", "ScarTex01", "MakeupTex" など、マテリアル側と一致させる） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skin Overlay")
+	FName TextureParamName = FName("Overlay_Tex");
+
+	/** マテリアル側の不透明度パラメータ名（例: "TattooOpacity01" など） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skin Overlay")
+	FName OpacityParamName = FName("Overlay_Opacity");
+
+	/** 初期状態の不透明度（0.0 〜 1.0） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skin Overlay", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float DefaultOpacity = 1.0f;
+
+	/** 色補正（タトゥーの色変えや化粧の色味調整用） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skin Overlay")
+	FLinearColor ColorMultiplier = FLinearColor::White;
+
+	/** マテリアル側の色パラメータ名（例: "TattooColor01" など） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skin Overlay")
+	FName ColorParamName = FName("Overlay_Color");
+
+	// --- タトゥー経済用のパラメータを追加 ---
+	/** ショップでの購入価格 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skin Overlay|Economy")
+	int32 BuyPrice = 1000;
+
+	/** 除去（消去）にかかる費用 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skin Overlay|Economy")
+	int32 RemovePrice = 3000;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skin Overlay|Economy")
+	int32 ShopID = 0;
+};
+
+// --- キャラクターの「タトゥー箱（インベントリ枠）」に入れる要素の状態 ---
+USTRUCT(BlueprintType)
+struct FActiveSkinOverlayState
+{
+	GENERATED_BODY()
+
+	/** データテーブルの行名（ID） */
+	UPROPERTY(BlueprintReadOnly, Category = "Skin Overlay")
+	FName RowName = NAME_None;
+
+	/** 現在の不透明度（ゲーム中に傷が薄くなるなどの動的変化に対応用） */
+	UPROPERTY(BlueprintReadWrite, Category = "Skin Overlay")
+	float CurrentOpacity = 1.0f;
+};
+
+USTRUCT(BlueprintType)
+struct FDiseaseTreatmentDataRow : public FTableRowBase
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Disease Treatment")
+	FString DisplayName = TEXT("病気治療");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Disease Treatment", meta = (MultiLine = true))
+	FText Description;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Disease Treatment")
+	int32 TreatmentPrice = 500;
+
+	// 💡将来の拡張項目：治癒するステータス異常のタイプ（毒、麻痺など）をここに足せる
+};
+
+USTRUCT(BlueprintType)
+struct FPiercingDataRow : public FTableRowBase
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Piercing")
+	FString DisplayName = TEXT("ピアスの名前");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Piercing", meta = (MultiLine = true))
+	FText Description;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Piercing")
+	int32 PiercingPrice = 2000;
+
+	// 💡将来の拡張項目：耳や口元にアタッチするStaticMeshの参照をここに足せる
 };

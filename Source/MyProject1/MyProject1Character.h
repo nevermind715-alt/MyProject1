@@ -448,10 +448,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment")
 	UDataTable* EquipmentDataTable;
 
-	// デカール専用データテーブルの参照（エディタからDT_DecalOverlayをセットする枠）
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment")
-	UDataTable* DecalDataTable;
-
+	
 	// バフ専用データテーブルの参照
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Buff")
 	UDataTable* BuffDataTable;
@@ -512,6 +509,14 @@ public:
 	/** 現在の鎖の終点コンポーネント */
 	UPROPERTY()
 	USceneComponent* CurrentCableTargetComponent;
+
+	/** ショップやNPCから呼ばれる、タトゥー/傷跡/治療/ピアスの購入・追加を試みる共通窓口 */
+	UFUNCTION(BlueprintCallable, Category = "Skin Overlay|Shop")
+	void TryAddSkinOverlay(FName RowName, bool bIsShopPurchase, int32 OverridePrice = 0, FString DisplayName = TEXT(""), FName ShopCategory = NAME_None);
+
+	/** ショップやNPCから呼ばれる、タトゥー/傷跡/治療/ピアスの消去を試みる共通窓口 */
+	UFUNCTION(BlueprintCallable, Category = "Skin Overlay|Shop")
+	void TryRemoveSkinOverlay(FName RowName, bool bIsShopPurchase, int32 OverridePrice = 0, FString DisplayName = TEXT(""), FName ShopCategory = NAME_None);
 
 protected:
 	/** 鎖設定に基づいてコンポーネントの状態を再構築する内部関数 */
@@ -912,6 +917,10 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Inventory")
 	class UInventoryComponent* InventoryComp;
 
+	/** 傷・タトゥー・化粧をインベントリ（箱）形式で一括管理するコンポーネント */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Skin Overlay", meta = (AllowPrivateAccess = "true"))
+	class USkinOverlayComponent* SkinOverlayComp;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Quest")
 	class UQuestComponent* QuestComp;
 
@@ -922,30 +931,6 @@ public:
 	// BGM管理コンポーネント
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Audio")
 	class UMusicControlComponent* MusicComp;
-
-	public:
-		// === ★完全独立したデカール管理システム変数と関数 ===
-
-		/** 【デカールインベントリ箱】現在キャラクターの体に適用されているデカールの行名（セーブ保存可能） */
-		UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Decal")
-		TMap<EDecalSlot, FName> CurrentActiveDecals;
-
-		/** 行名を1つ指定して実行するだけで、自動で適切な部位に傷やタトゥーをスタンプする関数 */
-		UFUNCTION(BlueprintCallable, Category = "Decal")
-		void ApplyDecal(FName DecalRowName);
-
-		/** 指定した部位のデカール（傷やタトゥー）を完全に消去する関数 */
-		UFUNCTION(BlueprintCallable, Category = "Decal")
-		void RemoveDecal(EDecalSlot Slot);
-
-		/** エディタで作った共通デカールマスターマテリアル（M_BaseDecalMaster）をセットしておく枠 */
-		UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Decal")
-		UMaterialInterface* BaseDecalMasterMaterial;
-
-protected:
-	/** ランタイムで生成されたデカールコンポーネントを部位ごとに記憶しておくマップ */
-	UPROPERTY()
-	TMap<EDecalSlot, class UDecalComponent*> SpawnedDecalComponents;
 
 
 };

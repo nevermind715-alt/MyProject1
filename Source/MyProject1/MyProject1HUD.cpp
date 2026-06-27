@@ -1,4 +1,4 @@
-#include "MyProject1HUD.h"
+ï»¿#include "MyProject1HUD.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "Blueprint/UserWidget.h"
 #include "GameFramework/PlayerController.h"
@@ -9,15 +9,15 @@ void AMyProject1HUD::BeginPlay()
 {
 	Super::BeginPlay();
 
-	// ƒGƒfƒBƒ^‘¤‚ÅƒNƒ‰ƒX‚ªİ’è‚³‚ê‚Ä‚¢‚é‚©Šm”F
+	// ã‚¨ãƒ‡ã‚£ã‚¿å´ã§ã‚¯ãƒ©ã‚¹ãŒè¨­å®šã•ã‚Œã¦ã„ã‚‹ã‹ç¢ºèª
 	if (PlayerStatusWidgetClass)
 	{
-		// ƒEƒBƒWƒFƒbƒg‚ğ¶¬
+		// ã‚¦ã‚£ã‚¸ã‚§ãƒƒãƒˆã‚’ç”Ÿæˆ
 		PlayerStatusWidget = CreateWidget<UUserWidget>(GetWorld(), PlayerStatusWidgetClass);
 
 		if (PlayerStatusWidget)
 		{
-			// ‰æ–Ê‚É•\¦
+			// ç”»é¢ã«è¡¨ç¤º
 			PlayerStatusWidget->AddToViewport();
 		}
 	}
@@ -28,9 +28,9 @@ void AMyProject1HUD::ToggleCommandMenu()
     if (ActiveSubMenuWidget && ActiveSubMenuWidget->IsInViewport())
     {
         ActiveSubMenuWidget->RemoveFromParent();
-        ActiveSubMenuWidget = nullptr; // ‹L‰¯‚ğƒNƒŠƒA
+        ActiveSubMenuWidget = nullptr; // è¨˜æ†¶ã‚’ã‚¯ãƒªã‚¢
 
-        // ƒTƒuƒƒjƒ…[‚ªÁ‚¦‚½‚Ì‚ÅAe‚Å‚ ‚éu‘•”õƒƒCƒ“ƒƒjƒ…[v‚É‘€ìƒtƒH[ƒJƒX‚ğ–ß‚·
+        // ã‚µãƒ–ãƒ¡ãƒ‹ãƒ¥ãƒ¼ãŒæ¶ˆãˆãŸã®ã§ã€è¦ªã§ã‚ã‚‹ã€Œè£…å‚™ãƒ¡ã‚¤ãƒ³ãƒ¡ãƒ‹ãƒ¥ãƒ¼ã€ã«æ“ä½œãƒ•ã‚©ãƒ¼ã‚«ã‚¹ã‚’æˆ»ã™
         APlayerController* PC = GetOwningPlayerController();
         if (PC && EquipmentMenuWidget && EquipmentMenuWidget->IsInViewport())
         {
@@ -40,7 +40,7 @@ void AMyProject1HUD::ToggleCommandMenu()
         }
 
         if (MenuCloseSound) UGameplayStatics::PlaySound2D(this, MenuCloseSound);
-        return; // ‚±‚±‚Åˆ—‚ğI—¹‚³‚¹‚é‚±‚Æ‚ÅAŒã‚ë‚ÌuEquipmentMenuWidget‚ğÁ‚·ˆ—v‚És‚©‚¹‚È‚¢I
+        return; // ã“ã“ã§å‡¦ç†ã‚’çµ‚äº†ã•ã›ã‚‹ã“ã¨ã§ã€å¾Œã‚ã®ã€ŒEquipmentMenuWidgetã‚’æ¶ˆã™å‡¦ç†ã€ã«è¡Œã‹ã›ãªã„ï¼
     }
 
     if (ChestMenuWidget && ChestMenuWidget->IsInViewport())
@@ -49,32 +49,32 @@ void AMyProject1HUD::ToggleCommandMenu()
         return;
     }
 
-    // ‚à‚µƒCƒ“ƒxƒ“ƒgƒŠƒƒjƒ…[‚ª‘¶İ‚µA‰æ–Ê‚É•\¦‚³‚ê‚Ä‚¢‚é‚È‚ç
+    // ã‚‚ã—ã‚¤ãƒ³ãƒ™ãƒ³ãƒˆãƒªãƒ¡ãƒ‹ãƒ¥ãƒ¼ãŒå­˜åœ¨ã—ã€ç”»é¢ã«è¡¨ç¤ºã•ã‚Œã¦ã„ã‚‹ãªã‚‰
     if (InventoryMenuWidget && InventoryMenuWidget->IsInViewport())
     {
-        // uƒCƒ“ƒxƒ“ƒgƒŠ‚ğ•Â‚¶‚éˆ—v‚ğŒÄ‚Ño‚·
-        // (ToggleInventoryMenuŠÖ”‚Ì’†‚Éu•Â‚¶‚½‚çƒRƒ}ƒ“ƒhƒƒjƒ…[‚ğ•\¦‚·‚évˆ—‚ª‘‚¢‚Ä‚ ‚é‚½‚ß)
+        // ã€Œã‚¤ãƒ³ãƒ™ãƒ³ãƒˆãƒªã‚’é–‰ã˜ã‚‹å‡¦ç†ã€ã‚’å‘¼ã³å‡ºã™
+        // (ToggleInventoryMenué–¢æ•°ã®ä¸­ã«ã€Œé–‰ã˜ãŸã‚‰ã‚³ãƒãƒ³ãƒ‰ãƒ¡ãƒ‹ãƒ¥ãƒ¼ã‚’è¡¨ç¤ºã™ã‚‹ã€å‡¦ç†ãŒæ›¸ã„ã¦ã‚ã‚‹ãŸã‚)
         ToggleInventoryMenu();
 
-        // ‚±‚±‚Å return ‚µ‚ÄA‰º‚ÌuƒRƒ}ƒ“ƒhƒƒjƒ…[‚ğÁ‚·ˆ—v‚És‚©‚¹‚È‚¢
+        // ã“ã“ã§ return ã—ã¦ã€ä¸‹ã®ã€Œã‚³ãƒãƒ³ãƒ‰ãƒ¡ãƒ‹ãƒ¥ãƒ¼ã‚’æ¶ˆã™å‡¦ç†ã€ã«è¡Œã‹ã›ãªã„
         return;
     }
 
-    // ‚à‚µƒNƒGƒXƒgƒƒjƒ…[‚ª‘¶İ‚µA‰æ–Ê‚É•\¦‚³‚ê‚Ä‚¢‚é‚È‚ç
+    // ã‚‚ã—ã‚¯ã‚¨ã‚¹ãƒˆãƒ¡ãƒ‹ãƒ¥ãƒ¼ãŒå­˜åœ¨ã—ã€ç”»é¢ã«è¡¨ç¤ºã•ã‚Œã¦ã„ã‚‹ãªã‚‰
     if (QuestMenuWidget && QuestMenuWidget->IsInViewport())
     {
         ToggleQuestMenu();
         return;
     }
 
-    // ‚à‚µ‘•”õƒƒjƒ…[‚ª‘¶İ‚µA‰æ–Ê‚É•\¦‚³‚ê‚Ä‚¢‚é‚È‚ç
+    // ã‚‚ã—è£…å‚™ãƒ¡ãƒ‹ãƒ¥ãƒ¼ãŒå­˜åœ¨ã—ã€ç”»é¢ã«è¡¨ç¤ºã•ã‚Œã¦ã„ã‚‹ãªã‚‰
     if (EquipmentMenuWidget && EquipmentMenuWidget->IsInViewport())
     {
         ToggleEquipmentMenu();
         return;
     }
 
-    // ‚à‚µƒXƒe[ƒ^ƒXƒƒjƒ…[‚ª‘¶İ‚µA‰æ–Ê‚É•\¦‚³‚ê‚Ä‚¢‚é‚È‚ç
+    // ã‚‚ã—ã‚¹ãƒ†ãƒ¼ã‚¿ã‚¹ãƒ¡ãƒ‹ãƒ¥ãƒ¼ãŒå­˜åœ¨ã—ã€ç”»é¢ã«è¡¨ç¤ºã•ã‚Œã¦ã„ã‚‹ãªã‚‰
     if (StatusMenuWidget && StatusMenuWidget->IsInViewport())
     {
         ToggleStatusMenu();
@@ -117,7 +117,7 @@ void AMyProject1HUD::ToggleCommandMenu()
 
             CommandMenuWidget->RemoveFromParent();
 
-            // ’Êí‚ÌƒQ[ƒ€‘€ì‚É–ß‚·
+            // é€šå¸¸ã®ã‚²ãƒ¼ãƒ æ“ä½œã«æˆ»ã™
             FInputModeGameOnly InputMode;
             PC->SetInputMode(InputMode);
             PC->bShowMouseCursor = false;
@@ -131,7 +131,7 @@ void AMyProject1HUD::ToggleCommandMenu()
     }
 }
 
-// --- ƒCƒ“ƒxƒ“ƒgƒŠiƒƒjƒ…[“à‚Ìƒ{ƒ^ƒ“‚©‚çŠJ‚­•ûj ---
+// --- ã‚¤ãƒ³ãƒ™ãƒ³ãƒˆãƒªï¼ˆãƒ¡ãƒ‹ãƒ¥ãƒ¼å†…ã®ãƒœã‚¿ãƒ³ã‹ã‚‰é–‹ãæ–¹ï¼‰ ---
 void AMyProject1HUD::ToggleInventoryMenu()
 {
     APlayerController* PC = GetOwningPlayerController();
@@ -148,7 +148,7 @@ void AMyProject1HUD::ToggleInventoryMenu()
         {
             InventoryMenuWidget->AddToViewport(20);
 
-            // ”wŒã‚Ìƒƒjƒ…[‚ğ‰B‚·
+            // èƒŒå¾Œã®ãƒ¡ãƒ‹ãƒ¥ãƒ¼ã‚’éš ã™
             if (CommandMenuWidget) CommandMenuWidget->SetVisibility(ESlateVisibility::Collapsed);
 
             FInputModeGameAndUI InputMode;
@@ -161,7 +161,7 @@ void AMyProject1HUD::ToggleInventoryMenu()
         {
             InventoryMenuWidget->RemoveFromParent();
 
-            // --- C³Fƒƒjƒ…[‚ğÄ•\¦‚·‚éÛ‚ÉŠmÀ‚É Visible ‚É‚·‚é ---
+            // --- ä¿®æ­£ï¼šãƒ¡ãƒ‹ãƒ¥ãƒ¼ã‚’å†è¡¨ç¤ºã™ã‚‹éš›ã«ç¢ºå®Ÿã« Visible ã«ã™ã‚‹ ---
             if (CommandMenuWidget)
             {
                 CommandMenuWidget->SetVisibility(ESlateVisibility::Visible);
@@ -181,11 +181,11 @@ void AMyProject1HUD::ToggleInventoryMenu()
 
 bool AMyProject1HUD::IsCommandMenuOpen() const
 {
-    // ƒEƒBƒWƒFƒbƒg‚ª‘¶İ‚µA‚©‚Â‰æ–Ê‚É•\¦‚³‚ê‚Ä‚¢‚é‚È‚ç true ‚ğ•Ô‚·
+    // ã‚¦ã‚£ã‚¸ã‚§ãƒƒãƒˆãŒå­˜åœ¨ã—ã€ã‹ã¤ç”»é¢ã«è¡¨ç¤ºã•ã‚Œã¦ã„ã‚‹ãªã‚‰ true ã‚’è¿”ã™
     return CommandMenuWidget && CommandMenuWidget->IsInViewport();
 }
 
-// --- ƒNƒGƒXƒgiƒƒjƒ…[“à‚Ìƒ{ƒ^ƒ“‚©‚çŠJ‚­•ûj ---
+// --- ã‚¯ã‚¨ã‚¹ãƒˆï¼ˆãƒ¡ãƒ‹ãƒ¥ãƒ¼å†…ã®ãƒœã‚¿ãƒ³ã‹ã‚‰é–‹ãæ–¹ï¼‰ ---
 void AMyProject1HUD::ToggleQuestMenu()
 {
     APlayerController* PC = GetOwningPlayerController();
@@ -200,13 +200,13 @@ void AMyProject1HUD::ToggleQuestMenu()
     {
         if (!QuestMenuWidget->IsInViewport())
         {
-            // Z-Order‚ğ20‚É‚µ‚Äè‘O‚É•\¦
+            // Z-Orderã‚’20ã«ã—ã¦æ‰‹å‰ã«è¡¨ç¤º
             QuestMenuWidget->AddToViewport(20);
 
-            // ”wŒã‚Ìƒƒjƒ…[‚ğ‰B‚·
+            // èƒŒå¾Œã®ãƒ¡ãƒ‹ãƒ¥ãƒ¼ã‚’éš ã™
             if (CommandMenuWidget) CommandMenuWidget->SetVisibility(ESlateVisibility::Collapsed);
 
-            // “ü—ÍƒtƒH[ƒJƒX‚ğƒNƒGƒXƒg‰æ–Ê‚ÉŒü‚¯‚é
+            // å…¥åŠ›ãƒ•ã‚©ãƒ¼ã‚«ã‚¹ã‚’ã‚¯ã‚¨ã‚¹ãƒˆç”»é¢ã«å‘ã‘ã‚‹
             FInputModeGameAndUI InputMode;
             InputMode.SetWidgetToFocus(QuestMenuWidget->TakeWidget());
             PC->SetInputMode(InputMode);
@@ -215,10 +215,10 @@ void AMyProject1HUD::ToggleQuestMenu()
         }
         else
         {
-            // •Â‚¶‚éˆ—
+            // é–‰ã˜ã‚‹å‡¦ç†
             QuestMenuWidget->RemoveFromParent();
 
-            // ”wŒã‚Ìƒƒjƒ…[‚ğÄ•\¦‚·‚é
+            // èƒŒå¾Œã®ãƒ¡ãƒ‹ãƒ¥ãƒ¼ã‚’å†è¡¨ç¤ºã™ã‚‹
             if (CommandMenuWidget)
             {
                 CommandMenuWidget->SetVisibility(ESlateVisibility::Visible);
@@ -236,7 +236,7 @@ void AMyProject1HUD::ToggleQuestMenu()
     }
 }
 
-// --- ‘•”õiƒƒjƒ…[“à‚Ìƒ{ƒ^ƒ“‚©‚çŠJ‚­•ûj ---
+// --- è£…å‚™ï¼ˆãƒ¡ãƒ‹ãƒ¥ãƒ¼å†…ã®ãƒœã‚¿ãƒ³ã‹ã‚‰é–‹ãæ–¹ï¼‰ ---
 void AMyProject1HUD::ToggleEquipmentMenu()
 {
     APlayerController* PC = GetOwningPlayerController();
@@ -244,7 +244,7 @@ void AMyProject1HUD::ToggleEquipmentMenu()
 
     if (!EquipmentMenuWidget)
     {
-        // ‚Ü‚¾ì‚ç‚ê‚Ä‚¢‚È‚¯‚ê‚Î¶¬‚·‚é
+        // ã¾ã ä½œã‚‰ã‚Œã¦ã„ãªã‘ã‚Œã°ç”Ÿæˆã™ã‚‹
         EquipmentMenuWidget = CreateWidget<UUserWidget>(GetWorld(), EquipmentMenuClass);
     }
 
@@ -252,13 +252,13 @@ void AMyProject1HUD::ToggleEquipmentMenu()
     {
         if (!EquipmentMenuWidget->IsInViewport())
         {
-            // Z-Order‚ğ20‚É‚µ‚Äè‘O‚É•\¦
+            // Z-Orderã‚’20ã«ã—ã¦æ‰‹å‰ã«è¡¨ç¤º
             EquipmentMenuWidget->AddToViewport(20);
 
-            // ”wŒã‚Ìƒƒjƒ…[iWBP_CommandMenuj‚ğ‰B‚·
+            // èƒŒå¾Œã®ãƒ¡ãƒ‹ãƒ¥ãƒ¼ï¼ˆWBP_CommandMenuï¼‰ã‚’éš ã™
             if (CommandMenuWidget) CommandMenuWidget->SetVisibility(ESlateVisibility::Collapsed);
 
-            // “ü—ÍƒtƒH[ƒJƒX‚ğ‘•”õ‰æ–Ê‚ÉŒü‚¯‚é
+            // å…¥åŠ›ãƒ•ã‚©ãƒ¼ã‚«ã‚¹ã‚’è£…å‚™ç”»é¢ã«å‘ã‘ã‚‹
             FInputModeGameAndUI InputMode;
             InputMode.SetWidgetToFocus(EquipmentMenuWidget->TakeWidget());
             PC->SetInputMode(InputMode);
@@ -267,10 +267,10 @@ void AMyProject1HUD::ToggleEquipmentMenu()
         }
         else
         {
-            // •Â‚¶‚éˆ—
+            // é–‰ã˜ã‚‹å‡¦ç†
             EquipmentMenuWidget->RemoveFromParent();
 
-            // ”wŒã‚Ìƒƒjƒ…[‚ğÄ•\¦‚·‚é
+            // èƒŒå¾Œã®ãƒ¡ãƒ‹ãƒ¥ãƒ¼ã‚’å†è¡¨ç¤ºã™ã‚‹
             if (CommandMenuWidget)
             {
                 CommandMenuWidget->SetVisibility(ESlateVisibility::Visible);
@@ -288,7 +288,7 @@ void AMyProject1HUD::ToggleEquipmentMenu()
     }
 }
 
-// ---ƒXƒe[ƒ^ƒXƒƒjƒ…[‚ÌŠJ•Âˆ— ---
+// ---ã‚¹ãƒ†ãƒ¼ã‚¿ã‚¹ãƒ¡ãƒ‹ãƒ¥ãƒ¼ã®é–‹é–‰å‡¦ç† ---
 void AMyProject1HUD::ToggleStatusMenu()
 {
     APlayerController* PC = GetOwningPlayerController();
@@ -296,7 +296,7 @@ void AMyProject1HUD::ToggleStatusMenu()
 
     if (!StatusMenuWidget)
     {
-        // ‚Ü‚¾ì‚ç‚ê‚Ä‚¢‚È‚¯‚ê‚Î¶¬‚·‚é
+        // ã¾ã ä½œã‚‰ã‚Œã¦ã„ãªã‘ã‚Œã°ç”Ÿæˆã™ã‚‹
         StatusMenuWidget = CreateWidget<UUserWidget>(GetWorld(), StatusMenuClass);
     }
 
@@ -304,13 +304,13 @@ void AMyProject1HUD::ToggleStatusMenu()
     {
         if (!StatusMenuWidget->IsInViewport())
         {
-            // Z-Order‚ğ20‚É‚µ‚Äè‘O‚É•\¦
+            // Z-Orderã‚’20ã«ã—ã¦æ‰‹å‰ã«è¡¨ç¤º
             StatusMenuWidget->AddToViewport(20);
 
-            // ”wŒã‚Ìƒƒjƒ…[‚ğ‰B‚·
+            // èƒŒå¾Œã®ãƒ¡ãƒ‹ãƒ¥ãƒ¼ã‚’éš ã™
             if (CommandMenuWidget) CommandMenuWidget->SetVisibility(ESlateVisibility::Collapsed);
 
-            // “ü—ÍƒtƒH[ƒJƒX‚ğƒXƒe[ƒ^ƒX‰æ–Ê‚ÉŒü‚¯‚é
+            // å…¥åŠ›ãƒ•ã‚©ãƒ¼ã‚«ã‚¹ã‚’ã‚¹ãƒ†ãƒ¼ã‚¿ã‚¹ç”»é¢ã«å‘ã‘ã‚‹
             FInputModeGameAndUI InputMode;
             InputMode.SetWidgetToFocus(StatusMenuWidget->TakeWidget());
             PC->SetInputMode(InputMode);
@@ -319,10 +319,10 @@ void AMyProject1HUD::ToggleStatusMenu()
         }
         else
         {
-            // •Â‚¶‚éˆ—
+            // é–‰ã˜ã‚‹å‡¦ç†
             StatusMenuWidget->RemoveFromParent();
 
-            // ”wŒã‚Ìƒƒjƒ…[‚ğÄ•\¦‚·‚é
+            // èƒŒå¾Œã®ãƒ¡ãƒ‹ãƒ¥ãƒ¼ã‚’å†è¡¨ç¤ºã™ã‚‹
             if (CommandMenuWidget)
             {
                 CommandMenuWidget->SetVisibility(ESlateVisibility::Visible);
@@ -340,7 +340,7 @@ void AMyProject1HUD::ToggleStatusMenu()
     }
 }
 
-// --- ƒ`ƒFƒXƒgƒƒjƒ…[‚ÌŠJ•Âˆ— ---
+// --- ãƒã‚§ã‚¹ãƒˆãƒ¡ãƒ‹ãƒ¥ãƒ¼ã®é–‹é–‰å‡¦ç† ---
 void AMyProject1HUD::ToggleChestMenu()
 {
     APlayerController* PC = GetOwningPlayerController();
@@ -348,7 +348,7 @@ void AMyProject1HUD::ToggleChestMenu()
 
     if (!ChestMenuWidget)
     {
-        // ‚Ü‚¾ì‚ç‚ê‚Ä‚¢‚È‚¯‚ê‚Î¶¬‚·‚é
+        // ã¾ã ä½œã‚‰ã‚Œã¦ã„ãªã‘ã‚Œã°ç”Ÿæˆã™ã‚‹
         ChestMenuWidget = CreateWidget<UUserWidget>(GetWorld(), ChestMenuClass);
     }
 
@@ -356,19 +356,19 @@ void AMyProject1HUD::ToggleChestMenu()
     {
         if (!ChestMenuWidget->IsInViewport())
         {
-            // š”r‘¼§ŒäF‚à‚µ‘¼‚Ìƒƒjƒ…[‚ªŠJ‚¢‚Ä‚¢‚½‚ç‘S‚Ä•Â‚¶‚éi‘€ì•s”\ƒoƒO–h~j
+            // â˜…æ’ä»–åˆ¶å¾¡ï¼šã‚‚ã—ä»–ã®ãƒ¡ãƒ‹ãƒ¥ãƒ¼ãŒé–‹ã„ã¦ã„ãŸã‚‰å…¨ã¦é–‰ã˜ã‚‹ï¼ˆæ“ä½œä¸èƒ½ãƒã‚°é˜²æ­¢ï¼‰
             if (InventoryMenuWidget && InventoryMenuWidget->IsInViewport()) ToggleInventoryMenu();
             if (EquipmentMenuWidget && EquipmentMenuWidget->IsInViewport()) ToggleEquipmentMenu();
             if (StatusMenuWidget && StatusMenuWidget->IsInViewport()) ToggleStatusMenu();
             if (QuestMenuWidget && QuestMenuWidget->IsInViewport()) ToggleQuestMenu();
 
-            // Z-Order‚ğ20‚É‚µ‚Äè‘O‚É•\¦
+            // Z-Orderã‚’20ã«ã—ã¦æ‰‹å‰ã«è¡¨ç¤º
             ChestMenuWidget->AddToViewport(20);
 
-            // ”wŒã‚Ìƒƒjƒ…[iWBP_CommandMenu“™j‚ğ”O‚Ì‚½‚ß‰B‚·
+            // èƒŒå¾Œã®ãƒ¡ãƒ‹ãƒ¥ãƒ¼ï¼ˆWBP_CommandMenuç­‰ï¼‰ã‚’å¿µã®ãŸã‚éš ã™
             if (CommandMenuWidget) CommandMenuWidget->SetVisibility(ESlateVisibility::Collapsed);
 
-            // “ü—ÍƒtƒH[ƒJƒX‚ğƒ`ƒFƒXƒg‰æ–Ê‚ÉŒü‚¯Aƒ}ƒEƒXƒJ[ƒ\ƒ‹‚ğ•\¦
+            // å…¥åŠ›ãƒ•ã‚©ãƒ¼ã‚«ã‚¹ã‚’ãƒã‚§ã‚¹ãƒˆç”»é¢ã«å‘ã‘ã€ãƒã‚¦ã‚¹ã‚«ãƒ¼ã‚½ãƒ«ã‚’è¡¨ç¤º
             FInputModeGameAndUI InputMode;
             InputMode.SetWidgetToFocus(ChestMenuWidget->TakeWidget());
             PC->SetInputMode(InputMode);
@@ -378,18 +378,18 @@ void AMyProject1HUD::ToggleChestMenu()
         }
         else
         {
-            // •Â‚¶‚éˆ—
+            // é–‰ã˜ã‚‹å‡¦ç†
             ChestMenuWidget->RemoveFromParent();
 
-            // •Â‚¶‚½‚Ì‚ÅA‹L‰¯‚µ‚Ä‚¢‚½ƒ`ƒFƒXƒg‚ğƒNƒŠƒA
+            // é–‰ã˜ãŸã®ã§ã€è¨˜æ†¶ã—ã¦ã„ãŸãƒã‚§ã‚¹ãƒˆã‚’ã‚¯ãƒªã‚¢
             CurrentChestComp = nullptr;
 
-            // ƒtƒB[ƒ‹ƒh‘€ì‚É–ß‚·iƒQ[ƒ€ƒIƒ“ƒŠ[Eƒ}ƒEƒX”ñ•\¦j
+            // ãƒ•ã‚£ãƒ¼ãƒ«ãƒ‰æ“ä½œã«æˆ»ã™ï¼ˆã‚²ãƒ¼ãƒ ã‚ªãƒ³ãƒªãƒ¼ãƒ»ãƒã‚¦ã‚¹éè¡¨ç¤ºï¼‰
             FInputModeGameOnly InputMode;
             PC->SetInputMode(InputMode);
             PC->bShowMouseCursor = false;
 
-            // ”wŒã‚ÌƒRƒ}ƒ“ƒhƒƒjƒ…[‚ğÄ•\¦‰Â”\‚É‚·‚é
+            // èƒŒå¾Œã®ã‚³ãƒãƒ³ãƒ‰ãƒ¡ãƒ‹ãƒ¥ãƒ¼ã‚’å†è¡¨ç¤ºå¯èƒ½ã«ã™ã‚‹
             if (CommandMenuWidget)
             {
                 CommandMenuWidget->SetVisibility(ESlateVisibility::Visible);
@@ -400,5 +400,130 @@ void AMyProject1HUD::ToggleChestMenu()
                 UGameplayStatics::PlaySound2D(this, MenuCloseSound);
             }
         }
+    }
+}
+
+
+void AMyProject1HUD::ToggleTreatmentMenu()
+{
+    APlayerController* PC = GetOwningPlayerController();
+    if (!PC) return;
+
+    if (!TreatmentMenuWidget && TreatmentMenuClass)
+    {
+        TreatmentMenuWidget = CreateWidget<UUserWidget>(GetWorld(), TreatmentMenuClass);
+    }
+
+    if (!TreatmentMenuWidget) return;
+
+    if (!TreatmentMenuWidget->IsInViewport())
+    {
+        // ä»–ã®ç”»é¢ãŒé–‹ã„ã¦ã„ãŸã‚‰ä¸€æ–‰ã«é–‰ã˜ã‚‹
+        if (InventoryMenuWidget && InventoryMenuWidget->IsInViewport()) ToggleInventoryMenu();
+        if (CommandMenuWidget && CommandMenuWidget->IsInViewport()) ToggleCommandMenu();
+        if (EquipmentMenuWidget && EquipmentMenuWidget->IsInViewport()) ToggleEquipmentMenu();
+        if (StatusMenuWidget && StatusMenuWidget->IsInViewport()) ToggleStatusMenu();
+        if (QuestMenuWidget && QuestMenuWidget->IsInViewport()) ToggleQuestMenu();
+        if (ChestMenuWidget && ChestMenuWidget->IsInViewport()) ChestMenuWidget->RemoveFromParent();
+
+        // === ã€è¿½è¨˜ã€‘ã‚‚ã—åˆºé’å°‚é–€åº—ã®ç”»é¢ãŒé–‹ã„ã¦ã„ãŸã‚‰è‡ªå‹•ã§é–‰ã˜ã‚‹ ===
+        if (TattooMenuWidget && TattooMenuWidget->IsInViewport()) ToggleTattooMenu();
+
+        TreatmentMenuWidget->AddToViewport(20);
+
+        FInputModeGameAndUI InputMode;
+        InputMode.SetWidgetToFocus(TreatmentMenuWidget->TakeWidget());
+        PC->SetInputMode(InputMode);
+        PC->bShowMouseCursor = true;
+
+        if (AMyProject1Character* OwnerChar = Cast<AMyProject1Character>(PC->GetPawn()))
+        {
+            OwnerChar->SetInputLocked(true);
+        }
+
+        if (MenuOpenSound) UGameplayStatics::PlaySound2D(this, MenuOpenSound);
+    }
+    else
+    {
+        TreatmentMenuWidget->RemoveFromParent();
+
+        FInputModeGameOnly InputMode;
+        PC->SetInputMode(InputMode);
+        PC->bShowMouseCursor = false;
+
+        if (AMyProject1Character* OwnerChar = Cast<AMyProject1Character>(PC->GetPawn()))
+        {
+            OwnerChar->SetInputLocked(false);
+        }
+
+        if (MenuCloseSound) UGameplayStatics::PlaySound2D(this, MenuCloseSound);
+    }
+}
+
+
+void AMyProject1HUD::ToggleTattooMenu()
+{
+    APlayerController* PC = GetOwningPlayerController();
+    if (!PC) return;
+
+    // 1. åˆå›å‘¼ã³å‡ºã—æ™‚ã«åˆºé’ã‚·ãƒ§ãƒƒãƒ—ç”»é¢ã‚’å‹•çš„ç”Ÿæˆ
+    if (!TattooMenuWidget && TattooMenuClass)
+    {
+        TattooMenuWidget = CreateWidget<UUserWidget>(GetWorld(), TattooMenuClass);
+    }
+
+    if (!TattooMenuWidget) return;
+
+    // 2. ãƒˆã‚°ãƒ«åˆ¤å®š
+    if (!TattooMenuWidget->IsInViewport())
+    {
+        // ã€é–‹ãå‡¦ç†ã€‘ä»–ã®ãƒ¡ãƒ‹ãƒ¥ãƒ¼ãŒé–‹ã„ã¦ã„ãŸã‚‰ã™ã¹ã¦é–‰ã˜ã‚‹ï¼ˆç·åˆã‚¯ãƒªãƒ‹ãƒƒã‚¯å«ã‚€ï¼‰
+        if (InventoryMenuWidget && InventoryMenuWidget->IsInViewport()) ToggleInventoryMenu();
+        if (CommandMenuWidget && CommandMenuWidget->IsInViewport()) ToggleCommandMenu();
+        if (EquipmentMenuWidget && EquipmentMenuWidget->IsInViewport()) ToggleEquipmentMenu();
+        if (StatusMenuWidget && StatusMenuWidget->IsInViewport()) ToggleStatusMenu();
+        if (QuestMenuWidget && QuestMenuWidget->IsInViewport()) ToggleQuestMenu();
+        if (ChestMenuWidget && ChestMenuWidget->IsInViewport()) ChestMenuWidget->RemoveFromParent();
+
+        // ç·åˆã‚¯ãƒªãƒ‹ãƒƒã‚¯ãŒé–‹ã„ã¦ã„ãŸã‚‰é–‰ã˜ã‚‹
+        if (TreatmentMenuWidget && TreatmentMenuWidget->IsInViewport()) ToggleTreatmentMenu();
+
+        // ç”»é¢ã®æœ€å‰é¢ï¼ˆZ-Order 20ï¼‰ã¸é…ç½®
+        TattooMenuWidget->AddToViewport(20);
+
+        // ãƒã‚¦ã‚¹è§£æ”¾ãƒ»å…¥åŠ›ãƒ•ã‚©ãƒ¼ã‚«ã‚¹ã®å›ºå®š
+        FInputModeGameAndUI InputMode;
+        InputMode.SetWidgetToFocus(TattooMenuWidget->TakeWidget());
+        PC->SetInputMode(InputMode);
+        PC->bShowMouseCursor = true;
+
+        // ã‚­ãƒ£ãƒ©ã‚¯ã‚¿ãƒ¼ã®ç§»å‹•ãƒ»æ—‹å›ãƒ­ãƒƒã‚¯
+        if (AMyProject1Character* OwnerChar = Cast<AMyProject1Character>(PC->GetPawn()))
+        {
+            OwnerChar->SetInputLocked(true);
+        }
+
+        // é–‹å°ç”¨ã‚·ã‚¹ãƒ†ãƒ SE
+        if (MenuOpenSound) UGameplayStatics::PlaySound2D(this, MenuOpenSound);
+    }
+    else
+    {
+        // ã€é–‰ã˜ã‚‹å‡¦ç†ã€‘ç”»é¢ã‹ã‚‰æ’¤å»
+        TattooMenuWidget->RemoveFromParent();
+        CurrentNPCShopIDs.Empty();
+
+        // é€šå¸¸ãƒ•ã‚£ãƒ¼ãƒ«ãƒ‰æ“ä½œï¼ˆã‚²ãƒ¼ãƒ ã‚ªãƒ³ãƒªãƒ¼ï¼‰ã«å…¥åŠ›ã‚’å¼•ãæˆ»ã™
+        FInputModeGameOnly InputMode;
+        PC->SetInputMode(InputMode);
+        PC->bShowMouseCursor = false;
+
+        // ã‚­ãƒ£ãƒ©ã‚¯ã‚¿ãƒ¼ã®æ“ä½œãƒ­ãƒƒã‚¯è§£é™¤
+        if (AMyProject1Character* OwnerChar = Cast<AMyProject1Character>(PC->GetPawn()))
+        {
+            OwnerChar->SetInputLocked(false);
+        }
+
+        // ã‚¯ãƒ­ãƒ¼ã‚ºç”¨ã‚·ã‚¹ãƒ†ãƒ SE
+        if (MenuCloseSound) UGameplayStatics::PlaySound2D(this, MenuCloseSound);
     }
 }

@@ -32,8 +32,8 @@
 #include "Engine/DamageEvents.h"
 #include "GameFramework/PhysicsVolume.h"
 #include "CableComponent.h"
-#include "Components/DecalComponent.h"
-#include "DrawDebugHelpers.h"
+#include "SkinOverlayComponent.h"
+
 
 
 AMyProject1Character::AMyProject1Character()
@@ -198,6 +198,7 @@ AMyProject1Character::AMyProject1Character()
 	// are set in the derived blueprint asset named ThirdPersonCharacter (to avoid direct content references in C++)
 
 	InventoryComp = CreateDefaultSubobject<UInventoryComponent>(TEXT("InventoryComp"));
+	SkinOverlayComp = CreateDefaultSubobject<USkinOverlayComponent>(TEXT("SkinOverlayComp"));
 	QuestComp = CreateDefaultSubobject<UQuestComponent>(TEXT("QuestComp"));
 	DialogComp = CreateDefaultSubobject<UDialogComponent>(TEXT("DialogComp"));
 	MusicComp = CreateDefaultSubobject<UMusicControlComponent>(TEXT("MusicComp"));
@@ -213,9 +214,7 @@ void AMyProject1Character::BeginPlay()
 {
 	Super::BeginPlay();
 
-	CurrentActiveDecals.Empty();
-	SpawnedDecalComponents.Empty();
-
+	
 	ClearCableSystem(EEquipmentSlot::Feet);
 	ClearCableSystem(EEquipmentSlot::Hands);
 
@@ -601,51 +600,6 @@ void AMyProject1Character::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
-#if WITH_EDITOR
-	// === ★開発効率爆上げ：エディタプレイ中限定でデータテーブルの数値を毎フレーム強制同期 ===
-	// デカールデータテーブルが存在し、かつ現在体にデカールが1つでも貼られている場合のみ処理
-	if (DecalDataTable && SpawnedDecalComponents.Num() > 0)
-	{
-		for (auto& Pair : SpawnedDecalComponents)
-		{
-			EDecalSlot Slot = Pair.Key;
-			UDecalComponent* DecalComp = Pair.Value;
-
-			// デカールコンポーネントが有効で、インベントリ箱（行名）が記憶されているか確認
-			if (DecalComp && DecalComp->IsValidLowLevel() && CurrentActiveDecals.Contains(Slot))
-			{
-				FName RowName = CurrentActiveDecals[Slot];
-
-				// 最新のデータテーブルの数値をその場で FindRow して引っ張ってくる
-				FOverlayDecalData* DecalData = DecalDataTable->FindRow<FOverlayDecalData>(RowName, TEXT("DecalRealtimeTickUpdate"));
-				if (DecalData)
-				{
-					// ★重要：位置、角度、サイズをデータテーブルの最新値で毎フレーム強制上書き！
-					DecalComp->SetRelativeLocation(DecalData->LocationOffset);
-					DecalComp->SetRelativeRotation(DecalData->RotationOffset);
-					DecalComp->DecalSize = DecalData->DecalSize;
-
-					// ★重要：色（OverlayColor）の変更もその場で即座に反映！
-					if (UMaterialInstanceDynamic* DynamicDecalMat = Cast<UMaterialInstanceDynamic>(DecalComp->GetDecalMaterial()))
-					{
-						DynamicDecalMat->SetVectorParameterValue(FName("Decal_Color"), DecalData->OverlayColor);
-					}
-					DrawDebugBox(
-						GetWorld(),
-						DecalComp->GetComponentLocation(),              // デカールの中心座標
-						DecalComp->DecalSize,                          // ⭕ 直接メンバー変数を参照します
-						DecalComp->GetComponentRotation().Quaternion(), // デカールの傾き
-						FColor::Green,                                 // 枠線の色（緑色）
-						false,                                         // 永続表示にしない（毎フレーム消す）
-						-1.0f,                                         // 寿命（-1.0fでそのフレームのみ表示）
-						0,                                             // 描画の優先順位
-						1.5f                                           // 線の太さ（お好みで 2.0f など太くしてもOK）
-					);
-				}
-			}
-		}
-	}
-#endif
 
 	// 1. 既存の鎖システム（足・その他用）のワールド同期
 	if (EquipmentCableComp && EquipmentCableComp->IsVisible())
@@ -3026,79 +2980,153 @@ void AMyProject1Character::SetupCableSystem(const FCableAttachmentSettings& Sett
 	}
 }
 
-// ==========================================
-// ★完全独立デカール（傷・入れ墨・化粧）システムの実装
-// ==========================================
-
-void AMyProject1Character::ApplyDecal(FName DecalRowName)
+void AMyProject1Character::TryAddSkinOverlay(FName RowName, bool bIsShopPurchase, int32 OverridePrice, FString DisplayName, FName ShopCategory)
 {
-	if (DecalRowName.IsNone() || !DecalDataTable || !BaseDecalMasterMaterial || !GetMesh()) return;
+	if (!SkinOverlayComp || RowName.IsNone()) return;
 
-	// 1. デカール専用データテーブルから行データを引き出す
-	FOverlayDecalData* DecalData = DecalDataTable->FindRow<FOverlayDecalData>(DecalRowName, TEXT("DecalApplyLookup"));
-	if (!DecalData) return;
-
-	EDecalSlot TargetSlot = DecalData->TargetDecalSlot;
-
-	// 2. 重複防止：すでにその部位（スロット）に何か貼られていれば、先にコンポーネントを完全に消去する
-	RemoveDecal(TargetSlot);
-
-	// 3. ランタイムでデカールコンポーネントを動的に生成
-	UDecalComponent* NewDecalComp = NewObject<UDecalComponent>(this);
-	if (NewDecalComp)
+	// 1. 重複チェック（すでに持っている場合はアナウンスしてブロック）
+	if (SkinOverlayComp->IsOverlayActive(RowName))
 	{
-		NewDecalComp->RegisterComponent();
-
-		// データテーブルで指定された骨（ボーン）へ正確にアタッチ（吸着）
-		NewDecalComp->AttachToComponent(GetMesh(), FAttachmentTransformRules::SnapToTargetNotIncludingScale, DecalData->AttachBoneName);
-
-		// データテーブルのオフセット数値（位置・角度・サイズ）をミリ単位で完全同期
-		NewDecalComp->SetRelativeLocation(DecalData->LocationOffset);
-		NewDecalComp->SetRelativeRotation(DecalData->RotationOffset);
-		NewDecalComp->DecalSize = DecalData->DecalSize;
-
-		// 1. 先にベースとなるマスターマテリアル（M_BaseDecalMaster）をデカールに適用する
-		NewDecalComp->SetDecalMaterial(BaseDecalMasterMaterial);
-
-		// 2. 引数なしでデカールの動的マテリアルインスタンスを生成する（UE5デカールの仕様）
-		UMaterialInstanceDynamic* DynamicDecalMat = NewDecalComp->CreateDynamicMaterialInstance();
-
-		if (DynamicDecalMat && !DecalData->OverlayTexture.IsNull())
+		if (bIsShopPurchase)
 		{
-			UTexture2D* LoadedTex = DecalData->OverlayTexture.LoadSynchronous();
-			DynamicDecalMat->SetTextureParameterValue(FName("Decal_Tex"), LoadedTex);
-			DynamicDecalMat->SetVectorParameterValue(FName("Decal_Color"), DecalData->OverlayColor);
+			OnReceiveLogMessage(TEXT("それはすでに体に刻まれているか、既に治療・装着済みです。"), ELogMessageType::System);
 		}
+		return;
+	}
 
-		// 4. 【管理箱インベントリへ記憶】
-		// 現在の適用状態（行名）と、生成されたコンポーネントをそれぞれ別々の箱に大切に保管する
-		CurrentActiveDecals.Add(TargetSlot, DecalRowName);
-		SpawnedDecalComponents.Add(TargetSlot, NewDecalComp);
+	// 2. 価格の決定（Widgetから有効な価格が来ている場合はそれを最優先。0以下の場合のみ刺青・傷跡の自動取得を行う）
+	int32 FinalPrice = OverridePrice;
+	if (bIsShopPurchase && FinalPrice <= 0 && SkinOverlayComp->GetOverlayDataTable() && (ShopCategory == FName("Tattoo") || ShopCategory == FName("Scar") || ShopCategory.IsNone()))
+	{
+		FSkinOverlayDataRow* Data = SkinOverlayComp->GetOverlayDataTable()->FindRow<FSkinOverlayDataRow>(RowName, TEXT("ShopAddPriceLookup"));
+		if (Data)
+		{
+			FinalPrice = Data->BuyPrice;
+		}
+	}
 
-		// ログに通知
-		FString DebugMsg = FString::Printf(TEXT("デカール適用: 部位[%d] に 行名[%s] を貼り付けました。"), (int32)TargetSlot, *DecalRowName.ToString());
-		OnReceiveLogMessage(DebugMsg, ELogMessageType::System);
+	// 3. 所持金チェックとお金の引き落とし（通貨単位の文言を「円」に完全統一）
+	if (InventoryComp)
+	{
+		if (!InventoryComp->TrySpendGil(FinalPrice))
+		{
+			if (bIsShopPurchase)
+			{
+				OnReceiveLogMessage(TEXT("お金（円）が足りません。"), ELogMessageType::System);
+			}
+			return; // お金が足りないのでここで処理をブロック
+		}
+	}
+
+	// 4. 条件をすべてクリアしたら、スキンコンポーネントへ登録
+	SkinOverlayComp->AddOverlay(RowName, -1.0f, ShopCategory);
+
+	// 5. カテゴリ名（Tattoo, Disease, Scar, Piercing）に応じてログの文言を完璧に出し分け
+	FString TargetName = DisplayName.IsEmpty() ? RowName.ToString() : DisplayName;
+
+	if (bIsShopPurchase)
+	{
+		// --- ショップでの購入（施術）時 ---
+		if (ShopCategory == FName("Disease"))
+		{
+			OnReceiveLogMessage(FString::Printf(TEXT("【%s】を治療した。%d円を支払った。"), *TargetName, FinalPrice), ELogMessageType::System);
+		}
+		else if (ShopCategory == FName("Scar"))
+		{
+			OnReceiveLogMessage(FString::Printf(TEXT("【%s】を綺麗に整形した。%d円を支払った。"), *TargetName, FinalPrice), ELogMessageType::System);
+		}
+		else if (ShopCategory == FName("Piercing"))
+		{
+			OnReceiveLogMessage(FString::Printf(TEXT("【%s】にピアスした。%d円を支払った。"), *TargetName, FinalPrice), ELogMessageType::System);
+		}
+		else // デフォルト（Tattooなど）
+		{
+			OnReceiveLogMessage(FString::Printf(TEXT("体に新たな紋様【%s】を刻んだ。%d円を支払った。"), *TargetName, FinalPrice), ELogMessageType::System);
+		}
+	}
+	else
+	{
+		// --- NPC会話イベントなどでの強制付与（無料）時 ---
+		if (ShopCategory == FName("Disease"))
+		{
+			OnReceiveLogMessage(FString::Printf(TEXT("【%s】が治癒した。"), *TargetName), ELogMessageType::System);
+		}
+		else if (ShopCategory == FName("Scar"))
+		{
+			OnReceiveLogMessage(FString::Printf(TEXT("【%s】が綺麗に整形された。"), *TargetName), ELogMessageType::System);
+		}
+		else if (ShopCategory == FName("Piercing"))
+		{
+			OnReceiveLogMessage(FString::Printf(TEXT("【%s】にピアスが施された。"), *TargetName), ELogMessageType::System);
+		}
+		else
+		{
+			OnReceiveLogMessage(FString::Printf(TEXT("体に新たな紋様【%s】が刻まれた。"), *TargetName), ELogMessageType::System);
+		}
 	}
 }
 
-void AMyProject1Character::RemoveDecal(EDecalSlot Slot)
+void AMyProject1Character::TryRemoveSkinOverlay(FName RowName, bool bIsShopPurchase, int32 OverridePrice, FString DisplayName, FName ShopCategory)
 {
-	// 生成されたコンポーネントの管理箱をチェック
-	if (SpawnedDecalComponents.Contains(Slot))
+	if (!SkinOverlayComp || !SkinOverlayComp->IsOverlayActive(RowName))
 	{
-		if (UDecalComponent* TargetComp = SpawnedDecalComponents[Slot])
+		if (bIsShopPurchase)
 		{
-			if (TargetComp->IsValidLowLevel())
-			{
-				TargetComp->DestroyComponent(); // ワールド空間から完全に消滅させる
-			}
+			OnReceiveLogMessage(TEXT("消去・取り外す対象が体に見当たりません。"), ELogMessageType::System);
 		}
-		SpawnedDecalComponents.Remove(Slot);
+		return;
 	}
 
-	// 行名記憶の管理箱（インベントリ）からも綺麗サッパリ削除する
-	if (CurrentActiveDecals.Contains(Slot))
+	// 1. 除去費用の決定（Widgetからの価格を最優先、0以下の時だけ自動取得）
+	int32 FinalPrice = OverridePrice;
+	if (bIsShopPurchase && FinalPrice <= 0 && SkinOverlayComp->GetOverlayDataTable() && (ShopCategory == FName("Tattoo") || ShopCategory == FName("Scar") || ShopCategory.IsNone()))
 	{
-		CurrentActiveDecals.Remove(Slot);
+		FSkinOverlayDataRow* Data = SkinOverlayComp->GetOverlayDataTable()->FindRow<FSkinOverlayDataRow>(RowName, TEXT("ShopRemovePriceLookup"));
+		if (Data)
+		{
+			FinalPrice = Data->RemovePrice;
+		}
+	}
+
+	// 2. 所持金チェックと引き落とし
+	if (InventoryComp)
+	{
+		if (!InventoryComp->TrySpendGil(FinalPrice))
+		{
+			if (bIsShopPurchase)
+			{
+				OnReceiveLogMessage(TEXT("費用（円）が足りません。"), ELogMessageType::System);
+			}
+			return;
+		}
+	}
+
+	// 3. 完全に消去
+	SkinOverlayComp->RemoveOverlay(RowName, ShopCategory);
+
+	// 4. 除去・取り外し時のログの出し分け
+	FString TargetName = DisplayName.IsEmpty() ? RowName.ToString() : DisplayName;
+
+	if (bIsShopPurchase)
+	{
+		if (ShopCategory == FName("Piercing"))
+		{
+			OnReceiveLogMessage(FString::Printf(TEXT("【%s】を取り外した。%d円を支払った。"), *TargetName, FinalPrice), ELogMessageType::System);
+		}
+		else
+		{
+			OnReceiveLogMessage(FString::Printf(TEXT("体から【%s】を消去した。%d円を支払った。"), *TargetName, FinalPrice), ELogMessageType::System);
+		}
+	}
+	else
+	{
+		if (ShopCategory == FName("Piercing"))
+		{
+			OnReceiveLogMessage(FString::Printf(TEXT("【%s】が取り外された。"), *TargetName), ELogMessageType::System);
+		}
+		else
+		{
+			OnReceiveLogMessage(FString::Printf(TEXT("体から【%s】が消滅した。"), *TargetName), ELogMessageType::System);
+		}
 	}
 }
