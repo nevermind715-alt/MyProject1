@@ -67,6 +67,15 @@ enum class ECycleState : uint8
 	StateD      UMETA(DisplayName = "状態D")
 };
 
+UENUM(BlueprintType)
+enum class EShopModeCategory : uint8
+{
+	Tattoo    UMETA(DisplayName = "刺青施術 (Tattoo)"),
+	Scar      UMETA(DisplayName = "傷跡整形 (Scar)"),
+	Piercing  UMETA(DisplayName = "ピアス装着 (Piercing)"),
+	Disease   UMETA(DisplayName = "病気治療 (Disease)")
+};
+
 USTRUCT(BlueprintType)
 struct FCyclePhaseSettings
 {
@@ -1018,50 +1027,65 @@ enum class EOverlayCategory : uint8
 	Makeup  UMETA(DisplayName = "化粧（Makeup）")
 };
 
-// --- データテーブル（DT_SkinOverlays）の行構造 ---
+// ============================================================================
+// ★ 病気専用（治すだけ：治療費用のみ、購入価格は不要）
+// ============================================================================
+USTRUCT(BlueprintType)
+struct FDiseaseTreatmentDataRow : public FTableRowBase
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Disease Treatment")
+	FString DisplayName = TEXT("病気治療");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Disease Treatment", meta = (MultiLine = true))
+	FText Description;
+
+	/** 体から病気を取り除く（治療する）のに必要な費用 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Disease Treatment|Economy")
+	int32 TreatmentPrice = 500;
+
+	/** ★新設：要求される医術レベル（普通の村医者では治せない奇病・死の呪いなど） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Disease Treatment|Requirements", meta = (ClampMin = "1"))
+	int32 ItemLevel = 1;
+};
+
+// ============================================================================
+// ★ 刺青専用（売り買い両方：施術費と除去費）
+// ============================================================================
 USTRUCT(BlueprintType)
 struct FSkinOverlayDataRow : public FTableRowBase
 {
 	GENERATED_BODY()
 
-	/** カテゴリ（傷・タトゥー・化粧） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skin Overlay")
 	EOverlayCategory Category = EOverlayCategory::Tattoo;
 
-	/** 表示名（デバッグやUI用） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skin Overlay")
-	FString DisplayName = TEXT("新しいテクスチャ");
+	FString DisplayName = TEXT("新しい刺青");
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skin Overlay|Info", meta = (MultiLine = true))
 	FText Description;
 
-	/** 素体と同一UVで作られた背景透過のテクスチャ（SoftPtrでメモリ負荷を軽減） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skin Overlay")
 	TSoftObjectPtr<UTexture2D> OverlayTexture;
 
-	/** マテリアル側で定義するテクスチャパラメータ名
-	 * （例: "TattooTex01", "ScarTex01", "MakeupTex" など、マテリアル側と一致させる） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skin Overlay")
 	FName TextureParamName = FName("Overlay_Tex");
 
-	/** マテリアル側の不透明度パラメータ名（例: "TattooOpacity01" など） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skin Overlay")
 	FName OpacityParamName = FName("Overlay_Opacity");
 
-	/** 初期状態の不透明度（0.0 〜 1.0） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skin Overlay", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float DefaultOpacity = 1.0f;
 
-	/** 色補正（タトゥーの色変えや化粧の色味調整用） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skin Overlay")
 	FLinearColor ColorMultiplier = FLinearColor::White;
 
-	/** マテリアル側の色パラメータ名（例: "TattooColor01" など） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skin Overlay")
 	FName ColorParamName = FName("Overlay_Color");
 
-	// --- タトゥー経済用のパラメータを追加 ---
-	/** ショップでの購入価格 */
+	/** ショップでの施術（購入）価格 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skin Overlay|Economy")
 	int32 BuyPrice = 1000;
 
@@ -1069,9 +1093,11 @@ struct FSkinOverlayDataRow : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skin Overlay|Economy")
 	int32 RemovePrice = 3000;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skin Overlay|Economy")
-	int32 ShopID = 0;
+	/** 要求される技術レベル（呪いの強さなど。職人のShopLevelがこれ未満なら店に並ばない） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skin Overlay|Requirements", meta = (ClampMin = "1"))
+	int32 ItemLevel = 1;
 };
+
 
 // --- キャラクターの「タトゥー箱（インベントリ枠）」に入れる要素の状態 ---
 USTRUCT(BlueprintType)
@@ -1088,23 +1114,50 @@ struct FActiveSkinOverlayState
 	float CurrentOpacity = 1.0f;
 };
 
+// ============================================================================
+// ★ 傷跡専用（治すだけ：整形費用のみ、購入価格は不要）
+// ============================================================================
 USTRUCT(BlueprintType)
-struct FDiseaseTreatmentDataRow : public FTableRowBase
+struct FScarDataRow : public FTableRowBase
 {
 	GENERATED_BODY()
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Disease Treatment")
-	FString DisplayName = TEXT("病気治療");
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skin Overlay")
+	FString DisplayName = TEXT("新しい傷跡");
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Disease Treatment", meta = (MultiLine = true))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skin Overlay|Info", meta = (MultiLine = true))
 	FText Description;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Disease Treatment")
-	int32 TreatmentPrice = 500;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skin Overlay")
+	TSoftObjectPtr<UTexture2D> OverlayTexture;
 
-	// 💡将来の拡張項目：治癒するステータス異常のタイプ（毒、麻痺など）をここに足せる
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skin Overlay")
+	FName TextureParamName = FName("Overlay_Tex");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skin Overlay")
+	FName OpacityParamName = FName("Overlay_Opacity");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skin Overlay", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float DefaultOpacity = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skin Overlay")
+	FLinearColor ColorMultiplier = FLinearColor::White;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skin Overlay")
+	FName ColorParamName = FName("Overlay_Color");
+
+	/** 綺麗に整形（消去）するのにかかる費用 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skin Overlay|Economy")
+	int32 RemovePrice = 1500;
+
+	/** ★新設：要求される技術レベル（名医じゃないと消せない深い古傷など） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skin Overlay|Requirements", meta = (ClampMin = "1"))
+	int32 ItemLevel = 1;
 };
 
+// ============================================================================
+// ★ ピアス専用（売り買い両方：装着費と取り外し費）
+// ============================================================================
 USTRUCT(BlueprintType)
 struct FPiercingDataRow : public FTableRowBase
 {
@@ -1116,10 +1169,17 @@ struct FPiercingDataRow : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Piercing", meta = (MultiLine = true))
 	FText Description;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Piercing")
-	int32 PiercingPrice = 2000;
+	/** ピアスを新しく装着（購入）する価格 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Piercing|Economy")
+	int32 BuyPrice = 2000;
 
-	// 💡将来の拡張項目：耳や口元にアタッチするStaticMeshの参照をここに足せる
+	/** ピアスを取り外す（除去）のにかかる費用 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Piercing|Economy")
+	int32 RemovePrice = 500;
+
+	/** ★新設：要求される技術レベル（呪いのピアスなど。職人のShopLevelがこれ未満なら店に並ばない） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Piercing|Requirements", meta = (ClampMin = "1"))
+	int32 ItemLevel = 1;
 };
 
 USTRUCT(BlueprintType)

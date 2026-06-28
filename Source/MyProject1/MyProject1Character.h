@@ -20,6 +20,7 @@ class UDialogComponent;
 class UStaticMeshComponent;
 class USkeletalMeshComponent;
 class UCableComponent;
+class AShopNPCBase;
 struct FInputActionValue;
 
 DECLARE_LOG_CATEGORY_EXTERN(LogTemplateCharacter, Log, All);
@@ -513,11 +514,14 @@ public:
 
 	/** ショップやNPCから呼ばれる、タトゥー/傷跡/治療/ピアスの購入・追加を試みる共通窓口 */
 	UFUNCTION(BlueprintCallable, Category = "Skin Overlay|Shop")
-	void TryAddSkinOverlay(FName RowName, bool bIsShopPurchase, int32 OverridePrice = 0, FString DisplayName = TEXT(""), FName ShopCategory = NAME_None);
+	void TryAddSkinOverlay(FName RowName, bool bIsShopPurchase, int32 OverridePrice = 0, FString DisplayName = TEXT(""), EShopModeCategory ShopCategory = EShopModeCategory::Tattoo);
 
 	/** ショップやNPCから呼ばれる、タトゥー/傷跡/治療/ピアスの消去を試みる共通窓口 */
 	UFUNCTION(BlueprintCallable, Category = "Skin Overlay|Shop")
-	void TryRemoveSkinOverlay(FName RowName, bool bIsShopPurchase, int32 OverridePrice = 0, FString DisplayName = TEXT(""), FName ShopCategory = NAME_None);
+	void TryRemoveSkinOverlay(FName RowName, bool bIsShopPurchase, int32 OverridePrice = 0, FString DisplayName = TEXT(""), EShopModeCategory ShopCategory = EShopModeCategory::Tattoo);
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Skin Overlay|Shop")
+	class AShopNPCBase* ActiveShopNPC;
 
 	UPROPERTY(BlueprintAssignable, Category = "Skin Overlay|UI")
 	FOnSkinOverlayUIChangedSignature OnSkinOverlayUIChangedDelegate;

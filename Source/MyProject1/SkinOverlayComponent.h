@@ -18,9 +18,6 @@ public:
 protected:
 	virtual void BeginPlay() override;
 
-	// =========================================================
-	// [新設] カテゴリごとに個別に分離されたデータテーブル参照枠
-	// =========================================================
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skin Overlay|Data")
 	UDataTable* TattooDataTable;
 
@@ -37,9 +34,6 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skin Overlay|Data")
 	UDataTable* OverlayDataTable;
 
-	// =========================================================
-	// [新設] カテゴリごとに完全に分離された独立した「箱（ストレージ）」
-	// =========================================================
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Skin Overlay|Storage")
 	TMap<FName, FActiveSkinOverlayState> ActiveTattoos;
 
@@ -53,29 +47,28 @@ protected:
 	TMap<FName, FActiveSkinOverlayState> ActiveDiseases;
 
 private:
-	/** 親アクター（AMyProject1Character）のキャッシュポインタ */
 	UPROPERTY()
 	class AMyProject1Character* OwnerCharacter;
 
-	/** キャラクターの肌マテリアルスロットから動的マテリアル(MID)を安全に取得・作成する内部関数 */
 	UMaterialInstanceDynamic* GetBodyOverlayMID();
 
 public:
+	// --- FNameからEShopModeCategoryへ引数の型を安全にアップグレード ---
 	/** 各カテゴリの箱（TMap）へのポインタを動的に切り替える内部ヘルパー */
-	TMap<FName, FActiveSkinOverlayState>* GetTargetBox(FName ShopCategory);
-	const TMap<FName, FActiveSkinOverlayState>* GetTargetBox(FName ShopCategory) const;
+	TMap<FName, FActiveSkinOverlayState>* GetTargetBox(EShopModeCategory ShopCategory);
+	const TMap<FName, FActiveSkinOverlayState>* GetTargetBox(EShopModeCategory ShopCategory) const;
 
 	/** カテゴリに応じた適切なデータテーブルを返す関数 */
 	UFUNCTION(BlueprintPure, Category = "Skin Overlay")
-	UDataTable* GetOverlayDataTableByCategory(FName ShopCategory) const;
+	UDataTable* GetOverlayDataTableByCategory(EShopModeCategory ShopCategory) const;
 
 	/** 箱にIDを追加し、素体メッシュにオーバーレイを適用（有効化）する */
 	UFUNCTION(BlueprintCallable, Category = "Skin Overlay")
-	void AddOverlay(FName OverlayRowName, float CustomOpacity = -1.0f, FName ShopCategory = NAME_None);
+	void AddOverlay(FName OverlayRowName, float CustomOpacity = -1.0f, EShopModeCategory ShopCategory = EShopModeCategory::Tattoo);
 
 	/** 箱からIDを即座に削除し、マテリアルの不透明度を0にして非表示にする */
 	UFUNCTION(BlueprintCallable, Category = "Skin Overlay")
-	void RemoveOverlay(FName OverlayRowName, FName ShopCategory = NAME_None);
+	void RemoveOverlay(FName OverlayRowName, EShopModeCategory ShopCategory = EShopModeCategory::Tattoo);
 
 	/** 指定した時間をかけて消去する（互換維持用） */
 	UFUNCTION(BlueprintCallable, Category = "Skin Overlay")
@@ -91,10 +84,11 @@ public:
 
 	/** 現在指定したカテゴリの箱に入っているか（有効化されているか）をチェックする関数 */
 	UFUNCTION(BlueprintPure, Category = "Skin Overlay")
-	bool IsOverlayActive(FName OverlayRowName, FName ShopCategory = NAME_None) const;
+	bool IsOverlayActive(FName OverlayRowName, EShopModeCategory ShopCategory = EShopModeCategory::Tattoo) const;
 
+	/** 動的にショップ用のアイテムリストを組み立ててUIに返す共通関数 */
 	UFUNCTION(BlueprintPure, Category = "Skin Overlay|Shop")
-	TArray<FOverlayShopItemInfo> GetGenerateShopItemList(FName ShopCategory) const;
+	TArray<FOverlayShopItemInfo> GetGenerateShopItemList(EShopModeCategory ShopCategory) const;
 
 	const TMap<FName, FActiveSkinOverlayState>& GetActiveTattoos() const { return ActiveTattoos; }
 	const TMap<FName, FActiveSkinOverlayState>& GetActiveScars() const { return ActiveScars; }

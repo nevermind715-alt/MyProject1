@@ -1,5 +1,6 @@
 ﻿#include "SkinOverlayComponent.h"
 #include "MyProject1Character.h"
+#include "ShopNPCBase.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Materials/MaterialInstanceDynamic.h"
 
@@ -36,79 +37,101 @@ UMaterialInstanceDynamic* USkinOverlayComponent::GetBodyOverlayMID()
 	return DynamicMat;
 }
 
-// [新設] 指定されたカテゴリに対応する「個別の箱」のアドレスを返すヘルパー
-TMap<FName, FActiveSkinOverlayState>* USkinOverlayComponent::GetTargetBox(FName ShopCategory)
+// 列挙型による安全な「箱」の切り替えに改良
+TMap<FName, FActiveSkinOverlayState>* USkinOverlayComponent::GetTargetBox(EShopModeCategory ShopCategory)
 {
-	if (ShopCategory == FName("Tattoo")) return &ActiveTattoos;
-	if (ShopCategory == FName("Scar")) return &ActiveScars;
-	if (ShopCategory == FName("Piercing")) return &ActivePiercings;
-	if (ShopCategory == FName("Disease")) return &ActiveDiseases;
-	return &ActiveTattoos; // カテゴリ未指定時はTattoo箱をデフォルトにする
+	switch (ShopCategory)
+	{
+	case EShopModeCategory::Tattoo:   return &ActiveTattoos;
+	case EShopModeCategory::Scar:     return &ActiveScars;
+	case EShopModeCategory::Piercing: return &ActivePiercings;
+	case EShopModeCategory::Disease:  return &ActiveDiseases;
+	default:                          return &ActiveTattoos;
+	}
 }
 
-const TMap<FName, FActiveSkinOverlayState>* USkinOverlayComponent::GetTargetBox(FName ShopCategory) const
+const TMap<FName, FActiveSkinOverlayState>* USkinOverlayComponent::GetTargetBox(EShopModeCategory ShopCategory) const
 {
-	if (ShopCategory == FName("Tattoo")) return &ActiveTattoos;
-	if (ShopCategory == FName("Scar")) return &ActiveScars;
-	if (ShopCategory == FName("Piercing")) return &ActivePiercings;
-	if (ShopCategory == FName("Disease")) return &ActiveDiseases;
-	return &ActiveTattoos;
+	switch (ShopCategory)
+	{
+	case EShopModeCategory::Tattoo:   return &ActiveTattoos;
+	case EShopModeCategory::Scar:     return &ActiveScars;
+	case EShopModeCategory::Piercing: return &ActivePiercings;
+	case EShopModeCategory::Disease:  return &ActiveDiseases;
+	default:                          return &ActiveTattoos;
+	}
 }
 
-// [新設] 指定されたカテゴリに対応するデータテーブルを切り替えるヘルパー
-UDataTable* USkinOverlayComponent::GetOverlayDataTableByCategory(FName ShopCategory) const
+// 列挙型による安全なデータテーブルの切り替えに改良
+UDataTable* USkinOverlayComponent::GetOverlayDataTableByCategory(EShopModeCategory ShopCategory) const
 {
-	if (ShopCategory == FName("Tattoo")) return TattooDataTable ? TattooDataTable : OverlayDataTable;
-	if (ShopCategory == FName("Scar")) return ScarDataTable ? ScarDataTable : OverlayDataTable;
-	if (ShopCategory == FName("Piercing")) return PiercingDataTable;
-	if (ShopCategory == FName("Disease")) return DiseaseDataTable;
-	return OverlayDataTable ? OverlayDataTable : TattooDataTable;
+	switch (ShopCategory)
+	{
+	case EShopModeCategory::Tattoo:   return TattooDataTable ? TattooDataTable : OverlayDataTable;
+	case EShopModeCategory::Scar:     return ScarDataTable ? ScarDataTable : OverlayDataTable;
+	case EShopModeCategory::Piercing: return PiercingDataTable;
+	case EShopModeCategory::Disease:  return DiseaseDataTable;
+	default:                          return OverlayDataTable ? OverlayDataTable : TattooDataTable;
+	}
 }
 
-void USkinOverlayComponent::AddOverlay(FName OverlayRowName, float CustomOpacity, FName ShopCategory)
+void USkinOverlayComponent::AddOverlay(FName OverlayRowName, float CustomOpacity, EShopModeCategory ShopCategory)
 {
 	if (OverlayRowName.IsNone()) return;
 
-	// カテゴリに応じた個別の「箱」を取得
 	TMap<FName, FActiveSkinOverlayState>* TargetBox = GetTargetBox(ShopCategory);
 	if (!TargetBox) return;
 
-	// 純粋なID（例: "1"）をキーにして、独立したそれぞれの箱に保管！これで重複しても衝突しません
 	FActiveSkinOverlayState& State = TargetBox->FindOrAdd(OverlayRowName);
 	State.RowName = OverlayRowName;
 
 	UDataTable* TargetDT = GetOverlayDataTableByCategory(ShopCategory);
+	if (!TargetDT) return;
 
-	// 見た目（テクスチャ）の反映処理（Tattoo または Scar の場合のみマテリアル制御を行う仕様を維持）
-	if (TargetDT && (ShopCategory == FName("Tattoo") || ShopCategory == FName("Scar") || ShopCategory.IsNone()))
+	UMaterialInstanceDynamic* MID = GetBodyOverlayMID();
+
+	// ★型安全リファクタリング：カテゴリごとに正しいデータテーブル構造体を開く
+	if (ShopCategory == EShopModeCategory::Tattoo)
 	{
 		FSkinOverlayDataRow* Data = TargetDT->FindRow<FSkinOverlayDataRow>(OverlayRowName, TEXT("AddOverlayLookup"));
-		if (Data)
+		if (Data && MID)
 		{
-			UMaterialInstanceDynamic* MID = GetBodyOverlayMID();
-			if (MID)
+			UTexture2D* LoadedTex = Data->OverlayTexture.LoadSynchronous();
+			if (LoadedTex)
 			{
-				UTexture2D* LoadedTex = Data->OverlayTexture.LoadSynchronous();
-				if (LoadedTex)
-				{
-					float FinalOpacity = (CustomOpacity >= 0.0f) ? CustomOpacity : Data->DefaultOpacity;
-					State.CurrentOpacity = FinalOpacity;
-
-					MID->SetTextureParameterValue(Data->TextureParamName, LoadedTex);
-					MID->SetVectorParameterValue(Data->ColorParamName, Data->ColorMultiplier);
-					MID->SetScalarParameterValue(Data->OpacityParamName, FinalOpacity);
-				}
+				float FinalOpacity = (CustomOpacity >= 0.0f) ? CustomOpacity : Data->DefaultOpacity;
+				State.CurrentOpacity = FinalOpacity;
+				MID->SetTextureParameterValue(Data->TextureParamName, LoadedTex);
+				MID->SetVectorParameterValue(Data->ColorParamName, Data->ColorMultiplier);
+				MID->SetScalarParameterValue(Data->OpacityParamName, FinalOpacity);
+			}
+		}
+	}
+	else if (ShopCategory == EShopModeCategory::Scar)
+	{
+		// 新設した傷跡専用の構造体から安全にテクスチャをロード
+		FScarDataRow* Data = TargetDT->FindRow<FScarDataRow>(OverlayRowName, TEXT("AddOverlayLookup"));
+		if (Data && MID)
+		{
+			UTexture2D* LoadedTex = Data->OverlayTexture.LoadSynchronous();
+			if (LoadedTex)
+			{
+				float FinalOpacity = (CustomOpacity >= 0.0f) ? CustomOpacity : Data->DefaultOpacity;
+				State.CurrentOpacity = FinalOpacity;
+				MID->SetTextureParameterValue(Data->TextureParamName, LoadedTex);
+				MID->SetVectorParameterValue(Data->ColorParamName, Data->ColorMultiplier);
+				MID->SetScalarParameterValue(Data->OpacityParamName, FinalOpacity);
 			}
 		}
 	}
 	else
 	{
-		// 表示テクスチャがない病気やピアスのデータでも、状態管理用に不透明度（生存フラグ）をセット
+		// 表示テクスチャがない病気やピアス
 		State.CurrentOpacity = (CustomOpacity >= 0.0f) ? CustomOpacity : 1.0f;
 	}
 }
 
-void USkinOverlayComponent::RemoveOverlay(FName OverlayRowName, FName ShopCategory)
+void USkinOverlayComponent::RemoveOverlay(FName OverlayRowName, EShopModeCategory ShopCategory)
 {
 	if (OverlayRowName.IsNone()) return;
 
@@ -116,17 +139,19 @@ void USkinOverlayComponent::RemoveOverlay(FName OverlayRowName, FName ShopCatego
 	if (!TargetBox) return;
 
 	UDataTable* TargetDT = GetOverlayDataTableByCategory(ShopCategory);
+	UMaterialInstanceDynamic* MID = GetBodyOverlayMID();
 
-	if (TargetDT && (ShopCategory == FName("Tattoo") || ShopCategory == FName("Scar") || ShopCategory.IsNone()))
+	if (TargetDT && MID)
 	{
-		FSkinOverlayDataRow* Data = TargetDT->FindRow<FSkinOverlayDataRow>(OverlayRowName, TEXT("RemoveOverlayLookup"));
-		if (Data)
+		if (ShopCategory == EShopModeCategory::Tattoo)
 		{
-			UMaterialInstanceDynamic* MID = GetBodyOverlayMID();
-			if (MID)
-			{
-				MID->SetScalarParameterValue(Data->OpacityParamName, 0.0f);
-			}
+			FSkinOverlayDataRow* Data = TargetDT->FindRow<FSkinOverlayDataRow>(OverlayRowName, TEXT("RemoveOverlayLookup"));
+			if (Data) MID->SetScalarParameterValue(Data->OpacityParamName, 0.0f);
+		}
+		else if (ShopCategory == EShopModeCategory::Scar)
+		{
+			FScarDataRow* Data = TargetDT->FindRow<FScarDataRow>(OverlayRowName, TEXT("RemoveOverlayLookup"));
+			if (Data) MID->SetScalarParameterValue(Data->OpacityParamName, 0.0f);
 		}
 	}
 
@@ -136,25 +161,23 @@ void USkinOverlayComponent::RemoveOverlay(FName OverlayRowName, FName ShopCatego
 	}
 }
 
-bool USkinOverlayComponent::IsOverlayActive(FName OverlayRowName, FName ShopCategory) const
+bool USkinOverlayComponent::IsOverlayActive(FName OverlayRowName, EShopModeCategory ShopCategory) const
 {
 	const TMap<FName, FActiveSkinOverlayState>* TargetBox = GetTargetBox(ShopCategory);
 	if (!TargetBox) return false;
-
-	// 対象の個別の箱の中にそのIDが存在するかだけを純粋にチェック
 	return TargetBox->Contains(OverlayRowName);
 }
 
 void USkinOverlayComponent::FadeOutOverlay(FName OverlayRowName, float Duration)
 {
-	RemoveOverlay(OverlayRowName, NAME_None);
+	RemoveOverlay(OverlayRowName, EShopModeCategory::Tattoo);
 }
 
 void USkinOverlayComponent::ClearAllOverlays()
 {
-	TArray<FName> Categories = { FName("Tattoo"), FName("Scar"), FName("Piercing"), FName("Disease") };
+	TArray<EShopModeCategory> Categories = { EShopModeCategory::Tattoo, EShopModeCategory::Scar, EShopModeCategory::Piercing, EShopModeCategory::Disease };
 
-	for (const FName& Cat : Categories)
+	for (const EShopModeCategory& Cat : Categories)
 	{
 		TMap<FName, FActiveSkinOverlayState>* TargetBox = GetTargetBox(Cat);
 		if (TargetBox)
@@ -171,9 +194,9 @@ void USkinOverlayComponent::ClearAllOverlays()
 
 void USkinOverlayComponent::RefreshBodyMaterials()
 {
-	TArray<FName> Categories = { FName("Tattoo"), FName("Scar"), FName("Piercing"), FName("Disease") };
+	TArray<EShopModeCategory> Categories = { EShopModeCategory::Tattoo, EShopModeCategory::Scar, EShopModeCategory::Piercing, EShopModeCategory::Disease };
 
-	for (const FName& Cat : Categories)
+	for (const EShopModeCategory& Cat : Categories)
 	{
 		TMap<FName, FActiveSkinOverlayState>* TargetBox = GetTargetBox(Cat);
 		if (TargetBox)
@@ -186,55 +209,98 @@ void USkinOverlayComponent::RefreshBodyMaterials()
 	}
 }
 
-TArray<FOverlayShopItemInfo> USkinOverlayComponent::GetGenerateShopItemList(FName ShopCategory) const
+TArray<FOverlayShopItemInfo> USkinOverlayComponent::GetGenerateShopItemList(EShopModeCategory ShopCategory) const
 {
 	TArray<FOverlayShopItemInfo> OutList;
 	UDataTable* TargetDT = GetOverlayDataTableByCategory(ShopCategory);
 	if (!TargetDT) return OutList;
 
-	// データテーブルに登録されている全RowName("1", "2" など)をC++側で安全に取得
-	TArray<FName> AllRowNames = TargetDT->GetRowNames();
-
-	for (const FName& RowName : AllRowNames)
+	// 現在会話中のNPCの技術レベルを取得（NPCがいないデバッグ呼び出し等の場合は制限なしの99とする）
+	int32 CurrentShopLevel = 99;
+	if (OwnerCharacter && OwnerCharacter->ActiveShopNPC)
 	{
+		CurrentShopLevel = OwnerCharacter->ActiveShopNPC->ShopLevel;
+	}
+
+	TArray<FName> TargetRowNames;
+
+	// 病気と傷跡は、自分が現在かかっているアクティブなIDだけを抽出
+	if (ShopCategory == EShopModeCategory::Disease || ShopCategory == EShopModeCategory::Scar)
+	{
+		const TMap<FName, FActiveSkinOverlayState>* TargetBox = GetTargetBox(ShopCategory);
+		if (TargetBox)
+		{
+			TargetBox->GetKeys(TargetRowNames);
+		}
+	}
+	else
+	{
+		// 売り物（タトゥー・ピアス）はカタログ全件スキャン
+		TargetRowNames = TargetDT->GetRowNames();
+	}
+
+	for (const FName& RowName : TargetRowNames)
+	{
+		// 一時保存用のポインタと、レベル適合確認フラグを準備
+		bool bLevelRequirementMet = true;
 		FOverlayShopItemInfo ItemInfo;
 		ItemInfo.RowName = RowName;
-
-		// 既に所持（各カテゴリ個別の箱に保管）されているかをC++側で判定！
 		ItemInfo.bIsOwned = IsOverlayActive(RowName, ShopCategory);
 
-		// 各データテーブルの固有構造体から情報を引き抜いて共通情報枠へマッピング
-		if (ShopCategory == FName("Tattoo") || ShopCategory == FName("Scar") || ShopCategory.IsNone())
+		if (ShopCategory == EShopModeCategory::Tattoo)
 		{
 			FSkinOverlayDataRow* Data = TargetDT->FindRow<FSkinOverlayDataRow>(RowName, TEXT("ShopListLookup"));
 			if (Data)
 			{
+				// 職人のレベルがタトゥーの要求レベル未満ならリストに入れない！
+				if (Data->ItemLevel > CurrentShopLevel) continue;
+
 				ItemInfo.DisplayName = Data->DisplayName;
 				ItemInfo.Description = Data->Description;
 				ItemInfo.BuyPrice = Data->BuyPrice;
 				ItemInfo.RemovePrice = Data->RemovePrice;
 			}
 		}
-		else if (ShopCategory == FName("Disease"))
-		{
-			FDiseaseTreatmentDataRow* Data = TargetDT->FindRow<FDiseaseTreatmentDataRow>(RowName, TEXT("ShopListLookup"));
-			if (Data)
-			{
-				ItemInfo.DisplayName = Data->DisplayName;
-				ItemInfo.Description = Data->Description;
-				ItemInfo.BuyPrice = Data->TreatmentPrice;
-				ItemInfo.RemovePrice = 0; // 病気除去費用はないため0
-			}
-		}
-		else if (ShopCategory == FName("Piercing"))
+		else if (ShopCategory == EShopModeCategory::Piercing)
 		{
 			FPiercingDataRow* Data = TargetDT->FindRow<FPiercingDataRow>(RowName, TEXT("ShopListLookup"));
 			if (Data)
 			{
+				// 職人のレベルがピアスの要求レベル未満ならリストに入れない！
+				if (Data->ItemLevel > CurrentShopLevel) continue;
+
 				ItemInfo.DisplayName = Data->DisplayName;
 				ItemInfo.Description = Data->Description;
-				ItemInfo.BuyPrice = Data->PiercingPrice;
-				ItemInfo.RemovePrice = 0; // ピアス取り外し費用はないため0
+				ItemInfo.BuyPrice = Data->BuyPrice;
+				ItemInfo.RemovePrice = Data->RemovePrice;
+			}
+		}
+		else if (ShopCategory == EShopModeCategory::Scar)
+		{
+			FScarDataRow* Data = TargetDT->FindRow<FScarDataRow>(RowName, TEXT("ShopListLookup"));
+			if (Data)
+			{
+				// 名医のレベルが傷跡の要求レベル未満ならリストに入れない！
+				if (Data->ItemLevel > CurrentShopLevel) continue;
+
+				ItemInfo.DisplayName = Data->DisplayName;
+				ItemInfo.Description = Data->Description;
+				ItemInfo.BuyPrice = 0;
+				ItemInfo.RemovePrice = Data->RemovePrice;
+			}
+		}
+		else if (ShopCategory == EShopModeCategory::Disease)
+		{
+			FDiseaseTreatmentDataRow* Data = TargetDT->FindRow<FDiseaseTreatmentDataRow>(RowName, TEXT("ShopListLookup"));
+			if (Data)
+			{
+				// 医者のレベルが病気の要求レベル未満ならリストに入れない！
+				if (Data->ItemLevel > CurrentShopLevel) continue;
+
+				ItemInfo.DisplayName = Data->DisplayName;
+				ItemInfo.Description = Data->Description;
+				ItemInfo.BuyPrice = 0;
+				ItemInfo.RemovePrice = Data->TreatmentPrice;
 			}
 		}
 
