@@ -80,9 +80,9 @@ AMyProject1Character::AMyProject1Character()
 	InnerLowerMeshComp->SetupAttachment(GetMesh());
 	InnerLowerMeshComp->SetLeaderPoseComponent(GetMesh());
 
-	ArmsMeshComp = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("ArmsMeshComp"));
-	ArmsMeshComp->SetupAttachment(GetMesh());
-	ArmsMeshComp->SetLeaderPoseComponent(GetMesh());
+	WaistMeshComp = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("WaistMeshComp"));
+	WaistMeshComp->SetupAttachment(GetMesh());
+	WaistMeshComp->SetLeaderPoseComponent(GetMesh());
 
 	HandsMeshComp = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("HandsMeshComp"));
 	HandsMeshComp->SetupAttachment(GetMesh());
@@ -2280,6 +2280,66 @@ void AMyProject1Character::UpdateBlink(float DeltaTime)
 
 void AMyProject1Character::EquipItem(FName ItemID, FEquipmentData EquipData)
 {
+	// ==========================================
+	// 同じスロットに直接上書き装備された場合の古いテクスチャ装備のクリア
+	// ==========================================
+	if (CurrentEquippedItems.Contains(EquipData.TargetSlot))
+	{
+		FName OldItemID = CurrentEquippedItems[EquipData.TargetSlot];
+		if (!OldItemID.IsNone() && EquipmentDataTable)
+		{
+			FEquipmentData* OldEquipData = EquipmentDataTable->FindRow<FEquipmentData>(OldItemID, TEXT("OldEquipmentTextureCleanup"));
+			// もし古い装備がテクスチャオーバーレイを持っていたら、先に透明化する
+			if (OldEquipData && !OldEquipData->OverlayTexture.IsNull())
+			{
+				if (USkeletalMeshComponent* BodyMesh = GetMesh())
+				{
+					UMaterialInstanceDynamic* MID = Cast<UMaterialInstanceDynamic>(BodyMesh->GetMaterial(0));
+					if (MID)
+					{
+						MID->SetScalarParameterValue(OldEquipData->OpacityParamName, 0.0f);
+					}
+				}
+			}
+		}
+	}
+
+	    // ==========================================
+		// 薄地装備（テクスチャ方式）の判定とマテリアル直接適用
+		// ==========================================
+		if (!EquipData.OverlayTexture.IsNull())
+		{
+			// キャラクターのボディメッシュからマテリアルインスタンス(MID)を取得
+			if (USkeletalMeshComponent* BodyMesh = GetMesh())
+			{
+				// スロット0（通常は肌マテリアル）から動的マテリアルを作成/取得
+				UMaterialInstanceDynamic* MID = Cast<UMaterialInstanceDynamic>(BodyMesh->GetMaterial(0));
+				if (!MID)
+				{
+					MID = BodyMesh->CreateDynamicMaterialInstance(0);
+				}
+
+				if (MID)
+				{
+					// 非同期ロードされているテクスチャを同期ロードして取得
+					UTexture2D* LoadedTex = EquipData.OverlayTexture.LoadSynchronous();
+					if (LoadedTex)
+					{
+						// データテーブルで設定された各パラメータ名を元に、マテリアルへ値を適用
+						MID->SetTextureParameterValue(EquipData.TextureParamName, LoadedTex);
+						MID->SetScalarParameterValue(EquipData.OpacityParamName, EquipData.DefaultOpacity);
+						MID->SetVectorParameterValue(EquipData.ColorParamName, EquipData.ColorMultiplier);
+					}
+				}
+			}
+
+			// UI表現や他システムとの連動が必要であれば通知を飛ばす
+			if (OnSkinOverlayUIChangedDelegate.IsBound())
+			{
+				OnSkinOverlayUIChangedDelegate.Broadcast();
+			}
+		}
+
 	switch (EquipData.TargetSlot)
 	{
 
@@ -2307,11 +2367,11 @@ void AMyProject1Character::EquipItem(FName ItemID, FEquipmentData EquipData)
 		}
 		break;
 
-	case EEquipmentSlot::Arms:
-		if (ArmsMeshComp)
+	case EEquipmentSlot::Waist:
+		if (WaistMeshComp)
 		{
 			USkeletalMesh* LoadedMesh = EquipData.EquipSkeletalMesh.IsNull() ? nullptr : EquipData.EquipSkeletalMesh.LoadSynchronous();
-			ArmsMeshComp->SetSkeletalMesh(LoadedMesh);
+			WaistMeshComp->SetSkeletalMesh(LoadedMesh);
 		}
 		break;
 
@@ -2455,6 +2515,27 @@ void AMyProject1Character::UnequipItem(EEquipmentSlot TargetSlot)
 			bHasCable = true;
 		}
 
+		    // ==========================================
+			// 薄地装備（テクスチャ方式）の解除（不透明度を0にする）
+			// ==========================================
+			if (!EquipData->OverlayTexture.IsNull())
+			{
+				if (USkeletalMeshComponent* BodyMesh = GetMesh())
+				{
+					UMaterialInstanceDynamic* MID = Cast<UMaterialInstanceDynamic>(BodyMesh->GetMaterial(0));
+					if (MID)
+					{
+						// マテリアルの不透明度（アルファ）を 0 にして非表示化する
+						MID->SetScalarParameterValue(EquipData->OpacityParamName, 0.0f);
+					}
+				}
+
+				if (OnSkinOverlayUIChangedDelegate.IsBound())
+				{
+					OnSkinOverlayUIChangedDelegate.Broadcast();
+				}
+			}
+
 		
 	}
 
@@ -2472,8 +2553,8 @@ void AMyProject1Character::UnequipItem(EEquipmentSlot TargetSlot)
 		if (TorsoMeshComp) TorsoMeshComp->SetSkeletalMesh(nullptr);
 		break;
 
-	case EEquipmentSlot::Arms:
-		if (ArmsMeshComp) ArmsMeshComp->SetSkeletalMesh(nullptr);
+	case EEquipmentSlot::Waist:
+		if (WaistMeshComp) WaistMeshComp->SetSkeletalMesh(nullptr);
 		break;
 
 	case EEquipmentSlot::Hands: 
@@ -2803,7 +2884,7 @@ void AMyProject1Character::ClearCableSystem(EEquipmentSlot Slot)
 			EquipmentCableComp_Hands->CableLength = 0.0f;       // 長さを0にして潰す
 			EquipmentCableComp_Hands->bAttachEnd = false;
 
-			// ★核心：親を中継ダミーからキャラクター本体のMeshに強制アタッチで引き戻す！
+			// 親を中継ダミーからキャラクター本体のMeshに強制アタッチで引き戻す！
 			EquipmentCableComp_Hands->AttachToComponent(GetMesh(), FAttachmentTransformRules::SnapToTargetNotIncludingScale);
 
 			EquipmentCableComp_Hands->SetAttachEndToComponent(nullptr, NAME_None);
@@ -2825,7 +2906,7 @@ void AMyProject1Character::ClearCableSystem(EEquipmentSlot Slot)
 			EquipmentCableComp->CableLength = 0.0f;             // 長さを0にして潰す
 			EquipmentCableComp->bAttachEnd = false;
 
-			// ★核心：親を中継ダミーからキャラクター本体のMeshに強制アタッチで引き戻す！
+			// 親を中継ダミーからキャラクター本体のMeshに強制アタッチで引き戻す！
 			EquipmentCableComp->AttachToComponent(GetMesh(), FAttachmentTransformRules::SnapToTargetNotIncludingScale);
 
 			EquipmentCableComp->SetAttachEndToComponent(nullptr, NAME_None);

@@ -379,7 +379,7 @@ public:
 	USkeletalMeshComponent* InnerLowerMeshComp;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Components")
-	USkeletalMeshComponent* ArmsMeshComp;
+	USkeletalMeshComponent* WaistMeshComp;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Components")
 	USkeletalMeshComponent* HandsMeshComp;

@@ -898,7 +898,7 @@ enum class EEquipmentSlot : uint8
 	Torso         UMETA(DisplayName = "胴防具"),
 	InnerUpper    UMETA(DisplayName = "上半身インナー"),
 	InnerLower    UMETA(DisplayName = "下半身インナー"),
-	Arms          UMETA(DisplayName = "腕防具"),
+	Waist         UMETA(DisplayName = "腰装備（スカート等）"),
 	Hands         UMETA(DisplayName = "手防具（手袋・小手）"),
 	Legs          UMETA(DisplayName = "脚防具"),
 	Feet          UMETA(DisplayName = "足防具"),
@@ -998,6 +998,34 @@ struct FEquipmentData : public FTableRowBase
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment|Cable")
 	FCableAttachmentSettings CableSettings;
+
+	// ============================================================================
+	// 薄地装備（ボディテクスチャ重ね合わせ方式）用の設定
+	// ============================================================================
+
+	/** 薄地装備としてボディに直接重ねるテクスチャ（未設定なら通常のメッシュ装備として処理） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment|BodyOverlay")
+	TSoftObjectPtr<UTexture2D> OverlayTexture;
+
+	/** マテリアル内のテクスチャパラメータ名（デフォルト: "Overlay_Tex"） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment|BodyOverlay")
+	FName TextureParamName = FName("Overlay_Tex");
+
+	/** マテリアル内の不透明度（アルファ）パラメータ名（デフォルト: "Overlay_Opacity"） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment|BodyOverlay")
+	FName OpacityParamName = FName("Overlay_Opacity");
+
+	/** 基本となる不透明度（0.0 〜 1.0） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment|BodyOverlay", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float DefaultOpacity = 1.0f;
+
+	/** マテリアル内のカラー乗算パラメータ名（デフォルト: "Overlay_Color"） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment|BodyOverlay")
+	FName ColorParamName = FName("Overlay_Color");
+
+	/** 装備の色を変更・乗算するためのカラー値 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment|BodyOverlay")
+	FLinearColor ColorMultiplier = FLinearColor::White;
 
 	
 };
