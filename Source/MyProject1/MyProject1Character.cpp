@@ -1188,7 +1188,7 @@ void AMyProject1Character::OnAttackHit()
 			FString DamageLog;
 			if (bIsUsingSpecialAttack) {
 				if (Result.bIsCritical) {
-					// ★変更： \"%s\" を 【%s】 に変更
+					
 					DamageLog = FString::Printf(TEXT("%sの【%s】 → %sにクリティカル！ %.0fのダメージ！"), *AttackerName, *CurrentExecutingSkillData.SkillName, *DefenderName, Result.DamageAmount);
 				}
 				else {
@@ -1213,7 +1213,7 @@ void AMyProject1Character::OnAttackHit()
 
 			if (bIsUsingSpecialAttack) {
 				if (Result.bIsCritical) {
-					// ★変更： \"%s\" を 【%s】 に変更
+					
 					TakenLog = FString::Printf(TEXT("%sの【%s】 → クリティカル！！ %.0fのダメージ！"), *AttackerName, *CurrentExecutingSkillData.SkillName, Result.DamageAmount);
 				}
 				else {
@@ -1243,7 +1243,7 @@ void AMyProject1Character::OnAttackHit()
 		{
 			FString MissLog;
 			if (bIsUsingSpecialAttack) {
-				// ★変更： \"%s\" を 【%s】 に変更
+				
 				MissLog = FString::Printf(TEXT("%sの【%s】 → %sにミス！"), *AttackerName, *CurrentExecutingSkillData.SkillName, *DefenderName);
 			}
 			else {
@@ -1255,7 +1255,7 @@ void AMyProject1Character::OnAttackHit()
 		{
 			FString EvadeLog;
 			if (bIsUsingSpecialAttack) {
-				// ★変更： \"%s\" を 【%s】 に変更
+				
 				EvadeLog = FString::Printf(TEXT("%sの【%s】を回避！"), *AttackerName, *CurrentExecutingSkillData.SkillName);
 			}
 			else {

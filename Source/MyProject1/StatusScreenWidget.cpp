@@ -34,7 +34,7 @@ void UStatusScreenWidget::UpdateAllStatus(AMyProject1Character* PlayerCharacter)
     if (Txt_VIT)        Txt_VIT->SetText(FText::AsNumber(FMath::RoundToInt(Stats.VIT)));
     if (Txt_DEX)        Txt_DEX->SetText(FText::AsNumber(FMath::RoundToInt(Stats.DEX)));
     if (Txt_AGI)        Txt_AGI->SetText(FText::AsNumber(FMath::RoundToInt(Stats.AGI)));
-    if (Txt_Luck)       Txt_Luck->SetText(FText::AsNumber(FMath::RoundToInt(Stats.Luck)));
+    if (Txt_Karma)       Txt_Karma->SetText(FText::AsNumber(FMath::RoundToInt(Stats.Karma)));
     if (Txt_Mental)     Txt_Mental->SetText(FText::AsNumber(FMath::RoundToInt(Stats.Mental)));
 
     // --- 社会的・隠しステータス ---

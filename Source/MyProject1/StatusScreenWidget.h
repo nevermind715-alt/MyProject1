@@ -55,7 +55,7 @@ protected:
     UTextBlock* Txt_AGI;
 
     UPROPERTY(meta = (BindWidget))
-    UTextBlock* Txt_Luck;
+    UTextBlock* Txt_Karma;
 
     UPROPERTY(meta = (BindWidget))
     UTextBlock* Txt_Mental;

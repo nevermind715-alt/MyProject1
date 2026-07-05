@@ -288,7 +288,7 @@ struct FCharacterStats
 	float Evasion = 0.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats")
-	float Luck = 1.0f;
+	float Karma = 0.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats")
 	float Fame = 1.0f;
@@ -340,6 +340,28 @@ struct FCharacterStats
 	// --- 獲得済みのストーリーフラグや条件のリスト ---
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats|Flags")
 	TArray<FName> UnlockedFlags;
+
+	void ClampAll()
+	{
+		// 1. [-100, 100] グループ（Karma、精神力、名声）
+		Karma = FMath::Clamp(Karma, -100.0f, 100.0f);
+		Mental = FMath::Clamp(Mental, -100.0f, 100.0f);
+		Fame = FMath::Clamp(Fame, -100.0f, 100.0f);
+
+		// 2. [0, 999] グループ（その他の通常ステータス）
+		// ※ 既存の変数名に合わせて、必要に応じて行を追加・コメント解除してください
+		// HP     = FMath::Clamp(HP, 0.0f, 999.0f);
+		// MP     = FMath::Clamp(MP, 0.0f, 999.0f);
+		// Attack = FMath::Clamp(Attack, 0.0f, 999.0f);
+
+		// 3. [0, 100] グループ（特殊ステータス：ExtraStats）
+		// 既に実装されているExtraStatsのコレクション（TMapやTArrayなど）に対してループ処理を行います
+		for (auto& Elem : ExtraStats)
+		{
+			Elem.Value = FMath::Clamp(Elem.Value, 0.0f, 100.0f);
+		}
+
+	}
 };
 
 // --- 計算結果を返す用の構造体（変更なし） ---
