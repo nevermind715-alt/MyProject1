@@ -238,7 +238,6 @@ public:
 	TSoftObjectPtr<USoundBase> CriticalSound;
 };
 
-// ... FCharacterStats などの既存コード
 
 // --- ステータス管理用の構造体 ---
 USTRUCT(BlueprintType)
@@ -328,7 +327,7 @@ struct FCharacterStats
 	int32 CurrentXP = 0;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats")
-	int32 MaxXP = 500; // 次のレベルまでに必要な経験値
+	int32 MaxXP = 1500; // 次のレベルまでに必要な経験値
 
 	// --- 追加：レベルアップ判定と報酬 ---
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats")

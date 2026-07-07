@@ -1456,10 +1456,7 @@ void AMyProject1Character::LevelUp()
 
 	// 余った経験値を次に持ち越す
 	MyStats.CurrentXP -= MyStats.MaxXP;
-
-	// 次のレベルへの必要経験値を増やす（例：1.2倍）
-	MyStats.MaxXP = FMath::RoundToInt(MyStats.MaxXP * 1.2f);
-
+		
 	// ★重要：ステータスの再計算を ApplyJobData に任せる
 	ApplyJobData();
 
