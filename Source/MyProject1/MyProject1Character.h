@@ -526,6 +526,14 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Skin Overlay|UI")
 	FOnSkinOverlayUIChangedSignature OnSkinOverlayUIChangedDelegate;
 
+	/** ショップから通常のアイテム（消費アイテム・装備・素材など）を購入する共通窓口 */
+	UFUNCTION(BlueprintCallable, Category = "Inventory|Shop")
+	bool TryBuyItem(FName ItemID, int32 Amount = 1);
+
+	/** ショップへ手持ちのアイテムを売却する共通窓口 */
+	UFUNCTION(BlueprintCallable, Category = "Inventory|Shop")
+	bool TrySellItem(FName ItemID, int32 Amount = 1);
+
 protected:
 	/** 鎖設定に基づいてコンポーネントの状態を再構築する内部関数 */
 	void SetupCableSystem(const FCableAttachmentSettings& Settings, EEquipmentSlot Slot, USceneComponent* AssociatedComponent = nullptr);

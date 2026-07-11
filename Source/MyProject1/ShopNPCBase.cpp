@@ -34,6 +34,51 @@ FName AShopNPCBase::GetShopModeCategoryAsName() const
 	}
 }
 
+TArray<FName> AShopNPCBase::GetAvailableShopItems() const
+{
+	TArray<FName> AvailableItems;
+
+	// データテーブルがセットされていない場合は空の配列を返す
+	if (!ItemDataTable) return AvailableItems;
+
+	// 自身のショップカテゴリに対応するアイテムタイプをマッピング
+	EItemType TargetType;
+	bool bIsNormalShop = false;
+
+	switch (ShopModeCategory)
+	{
+	case EShopModeCategory::Weapon:   TargetType = EItemType::Weapon;   bIsNormalShop = true; break;
+	case EShopModeCategory::Armor:    TargetType = EItemType::Armor;    bIsNormalShop = true; break;
+	case EShopModeCategory::Potion:   TargetType = EItemType::Potion;   bIsNormalShop = true; break;
+	case EShopModeCategory::Material: TargetType = EItemType::Material; bIsNormalShop = true; break;
+	case EShopModeCategory::Food:     TargetType = EItemType::Food;     bIsNormalShop = true; break;
+	default: break;
+	}
+
+	// 治療屋系のカテゴリだった場合は、アイテムショップの処理を行わないのでそのまま返す
+	if (!bIsNormalShop) return AvailableItems;
+
+	// データテーブルの全行の名前（ItemID）を取得
+	TArray<FName> RowNames = ItemDataTable->GetRowNames();
+
+	// 全アイテムをループして条件に合うものを抽出
+	for (const FName& RowName : RowNames)
+	{
+		FItemData* ItemData = ItemDataTable->FindRow<FItemData>(RowName, TEXT("ShopItemLookup"));
+		if (ItemData)
+		{
+			// 条件1：アイテムのジャンルがショップと一致しているか
+			// 条件2：アイテムのレベルがNPCの技術レベル以下か
+			if (ItemData->ItemType == TargetType && ItemData->ItemLevel <= ShopLevel)
+			{
+				AvailableItems.Add(RowName);
+			}
+		}
+	}
+
+	return AvailableItems;
+}
+
 void AShopNPCBase::OpenShop(AMyProject1Character* PlayerChar)
 {
 	if (!PlayerChar) return;
@@ -49,13 +94,20 @@ void AShopNPCBase::OpenShop(AMyProject1Character* PlayerChar)
 	AMyProject1HUD* HUD = Cast<AMyProject1HUD>(PC->GetHUD());
 	if (!HUD) return;
 
-	// 文字での手動判定ではなく、安全な列挙型での条件分岐に修正
+	// --- 分岐処理の拡張 ---
 	if (ShopModeCategory == EShopModeCategory::Tattoo)
 	{
-		HUD->ToggleTattooMenu();
+		HUD->ToggleTattooMenu(); // 既存
+	}
+	else if (ShopModeCategory == EShopModeCategory::Scar || ShopModeCategory == EShopModeCategory::Piercing || ShopModeCategory == EShopModeCategory::Disease)
+	{
+		HUD->ToggleTreatmentMenu(); // 既存
 	}
 	else
 	{
-		HUD->ToggleTreatmentMenu();
+		
+		HUD->ToggleItemShopMenu();
 	}
 }
+
+

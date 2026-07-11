@@ -22,7 +22,7 @@ void UInventoryComponent::BeginPlay()
 
 FItemData* UInventoryComponent::GetItemData(FName ItemID)
 {
-	// ★追加: IDが None の場合は探さずにすぐ帰る（これでログの警告が消えます）
+	// IDが None の場合は探さずにすぐ帰る（これでログの警告が消えます）
 	if (ItemID.IsNone() || !ItemDataTable) return nullptr;
 
 	return ItemDataTable->FindRow<FItemData>(ItemID, TEXT("InventoryContext"));
@@ -361,90 +361,6 @@ bool UInventoryComponent::UseItem(FName ItemID)
 	return bAnyEffectApplied;
 }
 
-bool UInventoryComponent::ProcessPurchase(FName ItemID, int32 Amount)
-{
-	FItemData* ItemInfo = GetItemData(ItemID);
-	if (!ItemInfo || Amount <= 0) return false;
-
-	int32 TotalPrice = ItemInfo->Price * Amount;
-
-	// インターフェース窓口を確保
-	IRpgCharacterInterface* RpgInterface = Cast<IRpgCharacterInterface>(GetOwner());
-
-	// 1. お金が足りるかチェック
-	if (Gil < TotalPrice)
-	{
-		if (RpgInterface)
-		{
-			RpgInterface->OnReceiveLogMessage(TEXT("お金が足りません。"), ELogMessageType::System);
-		}
-		return false;
-	}
-
-	// 2. アイテムを追加
-	if (AddItem(ItemID, Amount))
-	{
-		// 3. 成功したらお金を支払う
-		TrySpendGil(TotalPrice);
-
-		// 4. システムログを送信
-		if (RpgInterface)
-		{
-			FString LogMsg = FString::Printf(TEXT("%sを%d個買った。%d￥支払った。"), *ItemInfo->Name, Amount, TotalPrice);
-			RpgInterface->OnReceiveLogMessage(LogMsg, ELogMessageType::System);
-		}
-		return true;
-	}
-	else
-	{
-		// カバンがいっぱいで追加できなかった場合
-		if (RpgInterface)
-		{
-			RpgInterface->OnReceiveLogMessage(TEXT("カバンがいっぱいで買えません。"), ELogMessageType::System);
-		}
-		return false;
-	}
-}
-
-bool UInventoryComponent::ProcessSale(FName ItemID, int32 Amount)
-{
-	FItemData* ItemInfo = GetItemData(ItemID);
-	if (!ItemInfo) return false;
-
-	IRpgCharacterInterface* RpgInterface = Cast<IRpgCharacterInterface>(GetOwner());
-
-	// 1. 「だいじなもの」チェック（売却不可なら即終了）
-	if (ItemInfo->ItemType == EItemType::KeyItem)
-	{
-		if (RpgInterface)
-		{
-			RpgInterface->OnReceiveLogMessage(TEXT("それは売却できません。"), ELogMessageType::System);
-		}
-		return false;
-	}
-
-	// 2. 所持数の確認
-	if (GetItemQuantity(ItemID) < Amount) return false;
-
-	// 3. 売却価格の計算
-	int32 TotalSellPrice = ItemInfo->SellPrice * Amount;
-
-	// 4. アイテムの削除とギルの加算
-	if (RemoveItem(ItemID, Amount))
-	{
-		AddGil(TotalSellPrice);
-
-		// システムログの送信
-		if (RpgInterface)
-		{
-			FString LogMsg = FString::Printf(TEXT("%sを%d個売却した。%d￥手に入れた。"), *ItemInfo->Name, Amount, TotalSellPrice);
-			RpgInterface->OnReceiveLogMessage(LogMsg, ELogMessageType::System);
-		}
-		return true;
-	}
-
-	return false;
-}
 
 bool UInventoryComponent::GetItemDataBP(FName ItemID, FItemData& OutData)
 {

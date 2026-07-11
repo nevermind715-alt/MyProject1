@@ -81,6 +81,13 @@ void AMyProject1HUD::ToggleCommandMenu()
         return;
     }
 
+    // アイテムショップが開いている時にメニューキーが押されたらショップを閉じる
+    if (ItemShopMenuWidget && ItemShopMenuWidget->IsInViewport())
+    {
+        ToggleItemShopMenu();
+        return;
+    }
+
     APlayerController* PC = GetOwningPlayerController();
     
 
@@ -525,5 +532,61 @@ void AMyProject1HUD::ToggleTattooMenu()
 
         // クローズ用システムSE
         if (MenuCloseSound) UGameplayStatics::PlaySound2D(this, MenuCloseSound);
+    }
+}
+
+void AMyProject1HUD::ToggleItemShopMenu()
+{
+    APlayerController* PC = GetOwningPlayerController();
+    if (!PC) return;
+
+    AMyProject1Character* PlayerChar = Cast<AMyProject1Character>(PC->GetPawn());
+    if (!PlayerChar) return;
+
+    // 1. 【閉じる処理】すでにショップ画面が開いているなら、画面から撤去する
+    if (ItemShopMenuWidget && ItemShopMenuWidget->IsInViewport())
+    {
+        ItemShopMenuWidget->RemoveFromParent();
+
+        // フィールド操作に入力を引き戻す（ゲームオンリー・操作ロック解除）
+        FInputModeGameOnly InputMode;
+        PC->SetInputMode(InputMode);
+        PC->bShowMouseCursor = false;
+        PlayerChar->SetInputLocked(false);
+
+        if (MenuCloseSound) UGameplayStatics::PlaySound2D(this, MenuCloseSound);
+        return;
+    }
+
+    // 2. まだ作られていなければ生成する (他のメニューと合わせて GetWorld() に統一)
+    if (!ItemShopMenuWidget && ItemShopMenuClass)
+    {
+        ItemShopMenuWidget = CreateWidget<UUserWidget>(GetWorld(), ItemShopMenuClass);
+    }
+
+    // 3. 【開く処理】画面を表示する
+    if (ItemShopMenuWidget)
+    {
+        // もし他のUIが開いていたら操作不能バグ防止のため全て閉じる
+        if (InventoryMenuWidget && InventoryMenuWidget->IsInViewport()) ToggleInventoryMenu();
+        if (CommandMenuWidget && CommandMenuWidget->IsInViewport()) ToggleCommandMenu();
+        if (EquipmentMenuWidget && EquipmentMenuWidget->IsInViewport()) ToggleEquipmentMenu();
+        if (StatusMenuWidget && StatusMenuWidget->IsInViewport()) ToggleStatusMenu();
+        if (QuestMenuWidget && QuestMenuWidget->IsInViewport()) ToggleQuestMenu();
+        if (ChestMenuWidget && ChestMenuWidget->IsInViewport()) ChestMenuWidget->RemoveFromParent();
+        if (TreatmentMenuWidget && TreatmentMenuWidget->IsInViewport()) ToggleTreatmentMenu();
+        if (TattooMenuWidget && TattooMenuWidget->IsInViewport()) ToggleTattooMenu();
+
+        // 画面の手前（Z-Order 20）へ配置
+        ItemShopMenuWidget->AddToViewport(20);
+
+        // 入力フォーカスの固定とマウスカーソルの表示、キャラクターの移動ロック
+        FInputModeGameAndUI InputMode;
+        InputMode.SetWidgetToFocus(ItemShopMenuWidget->TakeWidget());
+        PC->SetInputMode(InputMode);
+        PC->bShowMouseCursor = true;
+        PlayerChar->SetInputLocked(true);
+
+        if (MenuOpenSound) UGameplayStatics::PlaySound2D(this, MenuOpenSound);
     }
 }

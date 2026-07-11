@@ -43,7 +43,16 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "UI")
 	void ToggleTreatmentMenu();
 
-	// --- 【ここを追加】刺青専門店メニュー用の変数と関数 ---
+	UFUNCTION(BlueprintCallable, Category = "UI")
+	void ToggleItemShopMenu();
+	
+	UPROPERTY(EditAnywhere, Category = "UI")
+	TSubclassOf<class UUserWidget> ItemShopMenuClass;
+		
+	UPROPERTY(BlueprintReadOnly, Category = "UI")
+	class UUserWidget* ItemShopMenuWidget;
+
+	// --- 刺青専門店メニュー用の変数と関数 ---
 	UPROPERTY(EditAnywhere, Category = "UI")
 	TSubclassOf<class UUserWidget> TattooMenuClass;
 

@@ -73,7 +73,12 @@ enum class EShopModeCategory : uint8
 	Tattoo    UMETA(DisplayName = "刺青施術 (Tattoo)"),
 	Scar      UMETA(DisplayName = "傷跡整形 (Scar)"),
 	Piercing  UMETA(DisplayName = "ピアス装着 (Piercing)"),
-	Disease   UMETA(DisplayName = "病気治療 (Disease)")
+	Disease   UMETA(DisplayName = "病気治療 (Disease)"),
+	Weapon    UMETA(DisplayName = "武器屋 (Weapon)"),
+	Armor     UMETA(DisplayName = "防具屋 (Armor)"),
+	Potion    UMETA(DisplayName = "ポーション屋 (Potion)"),
+	Material  UMETA(DisplayName = "素材屋 (Material)"),
+	Food      UMETA(DisplayName = "料理屋 (Food)")
 };
 
 USTRUCT(BlueprintType)
@@ -383,10 +388,13 @@ struct FDamageResult
 UENUM(BlueprintType)
 enum class EItemType : uint8
 {
-	Consumable  UMETA(DisplayName = "消費アイテム"),
-	Equipment   UMETA(DisplayName = "装備品"),
+	Weapon      UMETA(DisplayName = "武器"),
+	Armor       UMETA(DisplayName = "防具"),
+	Potion      UMETA(DisplayName = "薬品（ポーション等）"),
+	Food        UMETA(DisplayName = "料理"),
+	Material    UMETA(DisplayName = "素材"),
 	KeyItem     UMETA(DisplayName = "だいじなもの"),
-	Material    UMETA(DisplayName = "素材")
+	Consumable  UMETA(DisplayName = "その他消費アイテム")
 };
 
 //どのステータスを変化させるかの定義
@@ -610,6 +618,9 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	EItemType ItemType;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item|Requirements", meta = (ClampMin = "1"))
+	int32 ItemLevel = 1;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	int32 Price = 100;

@@ -33,6 +33,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ShopNPC|Data", meta = (ClampMin = "1"))
 	int32 ShopLevel;
 
+	/** アイテムデータテーブルの参照（エディタの詳細パネルから DT_Items をセットする） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ShopNPC|Data")
+	UDataTable* ItemDataTable;
+
+	/** 現在のNPCのカテゴリとレベルに基づいて、販売可能なItemID（RowName）の一覧を動的に返す関数 */
+	UFUNCTION(BlueprintCallable, Category = "ShopNPC|Data")
+	TArray<FName> GetAvailableShopItems() const;
+
 	/** Blueprint（WBP）側でそのままFName（"Tattoo"等）として引き出せるようにする自動変換関数 */
 	UFUNCTION(BlueprintPure, Category = "ShopNPC|Data")
 	FName GetShopModeCategoryAsName() const;

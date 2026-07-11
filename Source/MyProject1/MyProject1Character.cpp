@@ -3207,3 +3207,83 @@ void AMyProject1Character::TryRemoveSkinOverlay(FName RowName, bool bIsShopPurch
 		else OnReceiveLogMessage(FString::Printf(TEXT("体から【%s】が消滅した。"), *TargetName), ELogMessageType::System);
 	}
 }
+
+bool AMyProject1Character::TryBuyItem(FName ItemID, int32 Amount)
+{
+	// 安全性のチェック（インベントリがない、またはIDが不正、個数が0以下なら弾く）
+	if (!InventoryComp || ItemID.IsNone() || Amount <= 0) return false;
+
+	// データテーブルからアイテムの基本情報を取得
+	FItemData ItemInfo;
+	if (!InventoryComp->GetItemDataBP(ItemID, ItemInfo)) return false;
+
+	// 合計金額の計算
+	int32 TotalPrice = ItemInfo.Price * Amount;
+
+	// 1. 所持金（ギル）が足りているかチェック
+	if (InventoryComp->Gil < TotalPrice)
+	{
+		OnReceiveLogMessage(TEXT("お金（円）が足りません。"), ELogMessageType::System);
+		return false;
+	}
+
+	// 2. アイテムがカバンに入るかチェック（AddItemを実行して空きスロットを確認）
+	// AddItemはカバンがいっぱいなら自動でfalseを返し、入るなら true を返して内部データを更新します
+	if (InventoryComp->AddItem(ItemID, Amount))
+	{
+		// 3. アイテムの追加に成功したため、代金を支払う（ギルを減らす）
+		InventoryComp->TrySpendGil(TotalPrice);
+
+		// 4. 治療屋と同じスタイルでシステムログを出力
+		FString LogMsg = FString::Printf(TEXT("%sを%d個購入した。%d円を支払った。"), *ItemInfo.Name, Amount, TotalPrice);
+		OnReceiveLogMessage(LogMsg, ELogMessageType::System);
+
+		return true;
+	}
+	else
+	{
+		// カバンの容量（MaxSlots）が限界で入らなかった場合
+		OnReceiveLogMessage(TEXT("カバンがいっぱいでこれ以上買えません。"), ELogMessageType::System);
+		return false;
+	}
+}
+
+bool AMyProject1Character::TrySellItem(FName ItemID, int32 Amount)
+{
+	if (!InventoryComp || ItemID.IsNone() || Amount <= 0) return false;
+
+	FItemData ItemInfo;
+	if (!InventoryComp->GetItemDataBP(ItemID, ItemInfo)) return false;
+
+	// 1. 「だいじなもの（KeyItem）」は売却不可能オブジェクトとして弾く
+	if (ItemInfo.ItemType == EItemType::KeyItem)
+	{
+		OnReceiveLogMessage(TEXT("それは売却できません。"), ELogMessageType::System);
+		return false;
+	}
+
+	// 2. プレイヤーが指定された個数以上のアイテムを本当に持っているかチェック
+	if (InventoryComp->GetItemQuantity(ItemID) < Amount)
+	{
+		OnReceiveLogMessage(TEXT("売却するアイテムが足りません。"), ELogMessageType::System);
+		return false;
+	}
+
+	// 売却で得られる合計金額の計算
+	int32 TotalSellPrice = ItemInfo.SellPrice * Amount;
+
+	// 3. カバンからアイテムを削除する
+	if (InventoryComp->RemoveItem(ItemID, Amount))
+	{
+		// 4. 削除に成功したら、売却代金をプレイヤーの財布に加算する
+		InventoryComp->AddGil(TotalSellPrice);
+
+		// システムログを出力
+		FString LogMsg = FString::Printf(TEXT("%sを%d個売却した。%d円を手に入れた。"), *ItemInfo.Name, Amount, TotalSellPrice);
+		OnReceiveLogMessage(LogMsg, ELogMessageType::System);
+
+		return true;
+	}
+
+	return false;
+}

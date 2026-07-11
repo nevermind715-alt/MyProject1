@@ -53,14 +53,6 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory")
 	int32 Gil = 0;
 
-	/** アイテムの購入処理（代金の支払いとログ出力も行う） */
-	UFUNCTION(BlueprintCallable, Category = "Inventory")
-	bool ProcessPurchase(FName ItemID, int32 Amount);
-
-	/** アイテムの売却処理（アイテム削除、代金受取、ログ出力） */
-	UFUNCTION(BlueprintCallable, Category = "Inventory")
-	bool ProcessSale(FName ItemID, int32 Amount = 1);
-
 	// --- カバンの実体 ---
 
 	// 実際にアイテムが入っているリスト
