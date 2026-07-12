@@ -318,6 +318,7 @@ bool UInventoryComponent::UseItem(FName ItemID)
 		case ETargetStat::Accuracy:
 		case ETargetStat::Evasion:
 		case ETargetStat::AttackPower:
+		case ETargetStat::DefensePower:
 			if (Effect.EffectDuration > 0.0f)
 			{
 				TimedEffects.Add(Effect);

@@ -4,6 +4,20 @@
 #include "GameFramework/PlayerController.h"
 #include "MyProject1Character.h"
 #include "Kismet/GameplayStatics.h"
+#include "ShopNPCBase.h"
+
+namespace
+{
+	void SayShopGoodbye(AMyProject1Character* OwnerChar)
+	{
+		if (OwnerChar && OwnerChar->ActiveShopNPC)
+		{
+			FString FormattedGoodbye = FString::Printf(TEXT("%s : %s"), *OwnerChar->ActiveShopNPC->NPCName, *OwnerChar->ActiveShopNPC->GoodbyeText);
+			OwnerChar->OnReceiveLogMessage(FormattedGoodbye, ELogMessageType::Dialogue);
+			OwnerChar->ActiveShopNPC = nullptr;
+		}
+	}
+}
 
 void AMyProject1HUD::BeginPlay()
 {
@@ -461,6 +475,7 @@ void AMyProject1HUD::ToggleTreatmentMenu()
         if (AMyProject1Character* OwnerChar = Cast<AMyProject1Character>(PC->GetPawn()))
         {
             OwnerChar->SetInputLocked(false);
+            SayShopGoodbye(OwnerChar);
         }
 
         if (MenuCloseSound) UGameplayStatics::PlaySound2D(this, MenuCloseSound);
@@ -528,6 +543,7 @@ void AMyProject1HUD::ToggleTattooMenu()
         if (AMyProject1Character* OwnerChar = Cast<AMyProject1Character>(PC->GetPawn()))
         {
             OwnerChar->SetInputLocked(false);
+            SayShopGoodbye(OwnerChar);
         }
 
         // クローズ用システムSE
@@ -553,6 +569,7 @@ void AMyProject1HUD::ToggleItemShopMenu()
         PC->SetInputMode(InputMode);
         PC->bShowMouseCursor = false;
         PlayerChar->SetInputLocked(false);
+        SayShopGoodbye(PlayerChar);
 
         if (MenuCloseSound) UGameplayStatics::PlaySound2D(this, MenuCloseSound);
         return;

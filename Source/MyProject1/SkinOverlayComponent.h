@@ -49,8 +49,17 @@ protected:
 private:
 	UPROPERTY()
 	class AMyProject1Character* OwnerCharacter;
+		
+	UPROPERTY()
+	class UTextureRenderTarget2D* CombinedTattooTarget;
+		
+	UPROPERTY()
+	class UTextureRenderTarget2D* CombinedScarTarget;
 
 	UMaterialInstanceDynamic* GetBodyOverlayMID();
+
+	/** カテゴリ別データテーブルから1行分だけ読み取り、FOverlayShopItemInfoに詰める共通ロジック（GetGenerateShopItemListとGetShopItemInfoByRowNameで共用） */
+	bool PopulateShopItemInfo(UDataTable* TargetDT, FName RowName, EShopModeCategory ShopCategory, int32 CurrentShopLevel, FOverlayShopItemInfo& OutInfo) const;
 
 public:
 	// --- FNameからEShopModeCategoryへ引数の型を安全にアップグレード ---
@@ -89,6 +98,10 @@ public:
 	/** 動的にショップ用のアイテムリストを組み立ててUIに返す共通関数 */
 	UFUNCTION(BlueprintPure, Category = "Skin Overlay|Shop")
 	TArray<FOverlayShopItemInfo> GetGenerateShopItemList(EShopModeCategory ShopCategory) const;
+
+	/** 指定した1件だけのショップアイテム情報を取得する（ホバー時の詳細表示など、リスト全件は不要な場合に使用） */
+	UFUNCTION(BlueprintCallable, Category = "Skin Overlay|Shop")
+	bool GetShopItemInfoByRowName(FName RowName, EShopModeCategory ShopCategory, FOverlayShopItemInfo& OutInfo) const;
 
 	const TMap<FName, FActiveSkinOverlayState>& GetActiveTattoos() const { return ActiveTattoos; }
 	const TMap<FName, FActiveSkinOverlayState>& GetActiveScars() const { return ActiveScars; }

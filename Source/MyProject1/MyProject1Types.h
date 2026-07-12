@@ -415,7 +415,8 @@ enum class ETargetStat : uint8
 	Favor       UMETA(DisplayName = "好感度 (Favor)"),
 	Fame        UMETA(DisplayName = "名声 (Fame)"),
 	Charm       UMETA(DisplayName = "魅力 (Charm)"),
-	CustomExtraStat UMETA(DisplayName = "カスタムステータス (ExtraStats)")
+	CustomExtraStat UMETA(DisplayName = "カスタムステータス (ExtraStats)"),
+	DefensePower UMETA(DisplayName = "防御力")
 };
 
 // --- バフ・デバフ専用のデータ（データテーブル用） ---

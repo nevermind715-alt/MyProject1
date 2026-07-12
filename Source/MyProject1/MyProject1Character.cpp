@@ -1846,6 +1846,7 @@ void AMyProject1Character::ApplyItemBuff(FString ItemName, UTexture2D* Icon, con
 		case ETargetStat::AGI:         MyStats.AGI += Effect.EffectAmount;         break;
 		case ETargetStat::Evasion:     MyStats.Evasion += Effect.EffectAmount;     break;
 		case ETargetStat::AttackPower: MyStats.AttackPower += Effect.EffectAmount; break;
+		case ETargetStat::DefensePower: MyStats.DefensePower += Effect.EffectAmount; break;
 		case ETargetStat::Stamina:     MyStats.Stamina += Effect.EffectAmount;     break;
 		default: break;
 		}
@@ -1903,6 +1904,7 @@ void AMyProject1Character::ExpireItemBuff(FString ItemName, TArray<FItemEffect> 
 		case ETargetStat::AGI:         MyStats.AGI -= Effect.EffectAmount;         break;
 		case ETargetStat::Evasion:     MyStats.Evasion -= Effect.EffectAmount;     break;
 		case ETargetStat::AttackPower: MyStats.AttackPower -= Effect.EffectAmount; break;
+		case ETargetStat::DefensePower: MyStats.DefensePower -= Effect.EffectAmount; break;
 		case ETargetStat::Stamina:     MyStats.Stamina -= Effect.EffectAmount;     break;
 		default: break;
 		}
@@ -2302,35 +2304,12 @@ void AMyProject1Character::EquipItem(FName ItemID, FEquipmentData EquipData)
 	}
 
 	    // ==========================================
-		// 薄地装備（テクスチャ方式）の判定とマテリアル直接適用
+		// 薄地装備（テクスチャ方式）が設定されていればUIへ通知
+		// ※実際のマテリアルへの反映は、この関数の末尾で呼ぶ SkinOverlayComp->RefreshBodyMaterials() が
+		//   CurrentEquippedItems を見て一括で行う（旧：MIDへ直接SetParameterしていたコードは削除）
 		// ==========================================
 		if (!EquipData.OverlayTexture.IsNull())
 		{
-			// キャラクターのボディメッシュからマテリアルインスタンス(MID)を取得
-			if (USkeletalMeshComponent* BodyMesh = GetMesh())
-			{
-				// スロット0（通常は肌マテリアル）から動的マテリアルを作成/取得
-				UMaterialInstanceDynamic* MID = Cast<UMaterialInstanceDynamic>(BodyMesh->GetMaterial(0));
-				if (!MID)
-				{
-					MID = BodyMesh->CreateDynamicMaterialInstance(0);
-				}
-
-				if (MID)
-				{
-					// 非同期ロードされているテクスチャを同期ロードして取得
-					UTexture2D* LoadedTex = EquipData.OverlayTexture.LoadSynchronous();
-					if (LoadedTex)
-					{
-						// データテーブルで設定された各パラメータ名を元に、マテリアルへ値を適用
-						MID->SetTextureParameterValue(EquipData.TextureParamName, LoadedTex);
-						MID->SetScalarParameterValue(EquipData.OpacityParamName, EquipData.DefaultOpacity);
-						MID->SetVectorParameterValue(EquipData.ColorParamName, EquipData.ColorMultiplier);
-					}
-				}
-			}
-
-			// UI表現や他システムとの連動が必要であれば通知を飛ばす
 			if (OnSkinOverlayUIChangedDelegate.IsBound())
 			{
 				OnSkinOverlayUIChangedDelegate.Broadcast();
@@ -2497,6 +2476,12 @@ void AMyProject1Character::EquipItem(FName ItemID, FEquipmentData EquipData)
 	// 装備状態の記憶を更新（ここで ItemID が使われます）
 	CurrentEquippedItems.Add(EquipData.TargetSlot, ItemID);
 
+	// 薄地装備（テクスチャ方式）を含めたボディオーバーレイをCanvas合成システムで再構築
+	if (SkinOverlayComp)
+	{
+		SkinOverlayComp->RefreshBodyMaterials();
+	}
+
 	RefreshEquipmentStats();
 }
 
@@ -2513,27 +2498,19 @@ void AMyProject1Character::UnequipItem(EEquipmentSlot TargetSlot)
 		}
 
 		    // ==========================================
-			// 薄地装備（テクスチャ方式）の解除（不透明度を0にする）
+			// 薄地装備（テクスチャ方式）の解除をUIへ通知
+			// ※実際のマテリアルへの反映は、この関数の末尾で呼ぶ SkinOverlayComp->RefreshBodyMaterials() が
+			//   CurrentEquippedItems を見て一括で行う（旧：MIDへ直接SetParameterしていたコードは削除）
 			// ==========================================
 			if (!EquipData->OverlayTexture.IsNull())
 			{
-				if (USkeletalMeshComponent* BodyMesh = GetMesh())
-				{
-					UMaterialInstanceDynamic* MID = Cast<UMaterialInstanceDynamic>(BodyMesh->GetMaterial(0));
-					if (MID)
-					{
-						// マテリアルの不透明度（アルファ）を 0 にして非表示化する
-						MID->SetScalarParameterValue(EquipData->OpacityParamName, 0.0f);
-					}
-				}
-
 				if (OnSkinOverlayUIChangedDelegate.IsBound())
 				{
 					OnSkinOverlayUIChangedDelegate.Broadcast();
 				}
 			}
 
-		
+
 	}
 
 	switch (TargetSlot)
@@ -2593,6 +2570,12 @@ void AMyProject1Character::UnequipItem(EEquipmentSlot TargetSlot)
 
 	// 記憶している装備状態から削除
 	CurrentEquippedItems.Remove(TargetSlot);
+
+	// 薄地装備（テクスチャ方式）を含めたボディオーバーレイをCanvas合成システムで再構築
+	if (SkinOverlayComp)
+	{
+		SkinOverlayComp->RefreshBodyMaterials();
+	}
 
 	RefreshEquipmentStats();
 }
@@ -3260,6 +3243,16 @@ bool AMyProject1Character::TrySellItem(FName ItemID, int32 Amount)
 	{
 		OnReceiveLogMessage(TEXT("それは売却できません。"), ELogMessageType::System);
 		return false;
+	}
+	// 現在いずれかのスロットに装備中のアイテムは売却できないように安全にブロックする
+	for (const auto& Pair : CurrentEquippedItems)
+	{
+		// 装備中のアイテムID（Pair.Value）が、売ろうとしたItemIDと一致した場合
+		if (Pair.Value == ItemID)
+		{
+			OnReceiveLogMessage(TEXT("装備中のアイテムは売却できません。"), ELogMessageType::System);
+			return false; // ここで処理を強制終了して売らせない
+		}
 	}
 
 	// 2. プレイヤーが指定された個数以上のアイテムを本当に持っているかチェック
