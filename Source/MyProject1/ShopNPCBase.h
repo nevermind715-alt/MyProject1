@@ -18,6 +18,22 @@ protected:
 
 public:
 	// =========================================================
+	// 見た目（メッシュ・アニメーション）
+	// =========================================================
+
+	/** NPCの見た目本体。レベルに配置したインスタンスごとにメッシュを個別設定できる */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "ShopNPC|Mesh")
+	class USkeletalMeshComponent* NPCMesh;
+
+	/** 複雑な動き（ステートマシン等）が必要な場合に設定するAnimBlueprint。設定するとIdleAnimationより優先される */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ShopNPC|Mesh")
+	TSubclassOf<class UAnimInstance> NPCAnimClass;
+
+	/** AnimBlueprintを使わない場合に、単純にループ再生させるアニメーションシーケンス */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ShopNPC|Mesh")
+	class UAnimSequence* IdleAnimation;
+
+	// =========================================================
 	// 自由に変えられるNPCの固有パラメーター（詳細パネル用）
 	// =========================================================
 
@@ -37,9 +53,25 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ShopNPC|Data")
 	UDataTable* ItemDataTable;
 
-	/** 現在のNPCのカテゴリとレベルに基づいて、販売可能なItemID（RowName）の一覧を動的に返す関数 */
+	/** trueの場合、ShopModeCategory/ShopLevelによる自動判定を無視し、SpecificItemsに登録したアイテムのみを扱う */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ShopNPC|Data")
+	bool bUseSpecificItemsOnly = false;
+
+	/** bUseSpecificItemsOnlyがtrueの時だけ使う、個別アイテムの取扱リスト（購入可/売却可を個別指定） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ShopNPC|Data", meta = (EditCondition = "bUseSpecificItemsOnly"))
+	TArray<FShopItemOverride> SpecificItems;
+
+	/** 現在のNPCのカテゴリとレベル（または特定アイテムリスト）に基づいて、販売可能なItemID（RowName）の一覧を動的に返す関数 */
 	UFUNCTION(BlueprintCallable, Category = "ShopNPC|Data")
 	TArray<FName> GetAvailableShopItems() const;
+
+	/** このNPCからItemIDを購入できるかを判定する */
+	UFUNCTION(BlueprintCallable, Category = "ShopNPC|Data")
+	bool CanBuyItem(FName ItemID) const;
+
+	/** このNPCへItemIDを売却できるかを判定する */
+	UFUNCTION(BlueprintCallable, Category = "ShopNPC|Data")
+	bool CanSellItem(FName ItemID) const;
 
 	/** Blueprint（WBP）側でそのままFName（"Tattoo"等）として引き出せるようにする自動変換関数 */
 	UFUNCTION(BlueprintPure, Category = "ShopNPC|Data")

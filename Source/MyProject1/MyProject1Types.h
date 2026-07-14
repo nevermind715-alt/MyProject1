@@ -81,6 +81,25 @@ enum class EShopModeCategory : uint8
 	Food      UMETA(DisplayName = "料理屋 (Food)")
 };
 
+// ショップNPCが「特定アイテムのみ売買」モードの時に使う、個別アイテムの取扱設定
+USTRUCT(BlueprintType)
+struct FShopItemOverride
+{
+	GENERATED_BODY()
+
+	// 対象アイテム（アイテムデータテーブルの行名）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop")
+	FName ItemID;
+
+	// このNPCから購入できるか
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop")
+	bool bCanBuy = true;
+
+	// このNPCへ売却できるか
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop")
+	bool bCanSell = true;
+};
+
 USTRUCT(BlueprintType)
 struct FCyclePhaseSettings
 {

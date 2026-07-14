@@ -23,6 +23,7 @@
 #include "BehaviorTree/BlackboardComponent.h"
 #include "NavigationSystem.h"
 #include "MyProject1HUD.h"
+#include "ShopNPCBase.h"
 #include "Blueprint/UserWidget.h"
 #include "QuestComponent.h"
 #include "DialogComponent.h"
@@ -3104,14 +3105,14 @@ void AMyProject1Character::TryAddSkinOverlay(FName RowName, bool bIsShopPurchase
 		if (ShopCategory == EShopModeCategory::Disease) OnReceiveLogMessage(FString::Printf(TEXT("【%s】を治療した。%d円を支払った。"), *TargetName, FinalPrice), ELogMessageType::System);
 		else if (ShopCategory == EShopModeCategory::Scar) OnReceiveLogMessage(FString::Printf(TEXT("【%s】を綺麗に整形した。%d円を支払った。"), *TargetName, FinalPrice), ELogMessageType::System);
 		else if (ShopCategory == EShopModeCategory::Piercing) OnReceiveLogMessage(FString::Printf(TEXT("【%s】を装着した。%d円を支払った。"), *TargetName, FinalPrice), ELogMessageType::System);
-		else OnReceiveLogMessage(FString::Printf(TEXT("体に新たな紋様【%s】を刻んだ。%d円を支払った。"), *TargetName, FinalPrice), ELogMessageType::System);
+		else OnReceiveLogMessage(FString::Printf(TEXT("体に新たな刺青【%s】を刻んだ。%d円を支払った。"), *TargetName, FinalPrice), ELogMessageType::System);
 	}
 	else
 	{
 		if (ShopCategory == EShopModeCategory::Disease) OnReceiveLogMessage(FString::Printf(TEXT("【%s】が治癒した。"), *TargetName), ELogMessageType::System);
 		else if (ShopCategory == EShopModeCategory::Scar) OnReceiveLogMessage(FString::Printf(TEXT("【%s】が綺麗に整形された。"), *TargetName), ELogMessageType::System);
 		else if (ShopCategory == EShopModeCategory::Piercing) OnReceiveLogMessage(FString::Printf(TEXT("【%s】が装着された。"), *TargetName), ELogMessageType::System);
-		else OnReceiveLogMessage(FString::Printf(TEXT("体に新たな紋様【%s】が刻まれた。"), *TargetName), ELogMessageType::System);
+		else OnReceiveLogMessage(FString::Printf(TEXT("体に新たな刺青【%s】が刻まれた。"), *TargetName), ELogMessageType::System);
 	}
 }
 
@@ -3196,6 +3197,13 @@ bool AMyProject1Character::TryBuyItem(FName ItemID, int32 Amount)
 	// 安全性のチェック（インベントリがない、またはIDが不正、個数が0以下なら弾く）
 	if (!InventoryComp || ItemID.IsNone() || Amount <= 0) return false;
 
+	// 現在開いているショップがこのアイテムを取り扱っていないなら弾く
+	if (ActiveShopNPC && !ActiveShopNPC->CanBuyItem(ItemID))
+	{
+		OnReceiveLogMessage(TEXT("このお店では扱っていない品です。"), ELogMessageType::System);
+		return false;
+	}
+
 	// データテーブルからアイテムの基本情報を取得
 	FItemData ItemInfo;
 	if (!InventoryComp->GetItemDataBP(ItemID, ItemInfo)) return false;
@@ -3234,6 +3242,13 @@ bool AMyProject1Character::TryBuyItem(FName ItemID, int32 Amount)
 bool AMyProject1Character::TrySellItem(FName ItemID, int32 Amount)
 {
 	if (!InventoryComp || ItemID.IsNone() || Amount <= 0) return false;
+
+	// 現在開いているショップがこのアイテムを買い取らないなら弾く
+	if (ActiveShopNPC && !ActiveShopNPC->CanSellItem(ItemID))
+	{
+		OnReceiveLogMessage(TEXT("このお店では買い取ってもらえない品です。"), ELogMessageType::System);
+		return false;
+	}
 
 	FItemData ItemInfo;
 	if (!InventoryComp->GetItemDataBP(ItemID, ItemInfo)) return false;

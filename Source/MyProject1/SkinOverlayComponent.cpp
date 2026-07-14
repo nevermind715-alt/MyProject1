@@ -1,11 +1,26 @@
 ﻿#include "SkinOverlayComponent.h"
 #include "MyProject1Character.h"
+#include "MyProject1GameInstance.h"
 #include "ShopNPCBase.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Kismet/KismetRenderingLibrary.h"
 #include "Engine/TextureRenderTarget2D.h"
+#include "Engine/Texture2D.h"
 #include "Engine/Canvas.h"
+#include "TimerManager.h"
+
+// Canvas描画でしか使わないオーバーレイ用テクスチャは、通常の「画面上のメッシュに貼られて見える」ルートで
+// ストリーミングマネージャーに検知されないため、初回だけ低解像度のまま焼き込まれてしまう。
+// ストリーミング対象から完全に外すことで、以後は常に全ミップ常駐の状態で描画できるようにする（初回のみ実処理）。
+static void EnsureOverlayTextureFullyResident(UTexture2D* Texture)
+{
+	if (!Texture || Texture->NeverStream) return;
+
+	Texture->NeverStream = true;
+	Texture->UpdateResource();
+	Texture->WaitForStreaming();
+}
 
 USkinOverlayComponent::USkinOverlayComponent()
 {
@@ -21,6 +36,57 @@ void USkinOverlayComponent::BeginPlay()
 {
 	Super::BeginPlay();
 	OwnerCharacter = Cast<AMyProject1Character>(GetOwner());
+
+	// レベル移動でこのコンポーネントが再生成された場合、GameInstanceに記憶しておいた
+	// 前回の中身（傷・タトゥー・ピアス・病気）を4つの箱に読み戻す。
+	LoadOverlayStateFromGameInstance();
+
+	// Play開始直後・レベルワープ直後はレンダーパイプラインが温まっていないことがあるため、
+	// RenderReadyDelay秒はRefreshBodyMaterialsの実処理を保留する。
+	bIsRenderReady = false;
+	bHasPendingRefresh = false;
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().SetTimer(TimerHandle_RenderReady, this, &USkinOverlayComponent::HandleRenderReadyTimer, RenderReadyDelay, false);
+	}
+
+	// 読み戻した中身を実際にメッシュへ反映させる（実処理はRenderReadyDelay経過後に保留実行される）
+	RefreshBodyMaterials();
+}
+
+void USkinOverlayComponent::HandleRenderReadyTimer()
+{
+	bIsRenderReady = true;
+
+	if (bHasPendingRefresh)
+	{
+		bHasPendingRefresh = false;
+		ExecuteRefreshBodyMaterials();
+	}
+}
+
+void USkinOverlayComponent::SaveOverlayStateToGameInstance()
+{
+	UWorld* World = GetWorld();
+	UMyProject1GameInstance* GameInst = World ? World->GetGameInstance<UMyProject1GameInstance>() : nullptr;
+	if (!GameInst) return;
+
+	GameInst->SavedActiveTattoos = ActiveTattoos;
+	GameInst->SavedActiveScars = ActiveScars;
+	GameInst->SavedActivePiercings = ActivePiercings;
+	GameInst->SavedActiveDiseases = ActiveDiseases;
+}
+
+void USkinOverlayComponent::LoadOverlayStateFromGameInstance()
+{
+	UWorld* World = GetWorld();
+	UMyProject1GameInstance* GameInst = World ? World->GetGameInstance<UMyProject1GameInstance>() : nullptr;
+	if (!GameInst) return;
+
+	ActiveTattoos = GameInst->SavedActiveTattoos;
+	ActiveScars = GameInst->SavedActiveScars;
+	ActivePiercings = GameInst->SavedActivePiercings;
+	ActiveDiseases = GameInst->SavedActiveDiseases;
 }
 
 UMaterialInstanceDynamic* USkinOverlayComponent::GetBodyOverlayMID()
@@ -107,6 +173,9 @@ void USkinOverlayComponent::AddOverlay(FName OverlayRowName, float CustomOpacity
 
 	State.CurrentOpacity = (CustomOpacity >= 0.0f) ? CustomOpacity : FinalOpacity;
 
+	// レベルを移動しても消えないよう、GameInstance側にも同じ中身を記憶させる
+	SaveOverlayStateToGameInstance();
+
 	// ★記憶が終わったら、自動連番ロジックでマテリアルを最新状態に一斉更新！
 	RefreshBodyMaterials();
 }
@@ -122,6 +191,9 @@ void USkinOverlayComponent::RemoveOverlay(FName OverlayRowName, EShopModeCategor
 	if (TargetBox->Contains(OverlayRowName))
 	{
 		TargetBox->Remove(OverlayRowName);
+
+		// レベルを移動しても消えないよう、GameInstance側にも同じ中身を記憶させる
+		SaveOverlayStateToGameInstance();
 
 		// ★削除したデータを詰めてマテリアルを再描画！
 		RefreshBodyMaterials();
@@ -164,6 +236,19 @@ void USkinOverlayComponent::ClearAllOverlays()
 
 void USkinOverlayComponent::RefreshBodyMaterials()
 {
+	// レンダーパイプラインの準備待ち中は、実際の描画を1回分だけ保留する。
+	// （保留中に何度呼ばれても、準備完了時にまとめて最新状態を1回だけ描画する）
+	if (!bIsRenderReady)
+	{
+		bHasPendingRefresh = true;
+		return;
+	}
+
+	ExecuteRefreshBodyMaterials();
+}
+
+void USkinOverlayComponent::ExecuteRefreshBodyMaterials()
+{
 	UMaterialInstanceDynamic* MID = GetBodyOverlayMID();
 	if (!MID) return;
 
@@ -201,6 +286,8 @@ void USkinOverlayComponent::RefreshBodyMaterials()
 						UTexture2D* LoadedTex = EquipData->OverlayTexture.LoadSynchronous();
 						if (LoadedTex)
 						{
+							EnsureOverlayTextureFullyResident(LoadedTex);
+
 							// 衣服の指定色と不透明度をブレンドして等倍描画
 							FLinearColor RenderColor = EquipData->ColorMultiplier;
 							RenderColor.A *= EquipData->DefaultOpacity;
@@ -226,6 +313,8 @@ void USkinOverlayComponent::RefreshBodyMaterials()
 					UTexture2D* LoadedTex = Data->OverlayTexture.LoadSynchronous();
 					if (LoadedTex)
 					{
+						EnsureOverlayTextureFullyResident(LoadedTex);
+
 						FLinearColor RenderColor = Data->ColorMultiplier;
 						RenderColor.A *= Pair.Value.CurrentOpacity;
 
@@ -249,6 +338,8 @@ void USkinOverlayComponent::RefreshBodyMaterials()
 					UTexture2D* LoadedTex = Data->OverlayTexture.LoadSynchronous();
 					if (LoadedTex)
 					{
+						EnsureOverlayTextureFullyResident(LoadedTex);
+
 						FLinearColor RenderColor = Data->ColorMultiplier;
 						RenderColor.A *= Pair.Value.CurrentOpacity;
 

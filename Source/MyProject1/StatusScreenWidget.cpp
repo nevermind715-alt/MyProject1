@@ -42,6 +42,7 @@ void UStatusScreenWidget::UpdateAllStatus(AMyProject1Character* PlayerCharacter)
     if (Txt_Favor)      Txt_Favor->SetText(FText::AsNumber(FMath::RoundToInt(Stats.Favor)));
     if (Txt_Hostility)  Txt_Hostility->SetText(FText::AsNumber(FMath::RoundToInt(Stats.Hostility)));
     if (Txt_Charm)      Txt_Charm->SetText(FText::AsNumber(FMath::RoundToInt(Stats.Charm)));
+    if (Txt_Alcohol)      Txt_Alcohol->SetText(FText::AsNumber(FMath::RoundToInt(Stats.Charm)));
 
     // --- レベル・経験値 ---
     if (Txt_Level)       Txt_Level->SetText(FText::AsNumber(Stats.Level));

@@ -2,6 +2,8 @@
 #include "MyProject1Character.h"
 #include "MyProject1HUD.h"
 #include "GameFramework/PlayerController.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "Animation/AnimSequence.h"
 
 AShopNPCBase::AShopNPCBase()
 {
@@ -13,12 +15,29 @@ AShopNPCBase::AShopNPCBase()
 	NPCName = TEXT("ショップ店員");
 	GreetingText = TEXT("へい、いらっしゃい！");
 	GoodbyeText = TEXT("またいつでも来な。");
+
+	NPCMesh = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("NPCMesh"));
+	SetRootComponent(NPCMesh);
 }
 
 void AShopNPCBase::BeginPlay()
 {
 	Super::BeginPlay();
 	Tags.AddUnique(FName("NPC"));
+
+	if (NPCMesh)
+	{
+		if (NPCAnimClass)
+		{
+			// AnimBlueprintが設定されていればそちらを優先
+			NPCMesh->SetAnimInstanceClass(NPCAnimClass);
+		}
+		else if (IdleAnimation)
+		{
+			// AnimBPが無い場合は単純なアニメーションシーケンスをループ再生
+			NPCMesh->PlayAnimation(IdleAnimation, true);
+		}
+	}
 }
 
 // 新設：列挙型をデータテーブル検索用の正しい「FName（文字）」へ内部変換してBlueprintに返す関数
@@ -37,6 +56,19 @@ FName AShopNPCBase::GetShopModeCategoryAsName() const
 TArray<FName> AShopNPCBase::GetAvailableShopItems() const
 {
 	TArray<FName> AvailableItems;
+
+	// 特定アイテムのみ扱うモードの場合は、Category/Levelの自動判定を無視してリストをそのまま使う
+	if (bUseSpecificItemsOnly)
+	{
+		for (const FShopItemOverride& Override : SpecificItems)
+		{
+			if (Override.bCanBuy)
+			{
+				AvailableItems.Add(Override.ItemID);
+			}
+		}
+		return AvailableItems;
+	}
 
 	// データテーブルがセットされていない場合は空の配列を返す
 	if (!ItemDataTable) return AvailableItems;
@@ -77,6 +109,48 @@ TArray<FName> AShopNPCBase::GetAvailableShopItems() const
 	}
 
 	return AvailableItems;
+}
+
+bool AShopNPCBase::CanBuyItem(FName ItemID) const
+{
+	if (ItemID.IsNone()) return false;
+
+	// 特定アイテムのみ扱うモードの場合は、リストに載っていて購入可フラグが立っている時だけ許可
+	if (bUseSpecificItemsOnly)
+	{
+		for (const FShopItemOverride& Override : SpecificItems)
+		{
+			if (Override.ItemID == ItemID)
+			{
+				return Override.bCanBuy;
+			}
+		}
+		return false;
+	}
+
+	// 通常モードは、販売可能リストに含まれているかで判定する
+	return GetAvailableShopItems().Contains(ItemID);
+}
+
+bool AShopNPCBase::CanSellItem(FName ItemID) const
+{
+	if (ItemID.IsNone()) return false;
+
+	// 特定アイテムのみ扱うモードの場合は、リストに載っていて売却可フラグが立っている時だけ許可
+	if (bUseSpecificItemsOnly)
+	{
+		for (const FShopItemOverride& Override : SpecificItems)
+		{
+			if (Override.ItemID == ItemID)
+			{
+				return Override.bCanSell;
+			}
+		}
+		return false;
+	}
+
+	// 通常モードの店は今まで通り何でも買い取る
+	return true;
 }
 
 void AShopNPCBase::OpenShop(AMyProject1Character* PlayerChar)

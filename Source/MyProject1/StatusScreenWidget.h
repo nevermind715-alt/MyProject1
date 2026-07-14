@@ -60,6 +60,7 @@ protected:
     UPROPERTY(meta = (BindWidget))
     UTextBlock* Txt_Mental;
 
+   
     // --- 社会的・隠しステータス ---
     UPROPERTY(meta = (BindWidget))
     UTextBlock* Txt_Fame;
@@ -72,6 +73,9 @@ protected:
 
     UPROPERTY(meta = (BindWidget))
     UTextBlock* Txt_Charm;
+
+    UPROPERTY(meta = (BindWidget))
+    UTextBlock* Txt_Alcohol;
 
     // --- レベル・経験値 ---
     UPROPERTY(meta = (BindWidget))

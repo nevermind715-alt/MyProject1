@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include "TimerManager.h"
 #include "MyProject1Types.h"
 #include "SkinOverlayComponent.generated.h"
 
@@ -46,15 +47,37 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Skin Overlay|Storage")
 	TMap<FName, FActiveSkinOverlayState> ActiveDiseases;
 
+protected:
+	/** BeginPlayからこの秒数が経過するまでは、実際の描画（RefreshBodyMaterialsの実処理）を保留する。
+	 *  Play直後やレベルワープ直後はレンダーパイプライン（シェーダー/RenderTarget）がまだ温まっておらず、
+	 *  即座に描画すると滲み・全身単色化などのグラフィック不具合が出ることがあるための安全マージン。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skin Overlay|Rendering")
+	float RenderReadyDelay = 0.2f;
+
 private:
 	UPROPERTY()
 	class AMyProject1Character* OwnerCharacter;
-		
+
 	UPROPERTY()
 	class UTextureRenderTarget2D* CombinedTattooTarget;
-		
+
 	UPROPERTY()
 	class UTextureRenderTarget2D* CombinedScarTarget;
+
+	bool bIsRenderReady = false;
+	bool bHasPendingRefresh = false;
+	FTimerHandle TimerHandle_RenderReady;
+
+	void HandleRenderReadyTimer();
+
+	/** RefreshBodyMaterialsの実処理（Canvas合成・MIDへの反映）。RenderReadyDelay経過後にのみ実行される。 */
+	void ExecuteRefreshBodyMaterials();
+
+	/** 4つの箱の中身をGameInstanceへコピーして記憶させる（Add/Remove時に毎回呼ぶ） */
+	void SaveOverlayStateToGameInstance();
+
+	/** GameInstanceに記憶されている中身を4つの箱へ読み戻す（レベル移動後のBeginPlayで呼ぶ） */
+	void LoadOverlayStateFromGameInstance();
 
 	UMaterialInstanceDynamic* GetBodyOverlayMID();
 

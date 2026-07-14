@@ -87,6 +87,22 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Warp")
 	void ApplyPendingWarp(class ACharacter* PlayerCharacter);
 
+	// --- 傷・タトゥー・ピアス・病気の記憶領域 ---
+	// レベル移動（OpenLevel）でキャラクターが再生成されても消えないよう、
+	// GameInstance側に「箱の中身」のコピーを保持しておく（PendingWarpTransformと同じ仕組み）。
+
+	UPROPERTY(BlueprintReadOnly, Category = "Skin Overlay")
+	TMap<FName, FActiveSkinOverlayState> SavedActiveTattoos;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Skin Overlay")
+	TMap<FName, FActiveSkinOverlayState> SavedActiveScars;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Skin Overlay")
+	TMap<FName, FActiveSkinOverlayState> SavedActivePiercings;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Skin Overlay")
+	TMap<FName, FActiveSkinOverlayState> SavedActiveDiseases;
+
 private:
 	// ★追加：暗転が終わるまで待機している「ワープID」と「プレイヤー」の記憶
 	FName ReservedWarpID;
