@@ -206,6 +206,17 @@ bool AMyProject1HUD::IsCommandMenuOpen() const
     return CommandMenuWidget && CommandMenuWidget->IsInViewport();
 }
 
+void AMyProject1HUD::ForceCloseCommandMenuForInteract()
+{
+    // コマンドメニュー本体が開いている時だけ閉じる。
+    // ToggleCommandMenu()は「開いていれば閉じる／閉じていれば開く」ので、
+    // 開いている状態でだけ呼ぶことで強制クローズとして使える。
+    if (CommandMenuWidget && CommandMenuWidget->IsInViewport())
+    {
+        ToggleCommandMenu();
+    }
+}
+
 // --- クエスト（メニュー内のボタンから開く方） ---
 void AMyProject1HUD::ToggleQuestMenu()
 {

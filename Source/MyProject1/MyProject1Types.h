@@ -435,7 +435,8 @@ enum class ETargetStat : uint8
 	Fame        UMETA(DisplayName = "名声 (Fame)"),
 	Charm       UMETA(DisplayName = "魅力 (Charm)"),
 	CustomExtraStat UMETA(DisplayName = "カスタムステータス (ExtraStats)"),
-	DefensePower UMETA(DisplayName = "防御力")
+	DefensePower UMETA(DisplayName = "防御力"),
+	Mental      UMETA(DisplayName = "精神力 (Mental)")
 };
 
 // --- バフ・デバフ専用のデータ（データテーブル用） ---
@@ -958,11 +959,11 @@ enum class EEquipmentSlot : uint8
 	Wrist         UMETA(DisplayName = "腕輪（Static）"),
 	Ankle         UMETA(DisplayName = "足輪（Static）"),
 	Weapon        UMETA(DisplayName = "メイン武器"),
-	Extra1        UMETA(DisplayName = "特殊枠1（非表示）"),
-	Extra2        UMETA(DisplayName = "特殊枠2（非表示）"),
-	Extra3        UMETA(DisplayName = "特殊枠3（非表示）"),
-	Extra4        UMETA(DisplayName = "特殊枠4（非表示）"),
-	Extra5        UMETA(DisplayName = "特殊枠5（非表示）"),
+	Extra1        UMETA(DisplayName = "特殊枠1（ピアス等）"),
+	Extra2        UMETA(DisplayName = "特殊枠2（ピアス等）"),
+	Extra3        UMETA(DisplayName = "特殊枠3（ピアス等）"),
+	Extra4        UMETA(DisplayName = "特殊枠4（ピアス等）"),
+	Extra5        UMETA(DisplayName = "特殊枠5（ピアス等）"),
 	Max           UMETA(Hidden)
 };
 
@@ -1009,6 +1010,25 @@ struct FCableAttachmentSettings
 };
 
 
+// --- 装備1つ分のステータス増減設定（DT_ItemsのFItemEffectと同じ考え方の仕組み） ---
+USTRUCT(BlueprintType)
+struct FEquipmentStatModifier
+{
+	GENERATED_BODY()
+
+	// どのステータスを増減させるか
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment|Stats")
+	ETargetStat TargetStat = ETargetStat::None;
+
+	// TargetStatが「カスタムステータス」の時だけ使う、ExtraStats側のキー名
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment|Stats", meta = (EditCondition = "TargetStat == ETargetStat::CustomExtraStat"))
+	FName ExtraStatName;
+
+	/** 増減値（プラスなら上昇、マイナスなら低下） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment|Stats")
+	float Amount = 0.0f;
+};
+
 // --- 装備品データの構造体 ---
 USTRUCT(BlueprintType)
 struct FEquipmentData : public FTableRowBase
@@ -1029,15 +1049,9 @@ struct FEquipmentData : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment")
 	TSoftObjectPtr<UStaticMesh> EquipStaticMesh;
 
-	// ステータス補正値
+	// ステータス補正値（＋ボタンで好きなステータスを好きな数だけ追加可能。ex_statsも可）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment|Stats")
-	int32 AddSTR = 0;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment|Stats")
-	int32 AddDEF = 0;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment|Stats")
-	int32 AddMND = 0;
+	TArray<FEquipmentStatModifier> StatModifiers;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment|Offset")
 	float HeightOffset = 0.0f;
@@ -1128,6 +1142,10 @@ struct FDiseaseTreatmentDataRow : public FTableRowBase
 	/** ★新設：要求される医術レベル（普通の村医者では治せない奇病・死の呪いなど） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Disease Treatment|Requirements", meta = (ClampMin = "1"))
 	int32 ItemLevel = 1;
+
+	// ステータス補正値（罹患中だけ効く。装備と同じ仕組みで、＋ボタンで好きなステータスを好きな数だけ追加可能）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Disease Treatment|Stats")
+	TArray<FEquipmentStatModifier> StatModifiers;
 };
 
 // ============================================================================
@@ -1176,6 +1194,10 @@ struct FSkinOverlayDataRow : public FTableRowBase
 	/** 要求される技術レベル（呪いの強さなど。職人のShopLevelがこれ未満なら店に並ばない） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skin Overlay|Requirements", meta = (ClampMin = "1"))
 	int32 ItemLevel = 1;
+
+	// ステータス補正値（刻まれている間だけ効く。装備と同じ仕組みで、＋ボタンで好きなステータスを好きな数だけ追加可能）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skin Overlay|Stats")
+	TArray<FEquipmentStatModifier> StatModifiers;
 };
 
 
@@ -1233,6 +1255,10 @@ struct FScarDataRow : public FTableRowBase
 	/** ★新設：要求される技術レベル（名医じゃないと消せない深い古傷など） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skin Overlay|Requirements", meta = (ClampMin = "1"))
 	int32 ItemLevel = 1;
+
+	// ステータス補正値（残っている間だけ効く。装備と同じ仕組みで、＋ボタンで好きなステータスを好きな数だけ追加可能）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skin Overlay|Stats")
+	TArray<FEquipmentStatModifier> StatModifiers;
 };
 
 // ============================================================================
@@ -1260,6 +1286,10 @@ struct FPiercingDataRow : public FTableRowBase
 	/** ★新設：要求される技術レベル（呪いのピアスなど。職人のShopLevelがこれ未満なら店に並ばない） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Piercing|Requirements", meta = (ClampMin = "1"))
 	int32 ItemLevel = 1;
+
+	// ステータス補正値（装着中だけ効く。装備と同じ仕組みで、＋ボタンで好きなステータスを好きな数だけ追加可能）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Piercing|Stats")
+	TArray<FEquipmentStatModifier> StatModifiers;
 };
 
 USTRUCT(BlueprintType)

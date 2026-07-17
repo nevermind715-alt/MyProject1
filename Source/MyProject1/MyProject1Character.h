@@ -135,12 +135,16 @@ protected:
 	UFUNCTION(BlueprintImplementableEvent, Category = "Combat|UI")
 	void OnSpaceActionReleased();
 
+	/** WASD移動またはスペースキーの入力があった時、ログウィンドウを再表示させるための通知（BPで実装） */
+	UFUNCTION(BlueprintImplementableEvent, Category = "Combat|UI")
+	void OnRequestShowLogWindow();
+
 	/** 入力をフックするための関数 */
 	void HandleJumpCompleted();
 
 	/** カメラの最短距離 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera")
-	float MinTargetArmLength = 200.0f;
+	float MinTargetArmLength = 250.0f;
 
 	/** カメラの最長距離 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera")
@@ -148,7 +152,7 @@ protected:
 
 	/** 1回のホイール操作で動く距離 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera")
-	float ZoomStep = 50.0f;
+	float ZoomStep = 25.0f;
 
 	/** ズーム入力を処理する関数 */
 	void ZoomCamera(const struct FInputActionValue& Value);
@@ -399,6 +403,23 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Components")
 	USkeletalMeshComponent* AnkleSkeletalMeshComp;
 
+	// --- 特殊枠（SkeletalMesh・ピアス等） ---
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Components")
+	USkeletalMeshComponent* Extra1MeshComp;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Components")
+	USkeletalMeshComponent* Extra2MeshComp;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Components")
+	USkeletalMeshComponent* Extra3MeshComp;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Components")
+	USkeletalMeshComponent* Extra4MeshComp;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Components")
+	USkeletalMeshComponent* Extra5MeshComp;
+
 	/** 現在適用されている靴の高さ補正値（脱ぐ時に元に戻すため） */
 	float CurrentShoesOffset = 0.0f;
 
@@ -432,6 +453,14 @@ public:
 	// 現在装備しているアイテムのデータテーブルRowNameを保持
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment")
 	TMap<EEquipmentSlot, FName> CurrentEquippedItems;
+
+	// 直近でRefreshEquipmentStatsが装備から加算したExtraStats量（再計算時に差分だけ戻すための記録。ExtraStatsはアイテム消費等でも永続的に増減する値なので、単純な再計算だと二重加算になってしまうため）
+	UPROPERTY()
+	TMap<FName, float> EquipmentExtraStatBonuses;
+
+	// 直近でRefreshEquipmentStatsが病気・ケガ／タトゥー／ピアスから加算したExtraStats量（装備分とは別の記録が必要。同じ理由で二重加算防止のため）
+	UPROPERTY()
+	TMap<FName, float> SkinOverlayExtraStatBonuses;
 
 	// アイテムIDと装備データの両方を受け取るようにします
 	UFUNCTION(BlueprintCallable, Category = "Equipment")

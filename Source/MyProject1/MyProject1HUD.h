@@ -68,6 +68,11 @@ public:
 	UFUNCTION(BlueprintPure, Category = "UI")
 	bool IsCommandMenuOpen() const;
 
+	// コマンドメニューが開いていれば強制的に閉じる（インタラクト優先のため）。
+	// 何も閉じなければ何もしない。ToggleCommandMenu()と同じ「開いている時に呼ぶと閉じる」性質を利用。
+	UFUNCTION(BlueprintCallable, Category = "UI")
+	void ForceCloseCommandMenuForInteract();
+
 	// 現在開いているすべての「サブメニュー（一覧画面など）」を記憶する汎用変数
 	UPROPERTY(BlueprintReadWrite, Category = "UI")
 	class UUserWidget* ActiveSubMenuWidget;

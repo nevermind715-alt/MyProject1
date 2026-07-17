@@ -131,6 +131,10 @@ public:
 	const TMap<FName, FActiveSkinOverlayState>& GetActivePiercings() const { return ActivePiercings; }
 	const TMap<FName, FActiveSkinOverlayState>& GetActiveDiseases() const { return ActiveDiseases; }
 
+	/** 現在体に入っている病気・ケガ／タトゥー／傷跡／ピアスのStatModifiersを全部まとめて返す（装備のRefreshEquipmentStatsから呼ばれる） */
+	UFUNCTION(BlueprintPure, Category = "Skin Overlay|Stats")
+	TArray<FEquipmentStatModifier> GetActiveStatModifiers() const;
+
 	const TMap<FName, FActiveSkinOverlayState>& GetActiveOverlays() const { return ActiveTattoos; }
 	UDataTable* GetOverlayDataTable() const { return OverlayDataTable ? OverlayDataTable : TattooDataTable; }
 };

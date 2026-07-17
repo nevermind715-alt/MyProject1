@@ -109,6 +109,35 @@ AMyProject1Character::AMyProject1Character()
 	AnkleSkeletalMeshComp->SetupAttachment(GetMesh());
 	AnkleSkeletalMeshComp->SetLeaderPoseComponent(GetMesh());
 
+	// 特殊枠（ピアス等、SkeletalMeshで表現するアクセサリー用）
+	// ※ピアスのように頂点がボーンの局所範囲にしかない小型メッシュは、自前のバウンズ計算だと
+	//   姿勢によっては本来の描画位置とズレて誤カリングされることがあるため、
+	//   bUseBoundsFromLeaderPoseComponentで本体メッシュ（毎フレーム正しく更新される）のバウンズをそのまま使う。
+	Extra1MeshComp = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("Extra1MeshComp"));
+	Extra1MeshComp->SetupAttachment(GetMesh());
+	Extra1MeshComp->SetLeaderPoseComponent(GetMesh());
+	Extra1MeshComp->bUseBoundsFromLeaderPoseComponent = true;
+
+	Extra2MeshComp = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("Extra2MeshComp"));
+	Extra2MeshComp->SetupAttachment(GetMesh());
+	Extra2MeshComp->SetLeaderPoseComponent(GetMesh());
+	Extra2MeshComp->bUseBoundsFromLeaderPoseComponent = true;
+
+	Extra3MeshComp = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("Extra3MeshComp"));
+	Extra3MeshComp->SetupAttachment(GetMesh());
+	Extra3MeshComp->SetLeaderPoseComponent(GetMesh());
+	Extra3MeshComp->bUseBoundsFromLeaderPoseComponent = true;
+
+	Extra4MeshComp = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("Extra4MeshComp"));
+	Extra4MeshComp->SetupAttachment(GetMesh());
+	Extra4MeshComp->SetLeaderPoseComponent(GetMesh());
+	Extra4MeshComp->bUseBoundsFromLeaderPoseComponent = true;
+
+	Extra5MeshComp = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("Extra5MeshComp"));
+	Extra5MeshComp->SetupAttachment(GetMesh());
+	Extra5MeshComp->SetLeaderPoseComponent(GetMesh());
+	Extra5MeshComp->bUseBoundsFromLeaderPoseComponent = true;
+
 
 	// 2. 固いアクセサリー群（StaticMesh）の生成とソケットへのアタッチ
 	// ※ソケット名("hand_r_socket"等)は後でUE5側でVRMの骨に合わせて調整します
@@ -316,6 +345,9 @@ void AMyProject1Character::SetupPlayerInputComponent(UInputComponent* PlayerInpu
 
 void AMyProject1Character::OnToggleMenuPressed()
 {
+	// スペースキー入力があったのでログウィンドウを再表示させる
+	OnRequestShowLogWindow();
+
 	APlayerController* PC = Cast<APlayerController>(GetController());
 	if (PC)
 	{
@@ -404,7 +436,10 @@ void AMyProject1Character::Look(const FInputActionValue& Value)
 void AMyProject1Character::DoMove(float Right, float Forward)
 {
 	if (bIsInputLocked) return; // ロック中なら何もしない
-	
+
+	// WASD入力があったのでログウィンドウを再表示させる
+	OnRequestShowLogWindow();
+
 
 	
 	if (GetController() != nullptr)
@@ -2421,6 +2456,46 @@ void AMyProject1Character::EquipItem(FName ItemID, FEquipmentData EquipData)
 		}
 		break;
 
+	case EEquipmentSlot::Extra1:
+		if (Extra1MeshComp)
+		{
+			USkeletalMesh* LoadedMesh = EquipData.EquipSkeletalMesh.IsNull() ? nullptr : EquipData.EquipSkeletalMesh.LoadSynchronous();
+			Extra1MeshComp->SetSkeletalMesh(LoadedMesh);
+		}
+		break;
+
+	case EEquipmentSlot::Extra2:
+		if (Extra2MeshComp)
+		{
+			USkeletalMesh* LoadedMesh = EquipData.EquipSkeletalMesh.IsNull() ? nullptr : EquipData.EquipSkeletalMesh.LoadSynchronous();
+			Extra2MeshComp->SetSkeletalMesh(LoadedMesh);
+		}
+		break;
+
+	case EEquipmentSlot::Extra3:
+		if (Extra3MeshComp)
+		{
+			USkeletalMesh* LoadedMesh = EquipData.EquipSkeletalMesh.IsNull() ? nullptr : EquipData.EquipSkeletalMesh.LoadSynchronous();
+			Extra3MeshComp->SetSkeletalMesh(LoadedMesh);
+		}
+		break;
+
+	case EEquipmentSlot::Extra4:
+		if (Extra4MeshComp)
+		{
+			USkeletalMesh* LoadedMesh = EquipData.EquipSkeletalMesh.IsNull() ? nullptr : EquipData.EquipSkeletalMesh.LoadSynchronous();
+			Extra4MeshComp->SetSkeletalMesh(LoadedMesh);
+		}
+		break;
+
+	case EEquipmentSlot::Extra5:
+		if (Extra5MeshComp)
+		{
+			USkeletalMesh* LoadedMesh = EquipData.EquipSkeletalMesh.IsNull() ? nullptr : EquipData.EquipSkeletalMesh.LoadSynchronous();
+			Extra5MeshComp->SetSkeletalMesh(LoadedMesh);
+		}
+		break;
+
 	default:
 		break;
 	}
@@ -2560,6 +2635,26 @@ void AMyProject1Character::UnequipItem(EEquipmentSlot TargetSlot)
 		if (AnkleMeshComp) AnkleMeshComp->SetStaticMesh(nullptr);
 		break;
 
+	case EEquipmentSlot::Extra1:
+		if (Extra1MeshComp) Extra1MeshComp->SetSkeletalMesh(nullptr);
+		break;
+
+	case EEquipmentSlot::Extra2:
+		if (Extra2MeshComp) Extra2MeshComp->SetSkeletalMesh(nullptr);
+		break;
+
+	case EEquipmentSlot::Extra3:
+		if (Extra3MeshComp) Extra3MeshComp->SetSkeletalMesh(nullptr);
+		break;
+
+	case EEquipmentSlot::Extra4:
+		if (Extra4MeshComp) Extra4MeshComp->SetSkeletalMesh(nullptr);
+		break;
+
+	case EEquipmentSlot::Extra5:
+		if (Extra5MeshComp) Extra5MeshComp->SetSkeletalMesh(nullptr);
+		break;
+
 	default:
 		break;
 	}
@@ -2595,10 +2690,9 @@ void AMyProject1Character::RefreshEquipmentStats()
 	float BaseDEX = JobData->BaseDEX + ((MyStats.Level - 1) * 2.0f);
 	float BaseAGI = JobData->BaseAGI + ((MyStats.Level - 1) * 2.0f);
 
-	// 2. 装備品のボーナスを合計
-	float BonusSTR = 0.0f;
-	float BonusDEF = 0.0f;
-	float BonusMND = 0.0f;
+	// 2. 装備品のボーナスを合計（DT_Equipmentsの配列エレメントを自由に集計する仕組み）
+	TMap<ETargetStat, float> StatBonuses;
+	TMap<FName, float> NewExtraStatBonuses;
 
 	if (EquipmentDataTable)
 	{
@@ -2606,35 +2700,110 @@ void AMyProject1Character::RefreshEquipmentStats()
 		for (const auto& Pair : CurrentEquippedItems)
 		{
 			FName ItemID = Pair.Value;
-			if (!ItemID.IsNone())
+			if (ItemID.IsNone()) continue;
+
+			FEquipmentData* EquipData = EquipmentDataTable->FindRow<FEquipmentData>(ItemID, TEXT("EquipmentStats"));
+			if (!EquipData) continue;
+
+			for (const FEquipmentStatModifier& Modifier : EquipData->StatModifiers)
 			{
-				FEquipmentData* EquipData = EquipmentDataTable->FindRow<FEquipmentData>(ItemID, TEXT("EquipmentStats"));
-				if (EquipData)
+				if (Modifier.TargetStat == ETargetStat::CustomExtraStat)
 				{
-					BonusSTR += EquipData->AddSTR;
-					BonusDEF += EquipData->AddDEF;
-					BonusMND += EquipData->AddMND;
+					if (!Modifier.ExtraStatName.IsNone())
+					{
+						NewExtraStatBonuses.FindOrAdd(Modifier.ExtraStatName) += Modifier.Amount;
+					}
+				}
+				else
+				{
+					StatBonuses.FindOrAdd(Modifier.TargetStat) += Modifier.Amount;
 				}
 			}
 		}
 	}
 
+	// 2-b. 病気・ケガ／タトゥー／ピアス（SkinOverlayComponentの箱）のボーナスも同じ仕組みで合算する
+	TMap<FName, float> NewSkinOverlayExtraStatBonuses;
+	if (SkinOverlayComp)
+	{
+		for (const FEquipmentStatModifier& Modifier : SkinOverlayComp->GetActiveStatModifiers())
+		{
+			if (Modifier.TargetStat == ETargetStat::CustomExtraStat)
+			{
+				if (!Modifier.ExtraStatName.IsNone())
+				{
+					NewSkinOverlayExtraStatBonuses.FindOrAdd(Modifier.ExtraStatName) += Modifier.Amount;
+				}
+			}
+			else
+			{
+				StatBonuses.FindOrAdd(Modifier.TargetStat) += Modifier.Amount;
+			}
+		}
+	}
+
+	auto GetBonus = [&StatBonuses](ETargetStat Stat) -> float
+	{
+		const float* Found = StatBonuses.Find(Stat);
+		return Found ? *Found : 0.0f;
+	};
+
+	// 2-c. ExtraStats（ex_stats）はアイテム消費などでも永続的に増減する値のため、
+	//      ここでは「前回の装備が加算していた分」との差分だけを反映して二重加算を防ぐ
+	for (const auto& NewPair : NewExtraStatBonuses)
+	{
+		const float OldBonus = EquipmentExtraStatBonuses.FindRef(NewPair.Key);
+		const float Delta = NewPair.Value - OldBonus;
+		if (Delta != 0.0f)
+		{
+			MyStats.ExtraStats.FindOrAdd(NewPair.Key) += Delta;
+		}
+	}
+	for (const auto& OldPair : EquipmentExtraStatBonuses)
+	{
+		if (!NewExtraStatBonuses.Contains(OldPair.Key))
+		{
+			MyStats.ExtraStats.FindOrAdd(OldPair.Key) -= OldPair.Value;
+		}
+	}
+	EquipmentExtraStatBonuses = NewExtraStatBonuses;
+
+	// 2-d. 病気・ケガ／タトゥー／ピアス分のExtraStatsも、装備分とは別の記録との差分だけを反映する
+	for (const auto& NewPair : NewSkinOverlayExtraStatBonuses)
+	{
+		const float OldBonus = SkinOverlayExtraStatBonuses.FindRef(NewPair.Key);
+		const float Delta = NewPair.Value - OldBonus;
+		if (Delta != 0.0f)
+		{
+			MyStats.ExtraStats.FindOrAdd(NewPair.Key) += Delta;
+		}
+	}
+	for (const auto& OldPair : SkinOverlayExtraStatBonuses)
+	{
+		if (!NewSkinOverlayExtraStatBonuses.Contains(OldPair.Key))
+		{
+			MyStats.ExtraStats.FindOrAdd(OldPair.Key) -= OldPair.Value;
+		}
+	}
+	SkinOverlayExtraStatBonuses = NewSkinOverlayExtraStatBonuses;
+
 	// 3. 現在HPの変化前状態を記憶
 	bool bWasFullHP = (MyStats.HP >= MyStats.MaxHP);
 
 	// 4. ステータスの確定（基礎値 ＋ 装備ボーナス）
-	MyStats.MaxHP = BaseMaxHP;
-	MyStats.STR = BaseSTR + BonusSTR;
-	MyStats.VIT = BaseVIT;
-	MyStats.DEX = BaseDEX;
-	MyStats.AGI = BaseAGI;
-	MyStats.Mental = 1.0f + BonusMND; // 初期値1.0 + ボーナス
+	// ※ 装備の「HP」補正は最大HP（MaxHP）への加算として扱う
+	MyStats.MaxHP = BaseMaxHP + GetBonus(ETargetStat::HP);
+	MyStats.STR = BaseSTR + GetBonus(ETargetStat::STR);
+	MyStats.VIT = BaseVIT + GetBonus(ETargetStat::VIT);
+	MyStats.DEX = BaseDEX + GetBonus(ETargetStat::DEX);
+	MyStats.AGI = BaseAGI + GetBonus(ETargetStat::AGI);
+	MyStats.Mental = 1.0f + GetBonus(ETargetStat::Mental); // 初期値1.0 + ボーナス
 
 	// 5. STRやVITから派生する戦闘力（攻撃力・防御力）を計算
-	MyStats.AttackPower = MyStats.STR * 2.0f;
-	MyStats.DefensePower = (MyStats.VIT * 2.0f) + BonusDEF; // 装備のDEFはここに直接足す
-	MyStats.Accuracy = MyStats.DEX * 1.5f;
-	MyStats.Evasion = MyStats.AGI * 1.5f;
+	MyStats.AttackPower = MyStats.STR * 2.0f + GetBonus(ETargetStat::AttackPower);
+	MyStats.DefensePower = (MyStats.VIT * 2.0f) + GetBonus(ETargetStat::DefensePower); // 装備のDEFはここに直接足す
+	MyStats.Accuracy = MyStats.DEX * 1.5f + GetBonus(ETargetStat::Accuracy);
+	MyStats.Evasion = MyStats.AGI * 1.5f + GetBonus(ETargetStat::Evasion);
 
 	// 6. HPの補正（元々満タンなら満タンを維持、最大値を超えていたら丸める）
 	if (bWasFullHP)

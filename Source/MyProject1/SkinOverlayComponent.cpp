@@ -178,6 +178,12 @@ void USkinOverlayComponent::AddOverlay(FName OverlayRowName, float CustomOpacity
 
 	// ★記憶が終わったら、自動連番ロジックでマテリアルを最新状態に一斉更新！
 	RefreshBodyMaterials();
+
+	// 装備と同じ仕組みで、罹患・装着中のStatModifiersをステータスに反映する
+	if (OwnerCharacter)
+	{
+		OwnerCharacter->RefreshEquipmentStats();
+	}
 }
 
 void USkinOverlayComponent::RemoveOverlay(FName OverlayRowName, EShopModeCategory ShopCategory)
@@ -197,7 +203,68 @@ void USkinOverlayComponent::RemoveOverlay(FName OverlayRowName, EShopModeCategor
 
 		// ★削除したデータを詰めてマテリアルを再描画！
 		RefreshBodyMaterials();
+
+		// 装備と同じ仕組みで、治癒・除去による補正の消滅をステータスに反映する
+		if (OwnerCharacter)
+		{
+			OwnerCharacter->RefreshEquipmentStats();
+		}
 	}
+}
+
+TArray<FEquipmentStatModifier> USkinOverlayComponent::GetActiveStatModifiers() const
+{
+	TArray<FEquipmentStatModifier> Result;
+
+	// タトゥー（刺青）
+	if (TattooDataTable)
+	{
+		for (const auto& Pair : ActiveTattoos)
+		{
+			if (FSkinOverlayDataRow* Data = TattooDataTable->FindRow<FSkinOverlayDataRow>(Pair.Key, TEXT("TattooStatLookup")))
+			{
+				Result.Append(Data->StatModifiers);
+			}
+		}
+	}
+
+	// 傷跡
+	if (ScarDataTable)
+	{
+		for (const auto& Pair : ActiveScars)
+		{
+			if (FScarDataRow* Data = ScarDataTable->FindRow<FScarDataRow>(Pair.Key, TEXT("ScarStatLookup")))
+			{
+				Result.Append(Data->StatModifiers);
+			}
+		}
+	}
+
+	// ピアス
+	if (PiercingDataTable)
+	{
+		for (const auto& Pair : ActivePiercings)
+		{
+			if (FPiercingDataRow* Data = PiercingDataTable->FindRow<FPiercingDataRow>(Pair.Key, TEXT("PiercingStatLookup")))
+			{
+				Result.Append(Data->StatModifiers);
+			}
+		}
+	}
+
+	// 病気・ケガ
+	if (DiseaseDataTable)
+	{
+		for (const auto& Pair : ActiveDiseases)
+		{
+			if (FDiseaseTreatmentDataRow* Data = DiseaseDataTable->FindRow<FDiseaseTreatmentDataRow>(Pair.Key, TEXT("DiseaseStatLookup")))
+			{
+				Result.Append(Data->StatModifiers);
+			}
+		}
+	}
+
+	return Result;
 }
 
 bool USkinOverlayComponent::IsOverlayActive(FName OverlayRowName, EShopModeCategory ShopCategory) const

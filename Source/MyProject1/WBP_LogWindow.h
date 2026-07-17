@@ -1,0 +1,40 @@
+#pragma once
+
+#include "CoreMinimal.h"
+#include "Blueprint/UserWidget.h"
+#include "WBP_LogWindow.generated.h"
+
+UCLASS()
+class MYPROJECT1_API UWBP_LogWindow : public UUserWidget
+{
+	GENERATED_BODY()
+
+public:
+	// ログが1件追加されたらBP側からこれを呼ぶ（即表示させ、非表示までのタイマーをリセットする）
+	UFUNCTION(BlueprintCallable, Category = "Log")
+	void NotifyNewLogEntry();
+
+	// 最後のログから何秒後に自動で非表示にするか
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Log")
+	float AutoHideDelay = 25.0f;
+
+protected:
+	virtual void NativeConstruct() override;
+
+	// BP側でフェードイン/スライドインのWidget Animationを再生する
+	UFUNCTION(BlueprintImplementableEvent, Category = "Log")
+	void OnShowLogWindow();
+
+	// BP側でフェードアウト/スライドアウトのWidget Animationを再生する
+	UFUNCTION(BlueprintImplementableEvent, Category = "Log")
+	void OnHideLogWindow();
+
+private:
+	// 自動非表示タイマーが切れた時に呼ばれる
+	void HandleAutoHideTimeout();
+
+	// 現在ウィンドウが表示状態（フェードイン済み）かどうか。多重にShowアニメーションを再生してしまうのを防ぐ
+	bool bIsWindowVisible = false;
+
+	FTimerHandle AutoHideTimerHandle;
+};
