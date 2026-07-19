@@ -2387,6 +2387,22 @@ void AMyProject1Character::EquipItem(FName ItemID, FEquipmentData EquipData)
 		}
 		break;
 
+	case EEquipmentSlot::InnerUpper:
+		if (InnerUpperMeshComp)
+		{
+			USkeletalMesh* LoadedMesh = EquipData.EquipSkeletalMesh.IsNull() ? nullptr : EquipData.EquipSkeletalMesh.LoadSynchronous();
+			InnerUpperMeshComp->SetSkeletalMesh(LoadedMesh);
+		}
+		break;
+
+	case EEquipmentSlot::InnerLower:
+		if (InnerLowerMeshComp)
+		{
+			USkeletalMesh* LoadedMesh = EquipData.EquipSkeletalMesh.IsNull() ? nullptr : EquipData.EquipSkeletalMesh.LoadSynchronous();
+			InnerLowerMeshComp->SetSkeletalMesh(LoadedMesh);
+		}
+		break;
+
 	case EEquipmentSlot::Hands:
 		if (HandsMeshComp)
 		{
@@ -2558,6 +2574,9 @@ void AMyProject1Character::EquipItem(FName ItemID, FEquipmentData EquipData)
 		SkinOverlayComp->RefreshBodyMaterials();
 	}
 
+	// 胴・腰装備の非表示設定に応じてインナーの表示を更新（透け防止）
+	RefreshInnerVisibility();
+
 	RefreshEquipmentStats();
 }
 
@@ -2607,7 +2626,15 @@ void AMyProject1Character::UnequipItem(EEquipmentSlot TargetSlot)
 		if (WaistMeshComp) WaistMeshComp->SetSkeletalMesh(nullptr);
 		break;
 
-	case EEquipmentSlot::Hands: 
+	case EEquipmentSlot::InnerUpper:
+		if (InnerUpperMeshComp) InnerUpperMeshComp->SetSkeletalMesh(nullptr);
+		break;
+
+	case EEquipmentSlot::InnerLower:
+		if (InnerLowerMeshComp) InnerLowerMeshComp->SetSkeletalMesh(nullptr);
+		break;
+
+	case EEquipmentSlot::Hands:
 		if (HandsMeshComp) HandsMeshComp->SetSkeletalMesh(nullptr);
 		break;
 
@@ -2673,7 +2700,63 @@ void AMyProject1Character::UnequipItem(EEquipmentSlot TargetSlot)
 		SkinOverlayComp->RefreshBodyMaterials();
 	}
 
+	// 胴・腰装備の非表示設定に応じてインナーの表示を更新（外したらインナーを再表示）
+	RefreshInnerVisibility();
+
 	RefreshEquipmentStats();
+}
+
+void AMyProject1Character::RefreshInnerVisibility()
+{
+	bool bHideUpper = false;
+	bool bHideLower = false;
+
+	if (EquipmentDataTable)
+	{
+		if (const FName* TorsoItemID = CurrentEquippedItems.Find(EEquipmentSlot::Torso))
+		{
+			if (!TorsoItemID->IsNone())
+			{
+				if (FEquipmentData* TorsoData = EquipmentDataTable->FindRow<FEquipmentData>(*TorsoItemID, TEXT("RefreshInnerVisibility_Torso")))
+				{
+					bHideUpper |= TorsoData->bHideInnerUpper;
+					bHideLower |= TorsoData->bHideInnerLower;
+				}
+			}
+		}
+
+		if (const FName* WaistItemID = CurrentEquippedItems.Find(EEquipmentSlot::Waist))
+		{
+			if (!WaistItemID->IsNone())
+			{
+				if (FEquipmentData* WaistData = EquipmentDataTable->FindRow<FEquipmentData>(*WaistItemID, TEXT("RefreshInnerVisibility_Waist")))
+				{
+					bHideLower |= WaistData->bHideInnerLower;
+				}
+			}
+		}
+
+		if (const FName* LegsItemID = CurrentEquippedItems.Find(EEquipmentSlot::Legs))
+		{
+			if (!LegsItemID->IsNone())
+			{
+				if (FEquipmentData* LegsData = EquipmentDataTable->FindRow<FEquipmentData>(*LegsItemID, TEXT("RefreshInnerVisibility_Legs")))
+				{
+					bHideLower |= LegsData->bHideInnerLower;
+				}
+			}
+		}
+	}
+
+	if (InnerUpperMeshComp)
+	{
+		InnerUpperMeshComp->SetVisibility(!bHideUpper);
+	}
+
+	if (InnerLowerMeshComp)
+	{
+		InnerLowerMeshComp->SetVisibility(!bHideLower);
+	}
 }
 
 

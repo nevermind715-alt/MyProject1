@@ -850,6 +850,9 @@ struct FQuestData : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Audio")
 	class USoundBase* CompletionSound = nullptr; // 完了時の音
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Audio")
+	class USoundBase* ObjectiveClearedSound = nullptr; // 目的達成（報告待ちになった）時の音
+
 	// --- 掲載場所の設定 ---
 	// Trueならクエストボードに表示、FalseならNPCから直接受注する専用クエスト
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Display")
@@ -1093,7 +1096,19 @@ struct FEquipmentData : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment|BodyOverlay")
 	FLinearColor ColorMultiplier = FLinearColor::White;
 
-	
+	// ============================================================================
+	// インナー透け防止用の非表示設定（胴装備・腰装備のみ使用）
+	// ============================================================================
+
+	/** この胴装備を着ている間、上半身インナーを非表示にする */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment|InnerVisibility", meta = (EditCondition = "TargetSlot == EEquipmentSlot::Torso"))
+	bool bHideInnerUpper = false;
+
+	/** この胴装備・腰装備・脚装備を着ている間、下半身インナーを非表示にする */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment|InnerVisibility", meta = (EditCondition = "TargetSlot == EEquipmentSlot::Torso || TargetSlot == EEquipmentSlot::Waist || TargetSlot == EEquipmentSlot::Legs"))
+	bool bHideInnerLower = false;
+
+
 };
 
 // --- ExtraStatsとモーフターゲットを連動させるための設定 ---

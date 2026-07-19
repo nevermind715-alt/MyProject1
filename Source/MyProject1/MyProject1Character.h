@@ -433,6 +433,10 @@ public:
 	// --- FRotator ToeRotation を引数に追加 ---
 	void ApplyShoesOffset(bool bEquip, float Offset = 0.0f, FRotator RotationOffset = FRotator::ZeroRotator, FRotator ToeRotation = FRotator::ZeroRotator);
 
+	// 現在装備中の胴・腰装備のbHideInnerUpper/bHideInnerLower設定を見て、
+	// インナー(InnerUpperMeshComp/InnerLowerMeshComp)の表示・非表示を更新する
+	void RefreshInnerVisibility();
+
 
 	// --- 固いアクセサリー（StaticMesh） ---
 	// ※ソケットに直接アタッチします

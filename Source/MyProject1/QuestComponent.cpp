@@ -150,6 +150,11 @@ void UQuestComponent::UpdateKillObjective(FName EnemyID)
 						FString LogMsg = FString::Printf(TEXT("クエスト「%s」の目的を達成した！"), *Data.QuestName.ToString());
 						OwnerChar->OnReceiveLogMessage(LogMsg, ELogMessageType::System);
 					}
+
+					if (Data.ObjectiveClearedSound)
+					{
+						UGameplayStatics::PlaySound2D(GetWorld(), Data.ObjectiveClearedSound);
+					}
 				}
 				else
 				{
@@ -307,6 +312,11 @@ void UQuestComponent::UpdateGatherObjective(FName ItemID, int32 AmountAdded)
 					if (OwnerChar) {
 						FString LogMsg = FString::Printf(TEXT("クエスト「%s」のアイテムが集まった！"), *Data.QuestName.ToString());
 						OwnerChar->OnReceiveLogMessage(LogMsg, ELogMessageType::System);
+					}
+
+					if (Data.ObjectiveClearedSound)
+					{
+						UGameplayStatics::PlaySound2D(GetWorld(), Data.ObjectiveClearedSound);
 					}
 				}
 				else
