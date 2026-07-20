@@ -970,6 +970,14 @@ enum class EEquipmentSlot : uint8
 	Max           UMETA(Hidden)
 };
 
+// --- 拘束具（足枷等）装備時の移動制限プリセット ---
+UENUM(BlueprintType)
+enum class ERestrainedSpeedPreset : uint8
+{
+	FastWalk      UMETA(DisplayName = "早歩き"),
+	SlowWalk      UMETA(DisplayName = "遅い歩き")
+};
+
 UENUM(BlueprintType)
 enum class ECableAttachType : uint8
 {
@@ -1065,6 +1073,7 @@ struct FEquipmentData : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment|Offset")
 	FRotator ToeRotationOffset = FRotator::ZeroRotator;
 
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment|Cable")
 	FCableAttachmentSettings CableSettings;
 
@@ -1108,6 +1117,22 @@ struct FEquipmentData : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment|InnerVisibility", meta = (EditCondition = "TargetSlot == EEquipmentSlot::Torso || TargetSlot == EEquipmentSlot::Waist || TargetSlot == EEquipmentSlot::Legs"))
 	bool bHideInnerLower = false;
 
+	// ============================================================================
+	// 拘束具（足枷等）による移動制限・アニメーション変更
+	// 実際の速度数値／差し替え先ABPは GameInstance 側で一元管理する（ここではON/OFFと選択のみ）
+	// ============================================================================
+
+	/** この装備を着けている間、移動速度を制限する */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment|Restraint")
+	bool bRestrictsMovement = false;
+
+	/** 制限する速度の種類（GameInstanceに設定した早歩き／遅い歩きのどちらを使うか） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment|Restraint", meta = (EditCondition = "bRestrictsMovement"))
+	ERestrainedSpeedPreset SpeedPreset = ERestrainedSpeedPreset::FastWalk;
+
+	/** この装備を着けている間、移動用アニメーション（ABP／ブレンドスペース）をGameInstance側の拘束用ABPに差し替える */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment|Restraint")
+	bool bOverridesLocomotionAnim = false;
 
 };
 

@@ -244,7 +244,15 @@ void AMyProject1Character::BeginPlay()
 {
 	Super::BeginPlay();
 
-	
+	// ★AnkleAccessoryAnimClassが設定されている場合だけ、足首装備をLeader Pose Componentから切り離し、
+	//   専用ABP（Copy Pose from Mesh + ヒール補正の打ち消しノードを想定）に差し替える。
+	//   未設定なら何もせず、今まで通りLeader Pose Componentで本体に追従する（＝現状維持）。
+	if (AnkleSkeletalMeshComp && AnkleAccessoryAnimClass)
+	{
+		AnkleSkeletalMeshComp->SetLeaderPoseComponent(nullptr);
+		AnkleSkeletalMeshComp->SetAnimInstanceClass(AnkleAccessoryAnimClass);
+	}
+
 	ClearCableSystem(EEquipmentSlot::Feet);
 	ClearCableSystem(EEquipmentSlot::Hands);
 
@@ -740,6 +748,12 @@ void AMyProject1Character::Tick(float DeltaTime)
 		{
 			TargetSpeed = WaterWalkSpeed; // 水中なら速度を上書き
 		}
+	}
+
+	// --- 3.5 拘束具（足枷等）装備中は、状況に関わらず速度に上限をかける ---
+	if (bIsMovementRestricted && RestrainedSpeedCap > 0.0f)
+	{
+		TargetSpeed = FMath::Min(TargetSpeed, RestrainedSpeedCap);
 	}
 
 	// --- 4. 最終的な速度を一括で適用する ---
@@ -2578,6 +2592,7 @@ void AMyProject1Character::EquipItem(FName ItemID, FEquipmentData EquipData)
 	RefreshInnerVisibility();
 
 	RefreshEquipmentStats();
+	RefreshMovementRestriction();
 }
 
 void AMyProject1Character::UnequipItem(EEquipmentSlot TargetSlot)
@@ -2704,6 +2719,117 @@ void AMyProject1Character::UnequipItem(EEquipmentSlot TargetSlot)
 	RefreshInnerVisibility();
 
 	RefreshEquipmentStats();
+	RefreshMovementRestriction();
+}
+
+void AMyProject1Character::RefreshMovementRestriction()
+{
+	// 速度：複数の拘束具を同時装備している場合、最も制限の強い（＝遅い歩き優先の）
+	// 装備1つを「勝者」として選び、その速度プリセットだけを採用する（負けた側の速度は無視）。
+	// ABP差し替え：速度とは独立に判定する。どれか1つでも「ブレンドスペース変更」に
+	// チェックが入っていればON（OR条件）。速度側の勝敗とは連動させない。
+	const FEquipmentData* WinningRestraintRow = nullptr;
+	bool bNewAnimOverride = false;
+
+	if (EquipmentDataTable)
+	{
+		for (const TPair<EEquipmentSlot, FName>& Pair : CurrentEquippedItems)
+		{
+			if (Pair.Value.IsNone())
+			{
+				continue;
+			}
+
+			if (const FEquipmentData* Row = EquipmentDataTable->FindRow<FEquipmentData>(Pair.Value, TEXT("RefreshMovementRestriction")))
+			{
+				if (!Row->bRestrictsMovement)
+				{
+					continue;
+				}
+
+				const bool bRowIsSlowWalk = (Row->SpeedPreset == ERestrainedSpeedPreset::SlowWalk);
+				const bool bCurrentWinnerIsSlowWalk = WinningRestraintRow && (WinningRestraintRow->SpeedPreset == ERestrainedSpeedPreset::SlowWalk);
+
+				// まだ勝者がいない、または今見ている装備の方が制限が強い（遅い歩き）場合に勝者を更新する
+				if (!WinningRestraintRow || (bRowIsSlowWalk && !bCurrentWinnerIsSlowWalk))
+				{
+					WinningRestraintRow = Row;
+				}
+
+				if (Row->bOverridesLocomotionAnim)
+				{
+					bNewAnimOverride = true;
+				}
+			}
+		}
+	}
+
+	const bool bNewRestricted = (WinningRestraintRow != nullptr);
+
+	bIsMovementRestricted = bNewRestricted;
+
+	if (bNewRestricted)
+	{
+		if (UMyProject1GameInstance* GI = GetGameInstance<UMyProject1GameInstance>())
+		{
+			RestrainedSpeedCap = GI->GetRestrainedSpeed(WinningRestraintRow->SpeedPreset);
+		}
+	}
+	else
+	{
+		RestrainedSpeedCap = 0.0f;
+	}
+
+	// ABPの差し替え/復元は状態が変化した時だけ行う（毎回SetAnimInstanceClassし直すとAnim側の状態がリセットされるため）
+	if (bNewAnimOverride != bUsesRestrainedAnimBlueprint)
+	{
+		bUsesRestrainedAnimBlueprint = bNewAnimOverride;
+		ApplyRestrainedAnimBlueprint();
+	}
+}
+
+void AMyProject1Character::ApplyRestrainedAnimBlueprint()
+{
+	if (!GetMesh())
+	{
+		return;
+	}
+
+	if (bUsesRestrainedAnimBlueprint)
+	{
+		UMyProject1GameInstance* GI = GetGameInstance<UMyProject1GameInstance>();
+		TSubclassOf<UAnimInstance> RestrainedClass = GI ? GI->RestrainedAnimBlueprintClass.LoadSynchronous() : nullptr;
+
+		if (!RestrainedClass)
+		{
+			return;
+		}
+
+		// 元のABPを記憶しておく（解除時に復元するため。既に記憶済みなら上書きしない）
+		if (!DefaultAnimBlueprintClass)
+		{
+			if (UAnimInstance* CurrentAnimInst = GetMesh()->GetAnimInstance())
+			{
+				DefaultAnimBlueprintClass = CurrentAnimInst->GetClass();
+			}
+		}
+
+		GetMesh()->SetAnimInstanceClass(RestrainedClass);
+	}
+	else if (DefaultAnimBlueprintClass)
+	{
+		GetMesh()->SetAnimInstanceClass(DefaultAnimBlueprintClass);
+		DefaultAnimBlueprintClass = nullptr;
+	}
+
+	// ABPを差し替えると新しいAnimInstanceインスタンスに変わるため、モンタージュ終了イベントの監視を張り直す
+	if (UAnimInstance* NewAnimInst = GetMesh()->GetAnimInstance())
+	{
+		if (!NewAnimInst->OnMontageEnded.IsAlreadyBound(this, &AMyProject1Character::OnMontageEnded))
+		{
+			NewAnimInst->OnMontageEnded.AddDynamic(this, &AMyProject1Character::OnMontageEnded);
+		}
+	}
 }
 
 void AMyProject1Character::RefreshInnerVisibility()
@@ -2943,7 +3069,7 @@ void AMyProject1Character::ApplyShoesOffset(bool bEquip, float Offset, FRotator 
 			GetMesh()->SetRelativeLocation(NewLoc);
 		}
 
-	
+
 		CurrentShoesOffset = Offset;
 		CurrentAnkleRotationOffset = RotationOffset;
 

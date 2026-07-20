@@ -21,6 +21,7 @@ class UStaticMeshComponent;
 class USkeletalMeshComponent;
 class UCableComponent;
 class AShopNPCBase;
+class UAnimInstance;
 struct FInputActionValue;
 
 DECLARE_LOG_CATEGORY_EXTERN(LogTemplateCharacter, Log, All);
@@ -403,6 +404,20 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Components")
 	USkeletalMeshComponent* AnkleSkeletalMeshComp;
 
+	/** 未設定（None）ならAnkleSkeletalMeshCompは今まで通りLeader Pose Componentで本体に追従する（＝現状維持、何も壊れない）。
+	 *  設定すると、AnkleSkeletalMeshCompはLeader Pose ComponentをやめてこのAnimBPで動くようになる。
+	 *  このABP側で「Copy Pose from Mesh（本体Meshから）」した後、J_Bip_L/R_Footに対して
+	 *  CurrentAnkleRotationOffset * -1 を追加のTransform(Modify)Boneで加算すれば、
+	 *  本体ABP側のヒール補正で足首装備だけ一緒に傾いてしまう問題を、同じボーン空間内で正しく打ち消せる
+	 *  （Leader Pose Component中はFollower自身のAnimGraphが評価されないため、Leader Poseを外す必要がある）。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Equipment|Offset")
+	TSubclassOf<UAnimInstance> AnkleAccessoryAnimClass;
+
+	/** ACharacter::GetMesh()はBlueprintに公開されていない（BlueprintCallableが付いていない）ため、
+	 *  足首装備用ABPの Copy Pose from Mesh に本体メッシュを渡すための薄いラッパー。 */
+	UFUNCTION(BlueprintPure, Category = "Character")
+	USkeletalMeshComponent* GetCharacterMesh() const { return GetMesh(); }
+
 	// --- 特殊枠（SkeletalMesh・ピアス等） ---
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Components")
@@ -429,7 +444,7 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Offset")
 	FRotator CurrentToeRotationOffset = FRotator::ZeroRotator;
 
-	
+
 	// --- FRotator ToeRotation を引数に追加 ---
 	void ApplyShoesOffset(bool bEquip, float Offset = 0.0f, FRotator RotationOffset = FRotator::ZeroRotator, FRotator ToeRotation = FRotator::ZeroRotator);
 
@@ -478,6 +493,29 @@ public:
 	// 全装備のステータス補正を再計算して適用する
 	UFUNCTION(BlueprintCallable, Category = "Equipment")
 	void RefreshEquipmentStats();
+
+	// ==========================================
+	// 拘束具（足枷等）による移動制限
+	// ==========================================
+
+	/** 現在、移動制限のかかる装備（足枷等）を身につけているか */
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category = "Movement|Restraint")
+	bool bIsMovementRestricted = false;
+
+	/** 移動制限中の速度上限（GameInstanceの設定値から解決される） */
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category = "Movement|Restraint")
+	float RestrainedSpeedCap = 0.0f;
+
+	/** 現在、拘束用ABPに差し替え中か */
+	bool bUsesRestrainedAnimBlueprint = false;
+
+	/** 拘束用ABPに差し替える前の、元々のAnimBlueprintクラス（解除時に復元するため） */
+	UPROPERTY()
+	TSubclassOf<UAnimInstance> DefaultAnimBlueprintClass;
+
+	/** 現在装備中のアイテムをすべて確認し、移動制限とアニメーション差し替えの状態を更新する（EquipItem/UnequipItemから呼ばれる） */
+	UFUNCTION(BlueprintCallable, Category = "Movement|Restraint")
+	void RefreshMovementRestriction();
 
 	// 装備データテーブルの参照
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment")
@@ -951,6 +989,9 @@ public:
 	void ApplyJobData();
 
 protected:
+	/** bUsesRestrainedAnimBlueprintの状態に応じて、拘束用ABPへの差し替え／元のABPへの復元を実際に行う */
+	void ApplyRestrainedAnimBlueprint();
+
 	/** ターゲットが死亡した際に、次のターゲットを自動で探す関数 */
 	void HandleTargetDeath();
 

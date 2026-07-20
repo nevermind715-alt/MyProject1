@@ -103,6 +103,28 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "Skin Overlay")
 	TMap<FName, FActiveSkinOverlayState> SavedActiveDiseases;
 
+	// --- 拘束具（足枷等）による移動制限の一元設定 ---
+	// DT_equipments側の各行はON/OFFと種類の選択のみを持ち、実際の速度・ABPはここで一括管理する。
+
+	/** 「早歩き」プリセット選択時の移動速度上限 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Restrained Movement")
+	float RestrainedFastWalkSpeed = 300.0f;
+
+	/** 「遅い歩き」プリセット選択時の移動速度上限 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Restrained Movement")
+	float RestrainedSlowWalkSpeed = 150.0f;
+
+	/** 拘束具装備中に差し替えるAnimBlueprint（ブレンドスペースを差し替えたABPを複製して設定） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Restrained Movement")
+	TSoftClassPtr<class UAnimInstance> RestrainedAnimBlueprintClass;
+
+	/** プリセットに対応する移動速度上限を取得する */
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Restrained Movement")
+	float GetRestrainedSpeed(ERestrainedSpeedPreset Preset) const
+	{
+		return Preset == ERestrainedSpeedPreset::SlowWalk ? RestrainedSlowWalkSpeed : RestrainedFastWalkSpeed;
+	}
+
 private:
 	// ★追加：暗転が終わるまで待機している「ワープID」と「プレイヤー」の記憶
 	FName ReservedWarpID;
