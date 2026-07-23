@@ -185,6 +185,9 @@ protected:
 	/** Copy of the mesh's transform so we can reset it after ragdoll animations */
 	FTransform MeshStartingTransform;
 
+	/** Actor location captured before an attack montage plays, used to undo root motion drift once the attack ends */
+	FVector AttackStartLocation;
+
 public:
 	
 	/** Constructor */

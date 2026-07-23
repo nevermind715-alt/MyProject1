@@ -190,6 +190,9 @@ void ACombatCharacter::ComboAttack()
 	// notify enemies they are about to be attacked
 	NotifyEnemiesOfIncomingAttack();
 
+	// remember where we started so root motion drift can be undone when the attack ends
+	AttackStartLocation = GetActorLocation();
+
 	// play the attack montage
 	if (UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance())
 	{
@@ -216,6 +219,9 @@ void ACombatCharacter::ChargedAttack()
 	// notify enemies they are about to be attacked
 	NotifyEnemiesOfIncomingAttack();
 
+	// remember where we started so root motion drift can be undone when the attack ends
+	AttackStartLocation = GetActorLocation();
+
 	// play the charged attack montage
 	if (UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance())
 	{
@@ -234,6 +240,9 @@ void ACombatCharacter::AttackMontageEnded(UAnimMontage* Montage, bool bInterrupt
 {
 	// reset the attacking flag
 	bIsAttacking = false;
+
+	// undo any forward drift the attack's root motion left the character with
+	SetActorLocation(AttackStartLocation);
 
 	// check if we have a non-stale cached input
 	if (GetWorld()->GetTimeSeconds() - CachedAttackInputTime <= AttackInputCacheTimeTolerance)

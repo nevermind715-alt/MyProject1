@@ -941,7 +941,8 @@ float AMyProject1Character::TakeDamage(float DamageAmount, FDamageEvent const& D
 	if (CurrentTarget == nullptr && EventInstigator && EventInstigator->GetPawn())
 	{
 		AActor* Attacker = EventInstigator->GetPawn();
-		if (Attacker != this)
+		// プレイヤー以外（他の敵など）からのダメージでは反撃ターゲット化しない
+		if (Attacker != this && Attacker->ActorHasTag(FName("Player")))
 		{
 			SetCurrentTarget(Attacker);
 			// 周囲の仲間にリンクを通知（これが敵のリンクの核心です）
