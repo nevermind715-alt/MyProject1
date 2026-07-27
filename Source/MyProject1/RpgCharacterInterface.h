@@ -42,4 +42,7 @@ public:
 
 	// 8. 会話中などにプレイヤーの操作をロックする窓口
 	virtual void SetInputLocked(bool bLocked) = 0;
+
+	// 9. ギルドNPCへの申請により、冒険者等級の昇格を試みる窓口
+	virtual bool TryRankUp() = 0;
 };

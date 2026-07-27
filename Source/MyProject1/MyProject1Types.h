@@ -263,6 +263,19 @@ public:
 };
 
 
+// --- 冒険者クラスの等級（数値が大きいほど上位。五等が最下位、番外が最上位） ---
+UENUM(BlueprintType)
+enum class EAdventurerRank : uint8
+{
+	Rank5    UMETA(DisplayName = "五等"),
+	Rank4    UMETA(DisplayName = "四等"),
+	Rank3    UMETA(DisplayName = "三等"),
+	Rank2    UMETA(DisplayName = "二等"),
+	Rank1    UMETA(DisplayName = "一等"),
+	Special  UMETA(DisplayName = "特等"),
+	Extra    UMETA(DisplayName = "番外")
+};
+
 // --- ステータス管理用の構造体 ---
 USTRUCT(BlueprintType)
 struct FCharacterStats
@@ -342,6 +355,10 @@ struct FCharacterStats
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats|Extra")
 	TMap<FName, float> ExtraStats;
 
+
+	// --- 冒険者クラスの等級（ギルドNPCへの申請で昇格） ---
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats")
+	EAdventurerRank AdventurerRank = EAdventurerRank::Rank5;
 
 	// --- レベル・経験値の追加 ---
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats")
@@ -664,6 +681,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item")
 	bool bConsumeOnUse = true;
 
+	// falseの場合、UseItem()で効果を発動させず「使用できない」ログのみ出す
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item")
+	bool bCanUse = true;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item|Audio")
 	TSoftObjectPtr<USoundBase> UseSound;
 	
@@ -691,6 +712,7 @@ enum class EDialogActionType : uint8
 	None            UMETA(DisplayName = "何もしない（次の会話へ）"),
 	AcceptQuest     UMETA(DisplayName = "クエストを受注する"),
 	ReportQuest     UMETA(DisplayName = "クエストを報告する"),
+	TalkProgress    UMETA(DisplayName = "会話クエストの進捗を進める（このNPCと話した）"),
 	ChangeStat      UMETA(DisplayName = "ステータスを変化させる"),
 	GiveItem        UMETA(DisplayName = "アイテムを渡す/奪う"),
 	AddFlag         UMETA(DisplayName = "フラグを獲得する"),
@@ -698,7 +720,8 @@ enum class EDialogActionType : uint8
 	Warp            UMETA(DisplayName = "ワープを実行する"),
 	Close           UMETA(DisplayName = "会話を終了する"),
 	AddSkinOverlay     UMETA(DisplayName = "タトゥー/傷跡を強制追加"),
-	RemoveSkinOverlay  UMETA(DisplayName = "タトゥー/傷跡を強制削除")
+	RemoveSkinOverlay  UMETA(DisplayName = "タトゥー/傷跡を強制削除"),
+	RequestRankUp      UMETA(DisplayName = "冒険者等級の昇格を申請する")
 };
 
 // --- 選択肢1つ分のデータ ---
@@ -779,6 +802,22 @@ struct FDialogData : public FTableRowBase
 	// 選択肢のリスト（配列）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog")
 	TArray<FDialogChoice> Choices;
+
+	// --- 選択肢を挟まず、このセリフだけで実行するアクション（Choicesが空の時のみ使用） ---
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Action", meta = (EditCondition = "Choices.Num() == 0"))
+	EDialogActionType ActionType = EDialogActionType::None;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Action")
+	FString ActionPayload;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Action")
+	ETargetStat StatToChange = ETargetStat::None;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Action", meta = (EditCondition = "StatToChange == ETargetStat::CustomExtraStat"))
+	FName ExtraStatName;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Action")
+	float StatChangeAmount = 0.0f;
 };
 
 // --- クエストの種類 ---
@@ -787,7 +826,8 @@ enum class EQuestType : uint8
 {
 	Kill        UMETA(DisplayName = "討伐クエスト"),
 	Gather      UMETA(DisplayName = "収集クエスト"),
-	Delivery    UMETA(DisplayName = "お使い・会話クエスト")
+	Delivery    UMETA(DisplayName = "お使い・会話クエスト"),
+	Achievement UMETA(DisplayName = "実績クエスト（他クエストの達成が条件）")
 };
 
 // --- クエストの進行状態 ---
@@ -821,10 +861,19 @@ struct FQuestData : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Objective")
 	EQuestType QuestType = EQuestType::Kill;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Objective")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Objective", meta = (EditCondition = "QuestType != EQuestType::Achievement && QuestType != EQuestType::Delivery"))
 	FName TargetID;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Objective")
+	// Achievement専用：これらのクエストを最低1回ずつクリアすると達成対象としてカウントされる
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Objective", meta = (EditCondition = "QuestType == EQuestType::Achievement"))
+	TArray<FName> RequiredQuestIDs;
+
+	// Delivery専用：この順番通りにNPCと話す必要がある（各NPCのActor詳細パネルのTagsに同じ名前を1つ設定する）。最後の依頼主は含めず、報告はReportQuestアクションで行う
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Objective", meta = (EditCondition = "QuestType == EQuestType::Delivery"))
+	TArray<FName> RequiredTalkNPCIDs;
+
+	// Kill/Gatherでの目標数。AchievementとDeliveryでは使用しない（それぞれRequiredQuestIDs/RequiredTalkNPCIDsの数で判定するため）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Objective", meta = (EditCondition = "QuestType != EQuestType::Achievement && QuestType != EQuestType::Delivery"))
 	int32 RequiredAmount = 1;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Reward")
@@ -1360,4 +1409,41 @@ struct FOverlayShopItemInfo
 	/** 【重要】現在プレイヤーが既にこれを施術・装着・感染しているかどうかのフラグ */
 	UPROPERTY(BlueprintReadOnly, Category = "Shop Item")
 	bool bIsOwned = false;
+};
+
+// ============================================================================
+// ★ 冒険者クラスの等級：昇格条件・昇格ボーナス（データテーブル用）
+// 行名（RowName）は、昇格「先」のEAdventurerRankの名前（"Rank4"など）と一致させる想定。
+// ============================================================================
+USTRUCT(BlueprintType)
+struct FAdventurerRankData : public FTableRowBase
+{
+	GENERATED_BODY()
+
+	// UIに出す表示名（演出用に自由文言を入れられるよう、UENUMのDisplayNameとは別に持つ）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rank")
+	FText DisplayName;
+
+	/** 昇格に必要な最低レベル */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rank|Requirement", meta = (ClampMin = "1"))
+	int32 RequiredLevel = 1;
+
+	/** 昇格に必要な累計クエストクリア数 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rank|Requirement", meta = (ClampMin = "0"))
+	int32 RequiredCompletedQuests = 0;
+
+	/** 昇格に必要な名声値（FCharacterStats::Fame） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rank|Requirement")
+	float RequiredFame = 0.0f;
+
+	/** 昇格試験クエストの達成などを示すフラグ条件（空欄なら不要） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rank|Requirement")
+	FName RequiredFlag;
+
+	/** 昇格時に一度だけ加算されるステータス補正（装備と同じFEquipmentStatModifierの仕組みを再利用） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rank|Reward")
+	TArray<FEquipmentStatModifier> RankUpBonuses;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rank|Visual")
+	UTexture2D* RankIcon = nullptr;
 };

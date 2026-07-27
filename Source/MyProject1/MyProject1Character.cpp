@@ -283,6 +283,7 @@ void AMyProject1Character::BeginPlay()
 		if (GetController())
 		{
 			GameInst->ApplyPendingWarp(this);
+			GameInst->ApplyPendingCharacterLoad(this);
 		}
 
 		// マップも太陽も準備完了したこのタイミングで、初回の時間を通知する ---
@@ -767,9 +768,12 @@ void AMyProject1Character::Tick(float DeltaTime)
 	{
 		float DistanceToTarget = GetDistanceTo(CurrentTarget);
 
-		// ターゲット可能距離（TargetingRange）を基準に解除する
-		// ※境界線でカーソルが点滅するのを防ぐため、「+500」の遊び（バッファ）を持たせています
-		if (DistanceToTarget > TargetingRange + 500.0f)
+		// NPC/宝箱などの近距離インタラクト対象は、InteractRange基準の短い距離で解除する。
+		// 敵（戦闘ロックオン）は従来通りTargetingRange基準のまま（境界でのカーソル点滅防止バッファも維持）。
+		const bool bIsInteractTarget = CurrentTarget->ActorHasTag(FName("NPC"));
+		const float CancelDistance = bIsInteractTarget ? (InteractRange + 100.0f) : (TargetingRange + 500.0f);
+
+		if (DistanceToTarget > CancelDistance)
 		{
 			CancelTarget(); // これを呼ぶだけで、UIのカーソルが消えます
 			OnReceiveLogMessage(TEXT("ターゲットから離れすぎたため解除しました。"), ELogMessageType::System);
@@ -1131,6 +1135,10 @@ void AMyProject1Character::OnDeath()
 
 void AMyProject1Character::PerformAutoAttack()
 {
+	// 特殊技のモーション中は、呼び出し元（Tick／BTタスク問わず）に関係なく
+	// 通常攻撃をここで確実にブロックする（呼び出し元だけのチェックだと抜け道が残るため）
+	if (bIsUsingSpecialAttack) return;
+
 	LastCombatTime = GetWorld()->GetTimeSeconds();
 
 	// ジョブデータを取得
@@ -1681,6 +1689,117 @@ void AMyProject1Character::ApplyJobData()
 	NotifyStatsChanged();
 }
 
+// --- 冒険者クラスの等級：ギルドNPCへの申請による昇格判定 ---
+bool AMyProject1Character::TryRankUp()
+{
+	if (!AdventurerRankDataTable)
+	{
+		OnReceiveLogMessage(TEXT("等級テーブルが設定されていません。"), ELogMessageType::System);
+		return false;
+	}
+
+	// 既に最上位（番外）なら昇格の余地なし
+	if (MyStats.AdventurerRank == EAdventurerRank::Extra)
+	{
+		OnReceiveLogMessage(TEXT("既に最高位の等級です。"), ELogMessageType::System);
+		return false;
+	}
+
+	// 次の等級（現在値+1）に対応するテーブル行を、enum名（"Rank4"など）で引く
+	const EAdventurerRank NextRank = static_cast<EAdventurerRank>(static_cast<uint8>(MyStats.AdventurerRank) + 1);
+	const UEnum* RankEnum = StaticEnum<EAdventurerRank>();
+	const FName NextRankRowName = RankEnum->GetNameByValue(static_cast<int64>(NextRank));
+
+	FAdventurerRankData* RankData = AdventurerRankDataTable->FindRow<FAdventurerRankData>(NextRankRowName, TEXT("TryRankUp"));
+	if (!RankData)
+	{
+		OnReceiveLogMessage(TEXT("次の等級の昇格条件データが見つかりません。"), ELogMessageType::System);
+		return false;
+	}
+
+	// --- 昇格条件のチェック（不足しているものをまとめてログに出す） ---
+	TArray<FString> MissingConditions;
+
+	if (MyStats.Level < RankData->RequiredLevel)
+	{
+		MissingConditions.Add(FString::Printf(TEXT("レベル%d以上"), RankData->RequiredLevel));
+	}
+
+	const int32 CompletedQuestCount = QuestComp ? QuestComp->CompletedQuests.Num() : 0;
+	if (CompletedQuestCount < RankData->RequiredCompletedQuests)
+	{
+		MissingConditions.Add(FString::Printf(TEXT("クエスト累計クリア数%d回以上"), RankData->RequiredCompletedQuests));
+	}
+
+	if (MyStats.Fame < RankData->RequiredFame)
+	{
+		MissingConditions.Add(FString::Printf(TEXT("名声%.0f以上"), RankData->RequiredFame));
+	}
+
+	if (!RankData->RequiredFlag.IsNone() && !HasFlag(RankData->RequiredFlag))
+	{
+		MissingConditions.Add(TEXT("昇格試験の達成"));
+	}
+
+	if (MissingConditions.Num() > 0)
+	{
+		FString JoinedConditions = FString::Join(MissingConditions, TEXT("、"));
+		OnReceiveLogMessage(FString::Printf(TEXT("昇格条件を満たしていません（不足：%s）"), *JoinedConditions), ELogMessageType::System);
+		return false;
+	}
+
+	// --- 条件達成：昇格を確定し、ボーナスを加算 ---
+	MyStats.AdventurerRank = NextRank;
+
+	for (const FEquipmentStatModifier& Bonus : RankData->RankUpBonuses)
+	{
+		if (Bonus.TargetStat == ETargetStat::CustomExtraStat)
+		{
+			if (!Bonus.ExtraStatName.IsNone())
+			{
+				MyStats.ExtraStats.FindOrAdd(Bonus.ExtraStatName) += Bonus.Amount;
+			}
+			continue;
+		}
+
+		switch (Bonus.TargetStat)
+		{
+		case ETargetStat::STR:          MyStats.STR += Bonus.Amount;          break;
+		case ETargetStat::DEX:          MyStats.DEX += Bonus.Amount;          break;
+		case ETargetStat::VIT:          MyStats.VIT += Bonus.Amount;          break;
+		case ETargetStat::AGI:          MyStats.AGI += Bonus.Amount;          break;
+		case ETargetStat::Accuracy:     MyStats.Accuracy += Bonus.Amount;     break;
+		case ETargetStat::Evasion:      MyStats.Evasion += Bonus.Amount;      break;
+		case ETargetStat::AttackPower:  MyStats.AttackPower += Bonus.Amount;  break;
+		case ETargetStat::DefensePower: MyStats.DefensePower += Bonus.Amount; break;
+		case ETargetStat::Stamina:      MyStats.Stamina += Bonus.Amount;      break;
+		case ETargetStat::HP:           MyStats.MaxHP += Bonus.Amount;        break;
+		case ETargetStat::Favor:        MyStats.Favor += Bonus.Amount;        break;
+		case ETargetStat::Fame:         MyStats.Fame += Bonus.Amount;         break;
+		case ETargetStat::Charm:        MyStats.Charm += Bonus.Amount;        break;
+		case ETargetStat::Mental:       MyStats.Mental += Bonus.Amount;       break;
+		default: break;
+		}
+	}
+
+	FString SpeakerName = MyStats.NPCName.IsEmpty() ? CharacterName : MyStats.NPCName;
+	OnReceiveLogMessage(FString::Printf(TEXT("%sは冒険者等級「%s」に昇格した！"), *SpeakerName, *GetAdventurerRankDisplayName().ToString()), ELogMessageType::System);
+
+	if (OnAdventurerRankChangedDelegate.IsBound())
+	{
+		OnAdventurerRankChangedDelegate.Broadcast();
+	}
+	NotifyStatsChanged();
+
+	return true;
+}
+
+FText AMyProject1Character::GetAdventurerRankDisplayName() const
+{
+	const UEnum* RankEnum = StaticEnum<EAdventurerRank>();
+	return RankEnum->GetDisplayNameTextByValue(static_cast<int64>(MyStats.AdventurerRank));
+}
+
 bool AMyProject1Character::TryPerformAutoAttack()
 {
 	if (!CurrentTarget || IsDead()) return false;
@@ -1771,11 +1890,13 @@ void AMyProject1Character::HandleTargetDeath()
 		// 次の敵がいる場合：
 		SetCurrentTarget(NextTarget);
 
-		// ★ ここがポイント：準備状態を飛ばして「オートアタック中」を維持する
-		bIsPreparingAttack = false;
-		bIsAutoAttacking = true;
+		// リターゲット直後は、既存の「抜刀準備」の仕組み（AttackStartupDelay＝2.5秒）を
+		// そのまま流用して攻撃までのディレイを挟む（抜刀モーションは既に済んでいるので再生はしない）
+		bIsAutoAttacking = false;
+		bIsPreparingAttack = true;
+		StartAttackTimestamp = GetWorld()->GetTimeSeconds();
 
-		
+
 	}
 	else
 	{
@@ -1811,10 +1932,8 @@ AActor* AMyProject1Character::FindBestNextTarget()
 	TArray<AActor*> FoundActors;
 	UGameplayStatics::GetAllActorsOfClass(GetWorld(), AMyProject1Character::StaticClass(), FoundActors);
 
-	AActor* BestTarget = nullptr;
 	AActor* ClosestAggroTarget = nullptr; // 自分を狙っている敵用
 	float MinDistAggro = TargetingRange;
-	float MinDistAny = TargetingRange;
 
 	for (AActor* Actor : FoundActors)
 	{
@@ -1827,7 +1946,7 @@ AActor* AMyProject1Character::FindBestNextTarget()
 		float Dist = GetDistanceTo(PotentialEnemy);
 		if (Dist > TargetingRange) continue;
 
-		// 【優先度1】自分をターゲットにしている敵（アクティブな敵）
+		// 自分をターゲットにしている（＝自分を攻撃してきている）敵だけを対象にする
 		if (PotentialEnemy->CurrentTarget == this)
 		{
 			if (Dist < MinDistAggro)
@@ -1836,17 +1955,10 @@ AActor* AMyProject1Character::FindBestNextTarget()
 				ClosestAggroTarget = PotentialEnemy;
 			}
 		}
-
-		// 【優先度2】単に一番近い敵
-		if (Dist < MinDistAny)
-		{
-			MinDistAny = Dist;
-			BestTarget = PotentialEnemy;
-		}
 	}
 
-	// 自分を狙っている敵がいればそちらを優先、いなければ一番近い敵を返す
-	return ClosestAggroTarget ? ClosestAggroTarget : BestTarget;
+	// 自分を攻撃してきている敵がいなければ、リターゲットしない（nullptrを返す）
+	return ClosestAggroTarget;
 }
 
 void AMyProject1Character::TalkToLog(const FString& Message)

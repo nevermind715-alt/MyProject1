@@ -222,12 +222,25 @@ bool UInventoryComponent::UseItem(FName ItemID)
 	AMyProject1Character* OwnerChar = Cast<AMyProject1Character>(GetOwner());
 	if (!ItemInfo || !OwnerChar) return false;
 
-	// ---消費アイテム以外なら使えないように弾く ---
-	if (ItemInfo->ItemType != EItemType::Consumable)
+	// ---消費アイテム以外（武器・防具・素材・だいじなもの等）なら使えないように弾く ---
+	if (ItemInfo->ItemType != EItemType::Consumable &&
+		ItemInfo->ItemType != EItemType::Potion &&
+		ItemInfo->ItemType != EItemType::Food)
 	{
 		if (IRpgCharacterInterface* RpgInterface = Cast<IRpgCharacterInterface>(GetOwner()))
 		{
 			FString CannotUseMsg = FString::Printf(TEXT("%s は使えない。"), *ItemInfo->Name);
+			RpgInterface->OnReceiveLogMessage(CannotUseMsg, ELogMessageType::System);
+		}
+		return false;
+	}
+
+	// ---bCanUseがfalseなら効果を発動させず使用不可ログのみ出す ---
+	if (!ItemInfo->bCanUse)
+	{
+		if (IRpgCharacterInterface* RpgInterface = Cast<IRpgCharacterInterface>(GetOwner()))
+		{
+			FString CannotUseMsg = FString::Printf(TEXT("%s は使用できない！"), *ItemInfo->Name);
 			RpgInterface->OnReceiveLogMessage(CannotUseMsg, ELogMessageType::System);
 		}
 		return false;
@@ -378,4 +391,10 @@ bool UInventoryComponent::GetItemDataBP(FName ItemID, FItemData& OutData)
 void UInventoryComponent::SetItemActionMenuState(bool bIsOpen)
 {
 	bIsItemActionMenuOpen = bIsOpen;
+
+	// 閉じる時は、実際にUIを消す処理が誰から呼ばれても確実に反映されるよう合図を出す
+	if (!bIsOpen)
+	{
+		OnItemActionMenuForceClose.Broadcast();
+	}
 }

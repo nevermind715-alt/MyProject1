@@ -2,10 +2,10 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
-#include "MyProject1Types.h" // æ‚Ù‚Çì‚Á‚½\‘¢‘Ì‚ðŽg‚¤‚½‚ß
+#include "MyProject1Types.h" // ï¿½ï¿½Ù‚Çï¿½ï¿½ï¿½ï¿½ï¿½\ï¿½ï¿½ï¿½Ì‚ï¿½ï¿½gï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 #include "DialogComponent.generated.h"
 
-// UI‚É’Ê’m‚·‚é‚½‚ß‚ÌƒfƒŠƒQ[ƒgiƒZƒŠƒtƒf[ƒ^‚ÆA’‚Á‚Ä‚¢‚éNPC‚Ìî•ñ‚ð‘—‚éj
+// UIï¿½É’Ê’mï¿½ï¿½ï¿½é‚½ï¿½ß‚Ìƒfï¿½ï¿½ï¿½Qï¿½[ï¿½gï¿½iï¿½Zï¿½ï¿½ï¿½tï¿½fï¿½[ï¿½^ï¿½ÆAï¿½ï¿½ï¿½ï¿½ï¿½Ä‚ï¿½ï¿½ï¿½NPCï¿½Ìï¿½ï¿½ð‘—‚ï¿½j
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnDialogUpdated, const FDialogData&, DialogData, AActor*, NPC);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnDialogClosed);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnHideChoices);
@@ -18,27 +18,27 @@ class MYPROJECT1_API UDialogComponent : public UActorComponent
 public:
 	UDialogComponent();
 
-	// ‰ï˜b‚ðŠJŽn‚·‚éŠÖ”iƒf[ƒ^ƒe[ƒuƒ‹‚Ìs–¼‚ðŽw’èj
+	// ï¿½ï¿½bï¿½ï¿½ï¿½Jï¿½nï¿½ï¿½ï¿½ï¿½Öï¿½ï¿½iï¿½fï¿½[ï¿½^ï¿½eï¿½[ï¿½uï¿½ï¿½ï¿½Ìsï¿½ï¿½ï¿½ï¿½ï¿½wï¿½ï¿½j
 	UFUNCTION(BlueprintCallable, Category = "Dialog")
 	void StartDialog(FName RowName, UDataTable* DialogTable, AActor* InNPC);
 
-	// ‘I‘ðŽˆ‚ª‘I‚Î‚ê‚½Žž‚ÉUI‚©‚çŒÄ‚Î‚ê‚éŠÖ”
+	// ï¿½Iï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Iï¿½Î‚ê‚½ï¿½ï¿½ï¿½ï¿½UIï¿½ï¿½ï¿½ï¿½Ä‚Î‚ï¿½ï¿½Öï¿½
 	UFUNCTION(BlueprintCallable, Category = "Dialog")
 	void SelectChoice(int32 ChoiceIndex);
 
-	// --- ‚±‚Ì‘I‘ðŽˆ‚ÌðŒi¸_’lEƒtƒ‰ƒOj‚ð–ž‚½‚µ‚Ä‚¢‚é‚©ƒ`ƒFƒbƒN‚·‚é ---
+	// --- ï¿½ï¿½ï¿½Ì‘Iï¿½ï¿½ï¿½ï¿½ï¿½Ìï¿½ï¿½ï¿½ï¿½iï¿½ï¿½ï¿½_ï¿½lï¿½Eï¿½tï¿½ï¿½ï¿½Oï¿½jï¿½ð–ž‚ï¿½ï¿½ï¿½ï¿½Ä‚ï¿½ï¿½é‚©ï¿½`ï¿½Fï¿½bï¿½Nï¿½ï¿½ï¿½ï¿½ ---
 	UFUNCTION(BlueprintPure, Category = "Dialog")
 	bool CanSelectChoice(const FDialogChoice& Choice) const;
 
-	// ‘I‘ðŽˆ‚ª‚È‚¢‰ï˜b‚ÅA‰æ–Ê‚ðƒNƒŠƒbƒN‚µ‚ÄuŽŸ‚Öi‚ÞvŽž‚ÉŒÄ‚Î‚ê‚éŠÖ” ---
+	// ï¿½Iï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½È‚ï¿½ï¿½ï¿½bï¿½ÅAï¿½ï¿½Ê‚ï¿½ï¿½Nï¿½ï¿½ï¿½bï¿½Nï¿½ï¿½ï¿½Äuï¿½ï¿½ï¿½Öiï¿½Þvï¿½ï¿½ï¿½ÉŒÄ‚Î‚ï¿½ï¿½Öï¿½ ---
 	UFUNCTION(BlueprintCallable, Category = "Dialog")
 	void AdvanceDialog();
 
-	// ‰ï˜b‚ð‹­§I—¹‚·‚é
+	// ï¿½ï¿½bï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Iï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 	UFUNCTION(BlueprintCallable, Category = "Dialog")
 	void CloseDialog();
 
-	// UI‘¤‚Å‚±‚ê‚ÉƒCƒxƒ“ƒg‚ðƒoƒCƒ“ƒh‚·‚é
+	// UIï¿½ï¿½ï¿½Å‚ï¿½ï¿½ï¿½ÉƒCï¿½xï¿½ï¿½ï¿½gï¿½ï¿½ï¿½oï¿½Cï¿½ï¿½ï¿½hï¿½ï¿½ï¿½ï¿½
 	UPROPERTY(BlueprintAssignable, Category = "Dialog")
 	FOnDialogUpdated OnDialogUpdated;
 
@@ -49,28 +49,28 @@ public:
 	FOnHideChoices OnHideChoices;
 
 private:
-	// Œ»ÝŽg—p’†‚Ìƒf[ƒ^ƒe[ƒuƒ‹‚ÆNPC
+	// ï¿½ï¿½ï¿½ÝŽgï¿½pï¿½ï¿½ï¿½Ìƒfï¿½[ï¿½^ï¿½eï¿½[ï¿½uï¿½ï¿½ï¿½ï¿½NPC
 	UPROPERTY()
 	UDataTable* CurrentTable;
 
 	UPROPERTY()
 	AActor* CurrentNPC;
 
-	// Œ»Ý‚Ì‰ï˜bƒf[ƒ^
+	// ï¿½ï¿½ï¿½Ý‚Ì‰ï¿½bï¿½fï¿½[ï¿½^
 	FDialogData CurrentDialogData;
 
-	// ƒAƒNƒVƒ‡ƒ“‚ðŽÀs‚·‚é“à•”ŠÖ”
-	void ExecuteAction(const FDialogChoice& Choice);
+	// ã‚¢ã‚¯ã‚·ãƒ§ãƒ³ã®å®Ÿè¡Œæœ¬ä½“ï¼ˆChoiceçµŒç”±ã§ã‚‚ã‚»ãƒªãƒ•å˜ä½“çµŒç”±ã§ã‚‚å…±é€šã§ä½¿ã†ï¼‰
+	void ExecuteActionCore(EDialogActionType ActionType, const FString& ActionPayload, ETargetStat StatToChange, FName ExtraStatName, float StatChangeAmount);
 
-	// --- ‰üs•ªŠ„ƒVƒXƒeƒ€—p‚Ì•Ï”‚ÆŠÖ” ---
+	// --- ï¿½ï¿½ï¿½sï¿½ï¿½ï¿½ï¿½ï¿½Vï¿½Xï¿½eï¿½ï¿½ï¿½pï¿½Ì•Ïï¿½ï¿½ÆŠÖï¿½ ---
 
-	/** •ªŠ„‚³‚ê‚½ƒeƒLƒXƒg‚ð•ÛŽ‚·‚é”z—ñ */
+	/** ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ê‚½ï¿½eï¿½Lï¿½Xï¿½gï¿½ï¿½ÛŽï¿½ï¿½ï¿½ï¿½ï¿½zï¿½ï¿½ */
 	UPROPERTY()
 	TArray<FString> CurrentDialogLines;
 
-	/** Œ»Ý‰½s–Ú‚ð•\Ž¦‚µ‚Ä‚¢‚é‚©‚ÌƒCƒ“ƒfƒbƒNƒX */
+	/** ï¿½ï¿½ï¿½Ý‰ï¿½ï¿½sï¿½Ú‚ï¿½\ï¿½ï¿½ï¿½ï¿½ï¿½Ä‚ï¿½ï¿½é‚©ï¿½ÌƒCï¿½ï¿½ï¿½fï¿½bï¿½Nï¿½X */
 	int32 CurrentLineIndex = 0;
 
-	/** Œ»Ý‚Ìs‚ÌƒeƒLƒXƒg‚ðUI‚Ö‘—M‚·‚éŠÖ” */
+	/** ï¿½ï¿½ï¿½Ý‚Ìsï¿½Ìƒeï¿½Lï¿½Xï¿½gï¿½ï¿½UIï¿½Ö‘ï¿½ï¿½Mï¿½ï¿½ï¿½ï¿½Öï¿½ */
 	void ShowCurrentLine();
 };

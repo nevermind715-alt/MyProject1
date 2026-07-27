@@ -125,10 +125,36 @@ public:
 		return Preset == ERestrainedSpeedPreset::SlowWalk ? RestrainedSlowWalkSpeed : RestrainedFastWalkSpeed;
 	}
 
+	// --- セーブ/ロード ---
+
+	/** ロード予約データ。LoadSavedGameでセットされ、レベル移動後にキャラクターのBeginPlayから読み込まれてクリアされる */
+	UPROPERTY()
+	class UMyProject1SaveGame* PendingLoadSaveGame = nullptr;
+
+	/** 現在のプレイヤー状態をまとめてスロットに保存する */
+	UFUNCTION(BlueprintCallable, Category = "Save")
+	bool SaveCurrentGame(const FString& SlotName = TEXT("SaveSlot1"));
+
+	/** スロットからセーブデータを読み込み、既存のワープ着地機構に相乗りしてプレイヤーへ反映する */
+	UFUNCTION(BlueprintCallable, Category = "Save")
+	bool LoadSavedGame(const FString& SlotName = TEXT("SaveSlot1"));
+
+	/** 指定したスロットにセーブデータが存在するか（UIの「つづきから」表示用） */
+	UFUNCTION(BlueprintPure, Category = "Save")
+	bool DoesSaveGameExist(const FString& SlotName = TEXT("SaveSlot1")) const;
+
+	/** レベル移動後、新しく生成されたキャラクターのBeginPlayから呼ばれ、PendingLoadSaveGameの中身を実際に適用する */
+	void ApplyPendingCharacterLoad(class AMyProject1Character* Character);
+
 private:
 	// ★追加：暗転が終わるまで待機している「ワープID」と「プレイヤー」の記憶
 	FName ReservedWarpID;
 	TWeakObjectPtr<class ACharacter> ReservedPlayer;
+
+	/** 現在のプレイヤー状態を新しいUMyProject1SaveGameへ複製する（ディスクへは書き込まない一時オブジェクト）。
+	 *  ディスクへのセーブ（SaveCurrentGame）と、別マップへのワープでキャラクターが再生成される際の
+	 *  状態引き継ぎ（ExecuteWarpProcess）の両方から使う共通処理。 */
+	class UMyProject1SaveGame* CapturePlayerStateSnapshot(class AMyProject1Character* Character);
 
 protected:
 	// 時間を計算して進めるタイマーの本体

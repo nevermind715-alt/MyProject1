@@ -5,8 +5,12 @@
 #include "MyProject1Types.h"
 #include "ChestComponent.generated.h"
 
-// UI‘¤‚Åuƒ`ƒFƒXƒg‚Ì’†g‚ª•Ï‰»‚µ‚½v‚±‚Æ‚ğŒŸ’m‚·‚é‚½‚ß‚ÌƒfƒŠƒQ[ƒg
+// UIï¿½ï¿½ï¿½Åuï¿½`ï¿½Fï¿½Xï¿½gï¿½Ì’ï¿½ï¿½gï¿½ï¿½ï¿½Ï‰ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½vï¿½ï¿½ï¿½Æ‚ï¿½ï¿½ï¿½ï¿½mï¿½ï¿½ï¿½é‚½ï¿½ß‚Ìƒfï¿½ï¿½ï¿½Qï¿½[ï¿½g
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnChestUpdated);
+
+// BP_Chestå´ã«ã€Œä»Šã‹ã‚‰è“‹ã‚’é–‹é–‰ã™ã‚‹ã€ã“ã¨ã‚’çŸ¥ã‚‰ã›ã‚‹ãŸã‚ã®ãƒ‡ãƒªã‚²ãƒ¼ãƒˆï¼ˆå®Ÿéš›ã®è¦‹ãŸç›®ã¯BPå´ã®TimelineãŒæ‹…å½“ï¼‰
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnChestOpenRequested);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnChestCloseRequested);
 
 UCLASS(ClassGroup = (Custom), meta = (BlueprintSpawnableComponent))
 class MYPROJECT1_API UChestComponent : public UActorComponent
@@ -16,7 +20,7 @@ class MYPROJECT1_API UChestComponent : public UActorComponent
 public:
 	UChestComponent();
 
-	// ’†g‚ª•Ï‰»‚µ‚½‚ÉUI‚É’m‚ç‚¹‚é‡}
+	// ï¿½ï¿½ï¿½gï¿½ï¿½ï¿½Ï‰ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½UIï¿½É’mï¿½ç‚¹ï¿½é‡ï¿½}
 	UPROPERTY(BlueprintAssignable, Category = "Chest|UI")
 	FOnChestUpdated OnChestUpdated;
 
@@ -25,46 +29,83 @@ protected:
 
 public:
 	// ==========================================
-	// İ’è€–Ú (ƒGƒfƒBƒ^‚ÌƒvƒƒpƒeƒB‚Åİ’è)
+	// è¡¨ç¤ºåï¼ˆWBP_NPCNameã«æ¸¡ã™ç”¨ï¼‰
 	// ==========================================
 
-	/** True‚È‚çƒf[ƒ^ƒe[ƒuƒ‹‚©‚ç‘SƒAƒCƒeƒ€‚ğ©“®¶¬‚µ‚ÄŠi”[‚·‚éiƒfƒoƒbƒO—pj */
+	/** ãƒœãƒƒã‚¯ã‚¹ã‚³ãƒªã‚¸ãƒ§ãƒ³ã«ã‚ªãƒ¼ãƒãƒ¼ãƒ©ãƒƒãƒ—ã—ãŸæ™‚ã€WBP_NPCNameã«è¡¨ç¤ºã™ã‚‹åå‰ */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chest|Display")
+	FString ChestName = TEXT("å®ç®±");
+
+	// ==========================================
+	// ï¿½İ’è€ï¿½ï¿½ (ï¿½Gï¿½fï¿½Bï¿½^ï¿½Ìƒvï¿½ï¿½ï¿½pï¿½eï¿½Bï¿½Åİ’ï¿½)
+	// ==========================================
+
+	/** Trueï¿½È‚ï¿½fï¿½[ï¿½^ï¿½eï¿½[ï¿½uï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Sï¿½Aï¿½Cï¿½eï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ÄŠiï¿½[ï¿½ï¿½ï¿½ï¿½iï¿½fï¿½oï¿½bï¿½Oï¿½pï¿½j */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chest|Settings")
 	bool bGenerateAllItems = false;
 
-	/** ƒfƒoƒbƒO©“®¶¬‚ÉAŠeƒAƒCƒeƒ€‚ğ‰½ŒÂ‚¸‚Â” ‚É“ü‚ê‚é‚© */
+	/** ï¿½fï¿½oï¿½bï¿½Oï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ÉAï¿½eï¿½Aï¿½Cï¿½eï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Â‚ï¿½ï¿½Â”ï¿½ï¿½É“ï¿½ï¿½ï¿½é‚© */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chest|Settings", meta = (EditCondition = "bGenerateAllItems"))
 	int32 DebugItemQuantity = 99;
 
-	/** True‚È‚ç‰½“xæ‚èo‚µ‚Ä‚à’†g‚ªŒ¸‚ç‚È‚¢i–³ŒÀ” j */
+	/** Trueï¿½È‚ç‰½ï¿½xï¿½ï¿½ï¿½oï¿½ï¿½ï¿½Ä‚ï¿½ï¿½ï¿½ï¿½gï¿½ï¿½ï¿½ï¿½ï¿½ï¿½È‚ï¿½ï¿½iï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½j */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chest|Settings")
 	bool bIsInfinite = false;
 
-	/** True‚È‚ç’†g‚ª‹ó‚É‚È‚Á‚½‚ÉeActoriƒ`ƒFƒXƒg©‘Ìj‚ğƒ[ƒ‹ƒh‚©‚çíœ‚·‚é */
+	/** Trueï¿½È‚ç’†ï¿½gï¿½ï¿½ï¿½ï¿½É‚È‚ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ÉeActorï¿½iï¿½`ï¿½Fï¿½Xï¿½gï¿½ï¿½ï¿½Ìjï¿½ï¿½ï¿½ï¿½ï¿½[ï¿½ï¿½ï¿½hï¿½ï¿½ï¿½ï¿½íœï¿½ï¿½ï¿½ï¿½ */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chest|Settings")
 	bool bDestroyWhenEmpty = false;
 
-	/** “Ç‚İ‚ŞƒAƒCƒeƒ€ƒŠƒXƒg‚Ìƒf[ƒ^ƒe[ƒuƒ‹iDT_Items‚È‚Ç‚ğƒZƒbƒg‚·‚éj */
+	/** ï¿½Ç‚İï¿½ï¿½ŞƒAï¿½Cï¿½eï¿½ï¿½ï¿½ï¿½ï¿½Xï¿½gï¿½Ìƒfï¿½[ï¿½^ï¿½eï¿½[ï¿½uï¿½ï¿½ï¿½iDT_Itemsï¿½È‚Ç‚ï¿½ï¿½Zï¿½bï¿½gï¿½ï¿½ï¿½ï¿½j */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chest|Settings", meta = (EditCondition = "bGenerateAllItems"))
 	UDataTable* ItemDataTable;
 
 	// ==========================================
-	// ƒf[ƒ^ (Œ»İ‚Ì’†g)
+	// ï¿½fï¿½[ï¿½^ (ï¿½ï¿½ï¿½İ‚Ì’ï¿½ï¿½g)
 	// ==========================================
 
-	/** ƒ`ƒFƒXƒg‚Ì’†gBbGenerateAllItems‚ªFalse‚Ìê‡‚ÍAè“®‚ÅƒAƒCƒeƒ€‚ğİ’è‚µ‚Ü‚·B */
+	/** ï¿½`ï¿½Fï¿½Xï¿½gï¿½Ì’ï¿½ï¿½gï¿½BbGenerateAllItemsï¿½ï¿½Falseï¿½Ìê‡ï¿½ÍAï¿½è“®ï¿½ÅƒAï¿½Cï¿½eï¿½ï¿½ï¿½ï¿½İ’è‚µï¿½Ü‚ï¿½ï¿½B */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chest|Content")
 	TArray<FInventorySlot> ChestContents;
 
 	// ==========================================
-	// ‹@”\
+	// ï¿½@ï¿½\
 	// ==========================================
 
-	/** ƒvƒŒƒCƒ„[‚ªƒ`ƒFƒXƒg‚©‚ç“Á’è‚ÌƒAƒCƒeƒ€‚ğæ‚èo‚·ˆ— */
+	/** ï¿½vï¿½ï¿½ï¿½Cï¿½ï¿½ï¿½[ï¿½ï¿½ï¿½`ï¿½Fï¿½Xï¿½gï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ÌƒAï¿½Cï¿½eï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½oï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ */
 	UFUNCTION(BlueprintCallable, Category = "Chest")
 	bool TakeItem(FName ItemID, int32 RequestAmount, class AMyProject1Character* InteractingPlayer);
 
-	/** Œ»İ‚Ìƒ`ƒFƒXƒg‚Ì’†g‚ğæ“¾‚·‚éiUI•\¦—pj */
+	/** ï¿½ï¿½ï¿½İ‚Ìƒ`ï¿½Fï¿½Xï¿½gï¿½Ì’ï¿½ï¿½gï¿½ï¿½ï¿½æ“¾ï¿½ï¿½ï¿½ï¿½iUIï¿½\ï¿½ï¿½ï¿½pï¿½j */
 	UFUNCTION(BlueprintPure, Category = "Chest")
 	TArray<FInventorySlot> GetChestContents() const { return ChestContents; }
+
+	// ==========================================
+	// ï¿½Jï¿½ï¿½ï¿½Jï¿½iï¿½~ï¿½ßjï¿½ï¿½Ô{Eï¿½Lï¿½[ï¿½Cï¿½ï¿½ï¿½^ï¿½ï¿½ï¿½Nï¿½g
+	// ==========================================
+
+	/** ï¿½ï¿½ï¿½ÉŠJï¿½ï¿½ï¿½Ä‚ï¿½ï¿½é‚©ï¿½iï¿½ï¿½dï¿½Aï¿½jï¿½ï¿½ï¿½[ï¿½Vï¿½ï¿½ï¿½ï¿½ï¿½hï¿½~ï¿½Æï¿½ï¿½Cï¿½ï¿½ï¿½^ï¿½ï¿½ï¿½Nï¿½gï¿½ï¿½ï¿½Ì•ï¿½ï¿½ï¿½Égï¿½ï¿½ï¿½j */
+	UPROPERTY(BlueprintReadOnly, Category = "Chest|State")
+	bool bIsOpen = false;
+
+	/** BPI_Interactableï¿½ï¿½Eï¿½Lï¿½[ï¿½Cï¿½xï¿½ï¿½ï¿½gï¿½ï¿½ï¿½ï¿½Ä‚Ñoï¿½ï¿½ï¿½Aï¿½Bï¿½ï¿½Ì“ï¿½ï¿½ï¿½ï¿½ï¿½iï¿½Jï¿½ï¿½+HUDï¿½\ï¿½ï¿½ï¿½ï¿½ÊŠï¿½ï¿½j */
+	UFUNCTION(BlueprintCallable, Category = "Chest")
+	void Interact(class AMyProject1Character* InteractingPlayer);
+
+	/** BPI_Targetableï¿½ï¿½bIsTargeted=falseï¿½iï¿½Jï¿½[ï¿½\ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½jï¿½ï¿½ï¿½ï¿½Ä‚Ñoï¿½ï¿½ï¿½Aï¿½~ï¿½ß‚éˆï¿½ï¿½ */
+	UFUNCTION(BlueprintCallable, Category = "Chest")
+	void CloseChest();
+
+	// ==========================================
+	// è“‹ã®è¦‹ãŸç›®ï¼ˆå®Ÿéš›ã®å›è»¢æ¼”å‡ºï¼‰ã¯BP_Chestå´ã®Timelineã«ä»»ã›ã‚‹ã€‚
+	// C++ã¯ã€Œã„ã¤å†ç”Ÿã™ã‚‹ã‹ã€ã ã‘ã‚’ãƒ‡ãƒªã‚²ãƒ¼ãƒˆã§åˆå›³ã¨ã—ã¦é€ã‚‹ã€‚
+	// ==========================================
+
+	/** åˆå›ã‚¤ãƒ³ã‚¿ãƒ©ã‚¯ãƒˆæ™‚ã«ãƒ–ãƒ­ãƒ¼ãƒ‰ã‚­ãƒ£ã‚¹ãƒˆã•ã‚Œã‚‹ã€‚BP_Chestå´ã§ã“ã‚Œã‚’ãƒã‚¤ãƒ³ãƒ‰ã—ã€Timelineã‚’é †å†ç”Ÿã™ã‚‹ */
+	UPROPERTY(BlueprintAssignable, Category = "Chest|Animation")
+	FOnChestOpenRequested OnChestOpenRequested;
+
+	/** ã‚¿ãƒ¼ã‚²ãƒƒãƒˆã‚«ãƒ¼ã‚½ãƒ«ãŒæ¶ˆãˆãŸæ™‚ã«ãƒ–ãƒ­ãƒ¼ãƒ‰ã‚­ãƒ£ã‚¹ãƒˆã•ã‚Œã‚‹ã€‚BP_Chestå´ã§ã“ã‚Œã‚’ãƒã‚¤ãƒ³ãƒ‰ã—ã€Timelineã‚’é€†å†ç”Ÿã™ã‚‹ */
+	UPROPERTY(BlueprintAssignable, Category = "Chest|Animation")
+	FOnChestCloseRequested OnChestCloseRequested;
 };

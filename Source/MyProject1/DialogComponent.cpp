@@ -74,7 +74,7 @@ void UDialogComponent::SelectChoice(int32 ChoiceIndex)
 
 	const FDialogChoice& SelectedChoice = CurrentDialogData.Choices[ChoiceIndex];
 
-	ExecuteAction(SelectedChoice);
+	ExecuteActionCore(SelectedChoice.ActionType, SelectedChoice.ActionPayload, SelectedChoice.StatToChange, SelectedChoice.ExtraStatName, SelectedChoice.StatChangeAmount);
 
 	FString NextIDStr = SelectedChoice.NextDialogID.ToString().TrimStartAndEnd();
 	bool bHasNext = !SelectedChoice.NextDialogID.IsNone() && !NextIDStr.IsEmpty() && NextIDStr.ToLower() != TEXT("none");
@@ -91,38 +91,46 @@ void UDialogComponent::SelectChoice(int32 ChoiceIndex)
 	}
 }
 
-void UDialogComponent::ExecuteAction(const FDialogChoice& Choice)
+void UDialogComponent::ExecuteActionCore(EDialogActionType ActionType, const FString& ActionPayload, ETargetStat StatToChange, FName ExtraStatName, float StatChangeAmount)
 {
-	
+
 	IRpgCharacterInterface* RpgInterface = Cast<IRpgCharacterInterface>(GetOwner());
 	if (!RpgInterface) return;
 
-	switch (Choice.ActionType)
+	switch (ActionType)
 	{
 	case EDialogActionType::AcceptQuest:
 		if (UQuestComponent* QuestComp = RpgInterface->GetQuestComponent())
-			QuestComp->AcceptQuest(FName(*Choice.ActionPayload));
+			QuestComp->AcceptQuest(FName(*ActionPayload));
 		break;
 
 	case EDialogActionType::ReportQuest:
 		if (UQuestComponent* QuestComp = RpgInterface->GetQuestComponent())
-			QuestComp->ReportQuest(FName(*Choice.ActionPayload));
+			QuestComp->ReportQuest(FName(*ActionPayload));
+		break;
+
+	case EDialogActionType::TalkProgress:
+		if (UQuestComponent* QuestComp = RpgInterface->GetQuestComponent())
+		{
+			// 話しかけた相手（NPC）の識別はActorのTags（詳細パネルで設定）を使う。親クラスを問わず使えるようにするため
+			QuestComp->UpdateTalkObjective(FName(*ActionPayload), CurrentNPC);
+		}
 		break;
 
 	case EDialogActionType::AddFlag:
-		RpgInterface->AddFlag(FName(*Choice.ActionPayload));
+		RpgInterface->AddFlag(FName(*ActionPayload));
 		break;
 
 	case EDialogActionType::RemoveFlag:
-		RpgInterface->RemoveFlag(FName(*Choice.ActionPayload));
+		RpgInterface->RemoveFlag(FName(*ActionPayload));
 		break;
 
 	case EDialogActionType::Warp:
 		if (UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetWorld()->GetGameInstance()))
 		{
-			FName WarpIDToUse = FName(*Choice.ActionPayload);
+			FName WarpIDToUse = FName(*ActionPayload);
 
-			if (Choice.ActionPayload.IsEmpty() || WarpIDToUse.IsNone())
+			if (ActionPayload.IsEmpty() || WarpIDToUse.IsNone())
 			{
 				if (AWarpPortal* Portal = Cast<AWarpPortal>(CurrentNPC))
 				{
@@ -145,6 +153,10 @@ void UDialogComponent::ExecuteAction(const FDialogChoice& Choice)
 		}
 		break;
 
+	case EDialogActionType::RequestRankUp:
+		RpgInterface->TryRankUp();
+		break;
+
 	case EDialogActionType::Close:
 		CloseDialog();
 		break;
@@ -153,16 +165,16 @@ void UDialogComponent::ExecuteAction(const FDialogChoice& Choice)
 		break;
 	}
 
-	
-	if (Choice.StatToChange != ETargetStat::None && Choice.StatChangeAmount != 0.0f)
+
+	if (StatToChange != ETargetStat::None && StatChangeAmount != 0.0f)
 	{
-		float ChangeVal = Choice.StatChangeAmount;
+		float ChangeVal = StatChangeAmount;
 		FString StatName = TEXT("不明なステータス");
 
 		// 参照(&)で受け取るため、ここで書き換えると本体のステータスに直結します
 		FCharacterStats& Stats = RpgInterface->GetCharacterStats();
 
-		switch (Choice.StatToChange)
+		switch (StatToChange)
 		{
 		case ETargetStat::Favor:
 			Stats.Favor += ChangeVal;
@@ -178,18 +190,18 @@ void UDialogComponent::ExecuteAction(const FDialogChoice& Choice)
 			break;
 
 		case ETargetStat::CustomExtraStat:
-			if (!Choice.ExtraStatName.IsNone())
+			if (!ExtraStatName.IsNone())
 			{
-				float* CurrentVal = Stats.ExtraStats.Find(Choice.ExtraStatName);
+				float* CurrentVal = Stats.ExtraStats.Find(ExtraStatName);
 
 				if (CurrentVal)
 				{
 					*CurrentVal += ChangeVal;
-					StatName = Choice.ExtraStatName.ToString();
+					StatName = ExtraStatName.ToString();
 				}
 				else
 				{
-					UE_LOG(LogTemp, Warning, TEXT("【Dialog Error】 ExtraStat '%s' が登録されていません！"), *Choice.ExtraStatName.ToString());
+					UE_LOG(LogTemp, Warning, TEXT("【Dialog Error】 ExtraStat '%s' が登録されていません！"), *ExtraStatName.ToString());
 					ChangeVal = 0.0f;
 				}
 			}
@@ -318,6 +330,13 @@ void UDialogComponent::ShowCurrentLine()
 
 	if (CurrentLineIndex == CurrentDialogLines.Num() - 1)
 	{
+		// 選択肢がない会話は、このセリフに直接設定されたアクションをここで実行する
+		// （会話終了設定の場合、この下でAdvanceDialogを経由せず直接CloseDialogするため、ここで実行しないと機会を失う）
+		if (CurrentDialogData.Choices.Num() == 0)
+		{
+			ExecuteActionCore(CurrentDialogData.ActionType, CurrentDialogData.ActionPayload, CurrentDialogData.StatToChange, CurrentDialogData.ExtraStatName, CurrentDialogData.StatChangeAmount);
+		}
+
 		if (CurrentDialogData.Choices.Num() == 0 &&
 			(CurrentDialogData.bEndDialog || CurrentDialogData.NextDialogID.IsNone()))
 		{

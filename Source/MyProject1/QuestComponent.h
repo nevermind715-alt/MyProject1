@@ -2,11 +2,14 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
-#include "MyProject1Types.h" // æ‚Ù‚Ç’Ç‰Á‚µ‚½\‘¢‘Ì‚ğg‚¤‚½‚ß‚ÉƒCƒ“ƒNƒ‹[ƒh
+#include "MyProject1Types.h" // ï¿½ï¿½Ù‚Ç’Ç‰ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½\ï¿½ï¿½ï¿½Ì‚ï¿½ï¿½gï¿½ï¿½ï¿½ï¿½ï¿½ß‚ÉƒCï¿½ï¿½ï¿½Nï¿½ï¿½ï¿½[ï¿½h
 #include "QuestComponent.generated.h"
 
-// UIXV—p‚ÌƒfƒŠƒQ[ƒgiƒNƒGƒXƒg‚ªi‚ñ‚¾‚è’B¬‚µ‚½‚ÉUI‚É’m‚ç‚¹‚é—pj
+// UIï¿½Xï¿½Vï¿½pï¿½Ìƒfï¿½ï¿½ï¿½Qï¿½[ï¿½gï¿½iï¿½Nï¿½Gï¿½Xï¿½gï¿½ï¿½ï¿½iï¿½ñ‚¾‚ï¿½Bï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½UIï¿½É’mï¿½ç‚¹ï¿½ï¿½pï¿½j
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnQuestUpdated, FName, QuestID);
+
+class AMyProject1HUD;
+class AActor;
 
 UCLASS(ClassGroup = (Custom), meta = (BlueprintSpawnableComponent))
 class MYPROJECT1_API UQuestComponent : public UActorComponent
@@ -16,51 +19,70 @@ class MYPROJECT1_API UQuestComponent : public UActorComponent
 public:
 	UQuestComponent();
 
-	// --- İ’è€–Ú ---
-	/** ƒNƒGƒXƒg‚ÌİŒv}‚ª‘‚©‚ê‚½ƒf[ƒ^ƒe[ƒuƒ‹ */
+	// --- ï¿½İ’è€ï¿½ï¿½ ---
+	/** ï¿½Nï¿½Gï¿½Xï¿½gï¿½ÌİŒvï¿½}ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ê‚½ï¿½fï¿½[ï¿½^ï¿½eï¿½[ï¿½uï¿½ï¿½ */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest")
 	UDataTable* QuestDataTable;
 
-	// --- ƒvƒŒƒCƒf[ƒ^iƒZ[ƒu‘ÎÛj ---
-	/** Œ»İis’†‚ÌƒNƒGƒXƒgˆê—— */
+	// --- ï¿½vï¿½ï¿½ï¿½Cï¿½fï¿½[ï¿½^ï¿½iï¿½Zï¿½[ï¿½uï¿½ÎÛj ---
+	/** ï¿½ï¿½ï¿½İiï¿½sï¿½ï¿½ï¿½ÌƒNï¿½Gï¿½Xï¿½gï¿½ê—— */
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Quest")
 	TArray<FQuestProgress> ActiveQuests;
 
-	/** ‚·‚Å‚ÉƒNƒŠƒA‚µ‚½ƒNƒGƒXƒg‚ÌID—š—ği“ñdó’‚ğ–h‚®‚½‚ßj */
+	/** ï¿½ï¿½ï¿½Å‚ÉƒNï¿½ï¿½ï¿½Aï¿½ï¿½ï¿½ï¿½ï¿½Nï¿½Gï¿½Xï¿½gï¿½ï¿½IDï¿½ï¿½ï¿½ï¿½ï¿½iï¿½ï¿½dï¿½ó’‚ï¿½hï¿½ï¿½ï¿½ï¿½ï¿½ßj */
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Quest")
 	TArray<FCompletedQuestInfo> CompletedQuests;
 
-	// --- ƒCƒxƒ“ƒg ---
-	/** ƒNƒGƒXƒg‚Ìis“x‚ª•Ï‚í‚Á‚½‚ÉŒÄ‚Î‚ê‚éƒCƒxƒ“ƒg */
+	/** ãƒªãƒ”ãƒ¼ãƒˆå¯èƒ½ã‚¯ã‚¨ã‚¹ãƒˆã®ã‚¯ãƒ¼ãƒ«ã‚¿ã‚¤ãƒ æ˜ã‘ã§CompletedQuestsã‹ã‚‰æ¶ˆãˆã¦ã‚‚ã€å®Ÿç¸¾ã‚¯ã‚¨ã‚¹ãƒˆåˆ¤å®šç”¨ã«ã€Œä¸€åº¦ã§ã‚‚ã‚¯ãƒªã‚¢ã—ãŸã‹ã€ã‚’æ°¸ç¶šä¿æŒã™ã‚‹ */
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Quest")
+	TArray<FName> EverCompletedQuestIDs;
+
+	// --- ï¿½Cï¿½xï¿½ï¿½ï¿½g ---
+	/** ï¿½Nï¿½Gï¿½Xï¿½gï¿½Ìiï¿½sï¿½xï¿½ï¿½ï¿½Ï‚ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ÉŒÄ‚Î‚ï¿½ï¿½Cï¿½xï¿½ï¿½ï¿½g */
 	UPROPERTY(BlueprintAssignable, Category = "Quest|UI")
 	FOnQuestUpdated OnQuestUpdated;
 
-	// --- å—v‚È‹@”\ ---
-	/** ƒNƒGƒXƒg‚ğó’‚·‚é */
+	// --- ï¿½ï¿½vï¿½È‹@ï¿½\ ---
+	/** ï¿½Nï¿½Gï¿½Xï¿½gï¿½ï¿½ï¿½ó’‚ï¿½ï¿½ï¿½ */
 	UFUNCTION(BlueprintCallable, Category = "Quest")
 	bool AcceptQuest(FName QuestID);
 
-	/** ƒNƒGƒXƒg‚ğ•ñ‚µ‚Ä•ñV‚ğó‚¯æ‚é */
+	/** ï¿½Nï¿½Gï¿½Xï¿½gï¿½ï¿½ñ‚ï¿½ï¿½Ä•ï¿½Vï¿½ï¿½ï¿½ó‚¯ï¿½ï¿½ */
 	UFUNCTION(BlueprintCallable, Category = "Quest")
 	bool ReportQuest(FName QuestID);
 
-	/** “G‚ğ“|‚µ‚½‚ÉŒÄ‚Ño‚µA“¢”°ƒNƒGƒXƒg‚ÌƒJƒEƒ“ƒg‚ği‚ß‚é */
+	/** ï¿½Gï¿½ï¿½|ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ÉŒÄ‚Ñoï¿½ï¿½ï¿½Aï¿½ï¿½ï¿½ï¿½ï¿½Nï¿½Gï¿½Xï¿½gï¿½ÌƒJï¿½Eï¿½ï¿½ï¿½gï¿½ï¿½iï¿½ß‚ï¿½ */
 	UFUNCTION(BlueprintCallable, Category = "Quest")
 	void UpdateKillObjective(FName EnemyID);
 
-	// --- •Ö—˜ŠÖ” ---
-	/** ƒNƒGƒXƒg‚Ìó‘Ô‚ğŠm”F‚·‚éi–¢ó’‚©Ais’†‚©AƒNƒŠƒAÏ‚©j */
+	/** ãŠä½¿ã„ãƒ»ä¼šè©±ã‚¯ã‚¨ã‚¹ãƒˆï¼ˆDeliveryï¼‰ã§ã€æŒ‡å®šNPCã¨è©±ã—ãŸæ™‚ã«å‘¼ã³å‡ºã—ã€é †ç•ªé€šã‚Šãªã‚‰é€²æ—ã‚’é€²ã‚ã‚‹ï¼ˆNPCã®è­˜åˆ¥ã¯Actorã®Tagsã§è¡Œã†ï¼‰ */
+	UFUNCTION(BlueprintCallable, Category = "Quest")
+	void UpdateTalkObjective(FName QuestID, AActor* TalkedToNPC);
+
+	// --- ï¿½Ö—ï¿½ï¿½Öï¿½ ---
+	/** ï¿½Nï¿½Gï¿½Xï¿½gï¿½Ìï¿½Ô‚ï¿½ï¿½mï¿½Fï¿½ï¿½ï¿½ï¿½iï¿½ï¿½ï¿½ó’‚ï¿½ï¿½Aï¿½iï¿½sï¿½ï¿½ï¿½ï¿½ï¿½Aï¿½Nï¿½ï¿½ï¿½Aï¿½Ï‚ï¿½ï¿½j */
 	UFUNCTION(BlueprintPure, Category = "Quest")
 	EQuestStatus GetQuestStatus(FName QuestID);
 
-	/** ƒf[ƒ^ƒe[ƒuƒ‹‚©‚çƒNƒGƒXƒgî•ñ‚ğæ“¾‚·‚é */
+	/** ï¿½fï¿½[ï¿½^ï¿½eï¿½[ï¿½uï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Nï¿½Gï¿½Xï¿½gï¿½ï¿½ï¿½ï¿½ï¿½æ“¾ï¿½ï¿½ï¿½ï¿½ */
 	UFUNCTION(BlueprintPure, Category = "Quest")
 	bool GetQuestData(FName QuestID, FQuestData& OutData);
 
-	// ’Ç‰Á: ƒAƒCƒeƒ€‚ğ“üè‚µ‚½‚ÉƒJƒEƒ“ƒg‚ği‚ß‚éŠÖ”
+	// ï¿½Ç‰ï¿½: ï¿½Aï¿½Cï¿½eï¿½ï¿½ï¿½ï¿½ï¿½ï¿½è‚µï¿½ï¿½ï¿½ï¿½ï¿½ÉƒJï¿½Eï¿½ï¿½ï¿½gï¿½ï¿½iï¿½ß‚ï¿½Öï¿½
 	UFUNCTION(BlueprintCallable, Category = "Quest")
 	void UpdateGatherObjective(FName ItemID, int32 AmountAdded);
 
-	// ’Ç‰Á: ó’‚ÉA‚·‚Å‚ÉŠ‚µ‚Ä‚¢‚éƒAƒCƒeƒ€‚ğƒJƒEƒ“ƒg‚·‚éŠÖ”
+	// ï¿½Ç‰ï¿½: ï¿½ó’ï¿½ï¿½ÉAï¿½ï¿½ï¿½Å‚Éï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä‚ï¿½ï¿½ï¿½Aï¿½Cï¿½eï¿½ï¿½ï¿½ï¿½ï¿½Jï¿½Eï¿½ï¿½ï¿½gï¿½ï¿½ï¿½ï¿½Öï¿½
 	void CheckInitialGatherProgress(FName QuestID);
+
+	/** å‰æã‚¯ã‚¨ã‚¹ãƒˆãŒ1ã¤ã‚¯ãƒªã‚¢ã•ã‚Œã‚‹ãŸã³ã«å‘¼ã°ã‚Œã€é€²è¡Œä¸­ã®å®Ÿç¸¾ã‚¯ã‚¨ã‚¹ãƒˆã®é”æˆçŠ¶æ³ã‚’æ›´æ–°ã™ã‚‹ */
+	void UpdateAchievementObjective(FName CompletedQuestID);
+
+	/** å®Ÿç¸¾ã‚¯ã‚¨ã‚¹ãƒˆã‚’å—æ³¨ã—ãŸç›´å¾Œã€ã™ã§ã«ã‚¯ãƒªã‚¢æ¸ˆã¿ã®å‰æã‚¯ã‚¨ã‚¹ãƒˆãŒã‚ã‚Œã°å³åº§ã«é€²æ—ã¸åæ˜ ã™ã‚‹ */
+	void CheckInitialAchievementProgress(FName QuestID);
+
+private:
+	// Sound resolution helpers: DT_QuestData row overrides HUD default sound when set
+	AMyProject1HUD* GetOwnerHUD() const;
+	class USoundBase* ResolveQuestSound(class USoundBase* RowSound, class USoundBase* AMyProject1HUD::* DefaultField) const;
 };

@@ -46,7 +46,7 @@ void UStatusScreenWidget::UpdateAllStatus(AMyProject1Character* PlayerCharacter)
 
     // --- レベル・経験値 ---
     if (Txt_Level)       Txt_Level->SetText(FText::AsNumber(Stats.Level));
-    if (Txt_NextLevelXP) Txt_NextLevelXP->SetText(FText::AsNumber(Stats.MaxXP));
+    if (Txt_NextLevelXP) Txt_NextLevelXP->SetText(FText::AsNumber(FMath::Max(0, Stats.MaxXP - Stats.CurrentXP)));
 
 
     // ==========================================

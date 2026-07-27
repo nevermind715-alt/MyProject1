@@ -2,11 +2,13 @@
 #include "Engine/DataTable.h"
 #include "MyProject1Character.h"
 #include "InventoryComponent.h"
+#include "MyProject1HUD.h"
+#include "GameFramework/PlayerController.h"
 
-// ƒRƒ“ƒXƒgƒ‰ƒNƒ^
+// ã‚³ãƒ³ã‚¹ãƒˆãƒ©ã‚¯ã‚¿
 UChestComponent::UChestComponent()
 {
-	// –ˆƒtƒŒ[ƒ€‚Ìˆ—‚Í•s—v‚È‚Ì‚ÅOFF‚É‚µ‚ÄŒy—Ê‰»
+	// æ¯ãƒ•ãƒ¬ãƒ¼ãƒ ã®å‡¦ç†ã¯ä¸è¦ãªã®ã§OFFã«ã—ã¦è»½é‡åŒ–
 	PrimaryComponentTick.bCanEverTick = false;
 }
 
@@ -14,13 +16,13 @@ void UChestComponent::BeginPlay()
 {
 	Super::BeginPlay();
 
-	// ƒfƒoƒbƒO—pFƒf[ƒ^ƒe[ƒuƒ‹‚©‚ç‘SƒAƒCƒeƒ€‚ğ©“®¶¬‚µ‚Ä” ‚É“ü‚ê‚é
+	// ãƒ‡ãƒãƒƒã‚°ç”¨ï¼šãƒ‡ãƒ¼ã‚¿ãƒ†ãƒ¼ãƒ–ãƒ«ã‹ã‚‰å…¨ã‚¢ã‚¤ãƒ†ãƒ ã‚’è‡ªå‹•ç”Ÿæˆã—ã¦ç®±ã«å…¥ã‚Œã‚‹
 	if (bGenerateAllItems && ItemDataTable)
 	{
-		// Šù‘¶‚Ì’†g‚ğˆê’UƒNƒŠƒA
+		// æ—¢å­˜ã®ä¸­èº«ã‚’ä¸€æ—¦ã‚¯ãƒªã‚¢
 		ChestContents.Empty();
 
-		// ƒf[ƒ^ƒe[ƒuƒ‹‚Ì‘Ss–¼iItemIDj‚ğæ“¾
+		// ãƒ‡ãƒ¼ã‚¿ãƒ†ãƒ¼ãƒ–ãƒ«ã®å…¨è¡Œåï¼ˆItemIDï¼‰ã‚’å–å¾—
 		TArray<FName> RowNames = ItemDataTable->GetRowNames();
 
 		for (const FName& RowName : RowNames)
@@ -40,41 +42,41 @@ bool UChestComponent::TakeItem(FName ItemID, int32 RequestAmount, AMyProject1Cha
 		return false;
 	}
 
-	// ” ‚Ì’†g‚©‚çw’è‚³‚ê‚½ƒAƒCƒeƒ€‚ğ’T‚·
+	// ç®±ã®ä¸­èº«ã‹ã‚‰æŒ‡å®šã•ã‚ŒãŸã‚¢ã‚¤ãƒ†ãƒ ã‚’æ¢ã™
 	for (int32 i = 0; i < ChestContents.Num(); ++i)
 	{
 		if (ChestContents[i].ItemID == ItemID)
 		{
-			// ” ‚É“ü‚Á‚Ä‚¢‚é”‚Æ—v‹‚³‚ê‚½”‚ğ”ä‚×A­‚È‚¢•û‚ğÀÛ‚É“n‚·”‚Æ‚·‚é
+			// æ—¢ã«å…¥ã£ã¦ã„ã‚‹æ•°ã¨è¦æ±‚ã•ã‚ŒãŸæ•°ã‚’æ¯”ã¹ã€å°‘ãªã„æ–¹ã‚’å®Ÿéš›ã«æ¸¡ã™ã“ã¨ã«ã™ã‚‹
 			int32 AmountToGive = FMath::Min(ChestContents[i].Quantity, RequestAmount);
 
-			// –³ŒÀ” ‚Ìê‡‚ÍA—v‹‚³‚ê‚½”‚ğ‚»‚Ì‚Ü‚Ü“n‚·
+			// ç„¡é™ãƒ¢ãƒ¼ãƒ‰ã®å ´åˆã¯ã€è¦æ±‚ã•ã‚ŒãŸæ•°ã‚’ãã®ã¾ã¾æ¸¡ã™
 			if (bIsInfinite)
 			{
 				AmountToGive = RequestAmount;
 			}
 
-			// ƒvƒŒƒCƒ„[‚ÌƒCƒ“ƒxƒ“ƒgƒŠ‚É’Ç‰Á
+			// ãƒ—ãƒ¬ã‚¤ãƒ¤ãƒ¼ã®ã‚¤ãƒ³ãƒ™ãƒ³ãƒˆãƒªã«è¿½åŠ 
 			bool bAdded = InteractingPlayer->InventoryComp->AddItem(ItemID, AmountToGive);
 
 			if (bAdded)
 			{
-				// –³ŒÀ” ‚Å‚È‚¯‚ê‚ÎİŒÉ‚ğŒ¸‚ç‚·
+				// ç„¡é™ãƒ¢ãƒ¼ãƒ‰ã§ãªã‘ã‚Œã°åœ¨åº«ã‚’æ¸›ã‚‰ã™
 				if (!bIsInfinite)
 				{
 					ChestContents[i].Quantity -= AmountToGive;
 
-					// İŒÉ‚ª0‚É‚È‚Á‚½‚çƒŠƒXƒg‚©‚çíœ
+					// åœ¨åº«ãŒ0ã«ãªã£ãŸã‚‰ãƒªã‚¹ãƒˆã‹ã‚‰å‰Šé™¤
 					if (ChestContents[i].Quantity <= 0)
 					{
 						ChestContents.RemoveAt(i);
 					}
 				}
 
-				// UI‘¤‚É’†g‚ªXV‚³‚ê‚½‚±‚Æ‚ğ’Ê’m
+				// UIå´ã«ä¸­èº«ãŒæ›´æ–°ã•ã‚ŒãŸã“ã¨ã‚’é€šçŸ¥
 				OnChestUpdated.Broadcast();
 
-				// g‚¢Ø‚èİ’è‚©‚Â’†g‚ª‹ó‚Á‚Û‚É‚È‚Á‚½ê‡Aƒ`ƒFƒXƒgieActorj‚ğÁ‹
+				// ä½¿ã„åˆ‡ã‚Šè¨­å®šã‹ã¤ä¸­èº«ãŒç©ºã«ãªã£ãŸå ´åˆã€ãƒã‚§ã‚¹ãƒˆï¼ˆè¦ªActorï¼‰ã‚’æ¶ˆã™
 				if (bDestroyWhenEmpty && ChestContents.Num() == 0)
 				{
 					if (AActor* OwnerActor = GetOwner())
@@ -83,15 +85,66 @@ bool UChestComponent::TakeItem(FName ItemID, int32 RequestAmount, AMyProject1Cha
 					}
 				}
 
-				return true; // æ‚èo‚µ¬Œ÷
+				return true; // å–ã‚Šå‡ºã—æˆåŠŸ
 			}
 			else
 			{
-				// ƒJƒoƒ“‚ª‚¢‚Á‚Ï‚¢‚Å“ü‚ç‚È‚©‚Á‚½ê‡‚È‚Ç
+				// ã‚«ãƒãƒ³ãŒæº€æ¯ã§å…¥ã‚‰ãªã‹ã£ãŸå ´åˆãªã©
 				return false;
 			}
 		}
 	}
 
-	return false; // ŠY“–ƒAƒCƒeƒ€‚ªŒ©‚Â‚©‚ç‚È‚©‚Á‚½
+	return false; // è©²å½“ã‚¢ã‚¤ãƒ†ãƒ ãŒè¦‹ã¤ã‹ã‚‰ãªã‹ã£ãŸ
+}
+
+void UChestComponent::Interact(AMyProject1Character* InteractingPlayer)
+{
+	UE_LOG(LogTemp, Warning, TEXT("[Chest] Interact() called. bIsOpen=%s"), bIsOpen ? TEXT("true") : TEXT("false"));
+
+	if (!InteractingPlayer) return;
+
+	// â˜…æ’ä»–åˆ¶å¾¡ï¼šã‚¤ãƒ³ãƒ™ãƒ³ãƒˆãƒªã®ã‚¢ã‚¯ã‚·ãƒ§ãƒ³ãƒ¡ãƒ‹ãƒ¥ãƒ¼ãŒé–‹ã„ãŸã¾ã¾ãƒã‚§ã‚¹ãƒˆã‚’é–‹ã‘ã‚‹ã¨
+	// ãƒ¡ãƒ‹ãƒ¥ãƒ¼ãŒæ¶ˆãˆãªããªã‚‹ä¸å…·åˆã‚’é˜²ããŸã‚ã€é–‹ã„ã¦ã„ã‚Œã°å¼·åˆ¶çš„ã«é–‰ã˜ã•ã›ã‚‹
+	if (InteractingPlayer->InventoryComp && InteractingPlayer->InventoryComp->bIsItemActionMenuOpen)
+	{
+		InteractingPlayer->InventoryComp->SetItemActionMenuState(false);
+	}
+
+	// åˆå›ã®ã‚¤ãƒ³ã‚¿ãƒ©ã‚¯ãƒˆã®æ™‚ã ã‘ã€ãµãŸã‚’é–‹ãã‚¢ãƒ‹ãƒ¡ãƒ¼ã‚·ãƒ§ãƒ³ã‚’å†ç”Ÿã™ã‚‹
+	if (!bIsOpen)
+	{
+		bIsOpen = true;
+
+		UE_LOG(LogTemp, Warning, TEXT("[Chest] Broadcasting OnChestOpenRequested"));
+
+		// å®Ÿéš›ã«ã©ã†å›è»¢ã•ã›ã‚‹ã‹ã¯BP_Chestå´ã®Timelineã«ä»»ã›ã‚‹ã€‚
+		// C++ã¯ã€Œé–‹ã„ãŸã€ã¨ã„ã†çŠ¶æ…‹å¤‰åŒ–ã¨ã€å†ç”Ÿã®åˆå›³ã ã‘ã‚’å‡ºã™ã€‚
+		OnChestOpenRequested.Broadcast();
+	}
+
+	// ã‚¢ã‚¤ãƒ†ãƒ ä¸€è¦§HUDï¼ˆæ—¢å­˜ã®WBP_ChestMenuï¼‰ã‚’è¡¨ç¤ºã™ã‚‹
+	APlayerController* PC = Cast<APlayerController>(InteractingPlayer->GetController());
+	if (!PC) return;
+
+	AMyProject1HUD* HUD = Cast<AMyProject1HUD>(PC->GetHUD());
+	if (!HUD) return;
+
+	HUD->CurrentChestComp = this;
+	HUD->ToggleChestMenu();
+}
+
+void UChestComponent::CloseChest()
+{
+	UE_LOG(LogTemp, Warning, TEXT("[Chest] CloseChest() called. bIsOpen=%s"), bIsOpen ? TEXT("true") : TEXT("false"));
+
+	// é–‹ã„ã¦ã„ãªã„è“‹ã‚’é–‰ã‚ã‚ˆã†ã¨ã—ã¦ã‚‚ä½•ã‚‚ã—ãªã„ï¼ˆå¤šé‡å‘¼ã³å‡ºã—é˜²æ­¢ï¼‰
+	if (!bIsOpen) return;
+
+	bIsOpen = false;
+
+	UE_LOG(LogTemp, Warning, TEXT("[Chest] Broadcasting OnChestCloseRequested"));
+
+	// Interact()ã®é–‹ãå‡¦ç†ã¨å¯¾ã«ãªã‚‹ã€é–‰ã˜ã‚‹åˆå›³
+	OnChestCloseRequested.Broadcast();
 }

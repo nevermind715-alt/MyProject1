@@ -32,6 +32,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnCharacterDeathSignature, AActor*,
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnStatsUpdatedSignature);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnBuffListChangedSignature);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnSkinOverlayUIChangedSignature);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnAdventurerRankChangedSignature);
 
 
 // クリティカルダメージを識別するための専用クラス
@@ -243,6 +244,9 @@ public:
 
 	virtual FCharacterStats& GetCharacterStats() override { return MyStats; }
 	virtual UQuestComponent* GetQuestComponent() const override { return QuestComp; }
+
+	// ギルドNPCへの申請により、冒険者等級の昇格を試みる（IRpgCharacterInterface実装）
+	virtual bool TryRankUp() override;
 
 	// --- 疲労度（Energy）設定 ---
 
@@ -987,6 +991,20 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "RPG Stats|Job")
 	void ApplyJobData();
+
+	// --- 冒険者クラスの等級（ギルドNPCへの申請で昇格） ---
+
+	/** 等級ごとの昇格条件・昇格ボーナスを定義したデータテーブル（行名は昇格先のEAdventurerRank名と一致させる） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RPG Stats|Rank")
+	UDataTable* AdventurerRankDataTable;
+
+	/** 等級が変化した時にUIへ知らせる合図 */
+	UPROPERTY(BlueprintAssignable, Category = "RPG Stats|Rank")
+	FOnAdventurerRankChangedSignature OnAdventurerRankChangedDelegate;
+
+	/** 現在の等級の表示名（「五等」「番外」など）をUI表示用に取得する */
+	UFUNCTION(BlueprintPure, Category = "RPG Stats|Rank")
+	FText GetAdventurerRankDisplayName() const;
 
 protected:
 	/** bUsesRestrainedAnimBlueprintの状態に応じて、拘束用ABPへの差し替え／元のABPへの復元を実際に行う */

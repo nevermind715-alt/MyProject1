@@ -3,12 +3,42 @@
 #include "InventoryComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "MyProject1GameInstance.h"
+#include "MyProject1HUD.h"
+#include "GameFramework/Pawn.h"
+#include "GameFramework/PlayerController.h"
+#include "GameFramework/Actor.h"
 
 #pragma execution_character_set("utf-8")
 
 UQuestComponent::UQuestComponent()
 {
 	PrimaryComponentTick.bCanEverTick = false; // 毎フレーム処理は不要なので軽くする
+}
+
+AMyProject1HUD* UQuestComponent::GetOwnerHUD() const
+{
+	if (APawn* OwnerPawn = Cast<APawn>(GetOwner()))
+	{
+		if (APlayerController* PC = Cast<APlayerController>(OwnerPawn->GetController()))
+		{
+			return Cast<AMyProject1HUD>(PC->GetHUD());
+		}
+	}
+	return nullptr;
+}
+
+USoundBase* UQuestComponent::ResolveQuestSound(USoundBase* RowSound, USoundBase* AMyProject1HUD::* DefaultField) const
+{
+	// DT_QuestData側に個別設定があればそちらを優先し、無ければHUDの既定音にフォールバックする
+	if (RowSound)
+	{
+		return RowSound;
+	}
+	if (AMyProject1HUD* HUD = GetOwnerHUD())
+	{
+		return HUD->*DefaultField;
+	}
+	return nullptr;
 }
 
 bool UQuestComponent::GetQuestData(FName QuestID, FQuestData& OutData)
@@ -97,6 +127,7 @@ bool UQuestComponent::AcceptQuest(FName QuestID)
 	ActiveQuests.Add(NewQuest);
 
 	CheckInitialGatherProgress(QuestID);
+	CheckInitialAchievementProgress(QuestID);
 
 	// UIに通知
 	OnQuestUpdated.Broadcast(QuestID);
@@ -109,9 +140,9 @@ bool UQuestComponent::AcceptQuest(FName QuestID)
 		OwnerChar->OnReceiveLogMessage(LogMsg, ELogMessageType::System);
 	}
 
-	if (Data.AcceptSound)
+	if (USoundBase* Sound = ResolveQuestSound(Data.AcceptSound, &AMyProject1HUD::DefaultQuestAcceptSound))
 	{
-		UGameplayStatics::PlaySound2D(GetWorld(), Data.AcceptSound);
+		UGameplayStatics::PlaySound2D(GetWorld(), Sound);
 	}
 
 	return true;
@@ -151,9 +182,9 @@ void UQuestComponent::UpdateKillObjective(FName EnemyID)
 						OwnerChar->OnReceiveLogMessage(LogMsg, ELogMessageType::System);
 					}
 
-					if (Data.ObjectiveClearedSound)
+					if (USoundBase* Sound = ResolveQuestSound(Data.ObjectiveClearedSound, &AMyProject1HUD::DefaultQuestObjectiveClearedSound))
 					{
-						UGameplayStatics::PlaySound2D(GetWorld(), Data.ObjectiveClearedSound);
+						UGameplayStatics::PlaySound2D(GetWorld(), Sound);
 					}
 				}
 				else
@@ -259,10 +290,10 @@ bool UQuestComponent::ReportQuest(FName QuestID)
 					FString LogMsg = FString::Printf(TEXT("クエスト「%s」をコンプリートした！"), *Data.QuestName.ToString());
 					OwnerChar->OnReceiveLogMessage(LogMsg, ELogMessageType::System);
 
-					if (Data.CompletionSound)
+					if (USoundBase* Sound = ResolveQuestSound(Data.CompletionSound, &AMyProject1HUD::DefaultQuestCompletionSound))
 					{
 						// 2Dサウンド（距離に関係なく画面全体に聞こえる音）として再生
-						UGameplayStatics::PlaySound2D(GetWorld(), Data.CompletionSound);
+						UGameplayStatics::PlaySound2D(GetWorld(), Sound);
 					}
 				}
 
@@ -276,6 +307,10 @@ bool UQuestComponent::ReportQuest(FName QuestID)
 					NewRecord.CompletedTotalDays = GameInst->TotalElapsedDays;
 				}
 				CompletedQuests.Add(NewRecord);
+
+				// クールタイムでCompletedQuestsから消えても実績判定が壊れないよう、恒久的な履歴にも記録する
+				EverCompletedQuestIDs.AddUnique(QuestID);
+				UpdateAchievementObjective(QuestID);
 
 				OnQuestUpdated.Broadcast(QuestID);
 				return true;
@@ -314,9 +349,9 @@ void UQuestComponent::UpdateGatherObjective(FName ItemID, int32 AmountAdded)
 						OwnerChar->OnReceiveLogMessage(LogMsg, ELogMessageType::System);
 					}
 
-					if (Data.ObjectiveClearedSound)
+					if (USoundBase* Sound = ResolveQuestSound(Data.ObjectiveClearedSound, &AMyProject1HUD::DefaultQuestObjectiveClearedSound))
 					{
-						UGameplayStatics::PlaySound2D(GetWorld(), Data.ObjectiveClearedSound);
+						UGameplayStatics::PlaySound2D(GetWorld(), Sound);
 					}
 				}
 				else
@@ -331,6 +366,154 @@ void UQuestComponent::UpdateGatherObjective(FName ItemID, int32 AmountAdded)
 		}
 	}
 	if (bUpdatedAny) OnQuestUpdated.Broadcast(NAME_None);
+}
+
+void UQuestComponent::UpdateTalkObjective(FName QuestID, AActor* TalkedToNPC)
+{
+	if (QuestID.IsNone() || !TalkedToNPC) return;
+
+	for (FQuestProgress& Progress : ActiveQuests)
+	{
+		if (Progress.QuestID != QuestID || Progress.Status != EQuestStatus::InProgress) continue;
+
+		FQuestData Data;
+		if (!GetQuestData(QuestID, Data) || Data.QuestType != EQuestType::Delivery) break;
+
+		// 次に期待している相手のTagを持っていないなら何もしない（順番を飛ばして進めさせない）
+		if (!Data.RequiredTalkNPCIDs.IsValidIndex(Progress.CurrentAmount) || !TalkedToNPC->ActorHasTag(Data.RequiredTalkNPCIDs[Progress.CurrentAmount]))
+		{
+			break;
+		}
+
+		Progress.CurrentAmount++;
+		const int32 RequiredCount = Data.RequiredTalkNPCIDs.Num();
+
+		AMyProject1Character* OwnerChar = Cast<AMyProject1Character>(GetOwner());
+
+		if (Progress.CurrentAmount >= RequiredCount)
+		{
+			Progress.Status = EQuestStatus::ObjectiveCleared; // 依頼主への報告待ち状態へ
+
+			if (OwnerChar)
+			{
+				FString LogMsg = FString::Printf(TEXT("クエスト「%s」の目的を達成した！"), *Data.QuestName.ToString());
+				OwnerChar->OnReceiveLogMessage(LogMsg, ELogMessageType::System);
+			}
+
+			if (USoundBase* Sound = ResolveQuestSound(Data.ObjectiveClearedSound, &AMyProject1HUD::DefaultQuestObjectiveClearedSound))
+			{
+				UGameplayStatics::PlaySound2D(GetWorld(), Sound);
+			}
+		}
+		else if (OwnerChar)
+		{
+			FString LogMsg = FString::Printf(TEXT("クエスト「%s」の進捗（%d / %d）"), *Data.QuestName.ToString(), Progress.CurrentAmount, RequiredCount);
+			OwnerChar->OnReceiveLogMessage(LogMsg, ELogMessageType::Default);
+		}
+
+		OnQuestUpdated.Broadcast(QuestID);
+		break;
+	}
+}
+
+void UQuestComponent::UpdateAchievementObjective(FName CompletedQuestID)
+{
+	bool bUpdatedAny = false;
+	AMyProject1Character* OwnerChar = Cast<AMyProject1Character>(GetOwner());
+
+	for (FQuestProgress& Progress : ActiveQuests)
+	{
+		if (Progress.Status != EQuestStatus::InProgress) continue;
+
+		FQuestData Data;
+		if (!GetQuestData(Progress.QuestID, Data)) continue;
+
+		// 実績クエストであり、今クリアされたクエストが前提リストに含まれているか？
+		if (Data.QuestType != EQuestType::Achievement || !Data.RequiredQuestIDs.Contains(CompletedQuestID)) continue;
+
+		// 差分加算ではなく、前提クエストのうち「一度でもクリアした数」を毎回数え直す
+		// （同じ前提クエストを何度クリアしても過大カウントされない＝最低一回クリアの要件を満たす）
+		int32 ClearedCount = 0;
+		for (const FName& ReqID : Data.RequiredQuestIDs)
+		{
+			if (EverCompletedQuestIDs.Contains(ReqID))
+			{
+				ClearedCount++;
+			}
+		}
+
+		// RequiredAmountは使わず、RequiredQuestIDsを「全部」クリアすることを必須とする
+		const int32 RequiredCount = Data.RequiredQuestIDs.Num();
+		Progress.CurrentAmount = FMath::Min(ClearedCount, RequiredCount);
+		bUpdatedAny = true;
+
+		if (Progress.CurrentAmount >= RequiredCount)
+		{
+			Progress.Status = EQuestStatus::ObjectiveCleared; // 報告待ち状態へ
+
+			if (OwnerChar)
+			{
+				FString LogMsg = FString::Printf(TEXT("クエスト「%s」の目的を達成した！"), *Data.QuestName.ToString());
+				OwnerChar->OnReceiveLogMessage(LogMsg, ELogMessageType::System);
+			}
+
+			if (USoundBase* Sound = ResolveQuestSound(Data.ObjectiveClearedSound, &AMyProject1HUD::DefaultQuestObjectiveClearedSound))
+			{
+				UGameplayStatics::PlaySound2D(GetWorld(), Sound);
+			}
+		}
+		else if (OwnerChar)
+		{
+			FString LogMsg = FString::Printf(TEXT("実績クエスト「%s」の進捗（%d / %d）"), *Data.QuestName.ToString(), Progress.CurrentAmount, RequiredCount);
+			OwnerChar->OnReceiveLogMessage(LogMsg, ELogMessageType::Default);
+		}
+	}
+
+	if (bUpdatedAny)
+	{
+		OnQuestUpdated.Broadcast(NAME_None);
+	}
+}
+
+void UQuestComponent::CheckInitialAchievementProgress(FName QuestID)
+{
+	FQuestData Data;
+	if (!GetQuestData(QuestID, Data) || Data.QuestType != EQuestType::Achievement) return;
+
+	for (FQuestProgress& Progress : ActiveQuests)
+	{
+		if (Progress.QuestID != QuestID || Progress.Status != EQuestStatus::InProgress) continue;
+
+		int32 ClearedCount = 0;
+		for (const FName& ReqID : Data.RequiredQuestIDs)
+		{
+			if (EverCompletedQuestIDs.Contains(ReqID))
+			{
+				ClearedCount++;
+			}
+		}
+
+		// RequiredAmountは使わず、RequiredQuestIDsを「全部」クリアすることを必須とする
+		const int32 RequiredCount = Data.RequiredQuestIDs.Num();
+		Progress.CurrentAmount = FMath::Min(ClearedCount, RequiredCount);
+
+		if (Progress.CurrentAmount >= RequiredCount)
+		{
+			Progress.Status = EQuestStatus::ObjectiveCleared;
+
+			if (AMyProject1Character* OwnerChar = Cast<AMyProject1Character>(GetOwner()))
+			{
+				FString LogMsg = FString::Printf(TEXT("クエスト「%s」の目的を達成した！"), *Data.QuestName.ToString());
+				OwnerChar->OnReceiveLogMessage(LogMsg, ELogMessageType::System);
+			}
+
+			if (USoundBase* Sound = ResolveQuestSound(Data.ObjectiveClearedSound, &AMyProject1HUD::DefaultQuestObjectiveClearedSound))
+			{
+				UGameplayStatics::PlaySound2D(GetWorld(), Sound);
+			}
+		}
+		break;
+	}
 }
 
 void UQuestComponent::CheckInitialGatherProgress(FName QuestID)

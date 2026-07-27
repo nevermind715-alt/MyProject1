@@ -2,6 +2,11 @@
 #include "Kismet/GameplayStatics.h"
 #include "GameFramework/Character.h"
 #include "MyProject1Character.h"
+#include "MyProject1SaveGame.h"
+#include "InventoryComponent.h"
+#include "QuestComponent.h"
+#include "SkinOverlayComponent.h"
+#include "GameFramework/PlayerController.h"
 
 
 void UMyProject1GameInstance::Init()
@@ -155,6 +160,17 @@ void UMyProject1GameInstance::ExecuteWarpProcess()
 		bHasPendingWarp = true;
 		PendingWarpTransform = WarpData->DestinationTransform;
 
+		// クエスト・所持品・装備・ステータス（称号フラグ含む）は、レベル移動でキャラクターが
+		// 再生成されると初期値に戻ってしまう。消える前の状態を一時スナップショットとして記憶しておき、
+		// 新しいキャラクターのBeginPlay（ApplyPendingCharacterLoad）に読み戻させる。
+		if (AMyProject1Character* MyChar = Cast<AMyProject1Character>(ReservedPlayer.Get()))
+		{
+			if (UMyProject1SaveGame* Snapshot = CapturePlayerStateSnapshot(MyChar))
+			{
+				PendingLoadSaveGame = Snapshot;
+			}
+		}
+
 		UGameplayStatics::OpenLevel(GetWorld(), TargetLevelName);
 	}
 
@@ -179,5 +195,155 @@ void UMyProject1GameInstance::ApplyPendingWarp(ACharacter* PlayerCharacter)
 	}
 
 	bHasPendingWarp = false;
+}
+
+// ----------------------------------------------------
+// セーブ/ロード
+// ----------------------------------------------------
+
+UMyProject1SaveGame* UMyProject1GameInstance::CapturePlayerStateSnapshot(AMyProject1Character* Character)
+{
+	if (!Character) return nullptr;
+
+	UMyProject1SaveGame* SaveObj = Cast<UMyProject1SaveGame>(UGameplayStatics::CreateSaveGameObject(UMyProject1SaveGame::StaticClass()));
+	if (!SaveObj) return nullptr;
+
+	// 位置と所属レベル
+	SaveObj->PlayerLevelName = FName(*UGameplayStatics::GetCurrentLevelName(GetWorld()));
+	SaveObj->PlayerTransform = Character->GetActorTransform();
+
+	// ステータス（称号フラグ=UnlockedFlagsもMyStatsに含まれる）
+	SaveObj->PlayerStats = Character->MyStats;
+
+	// 装備
+	SaveObj->EquippedItems = Character->CurrentEquippedItems;
+
+	// 所持品
+	if (UInventoryComponent* Inv = Character->FindComponentByClass<UInventoryComponent>())
+	{
+		SaveObj->InventoryContent = Inv->InventoryContent;
+		SaveObj->Gil = Inv->Gil;
+	}
+
+	// クエスト進行
+	if (UQuestComponent* Quest = Character->GetQuestComponent())
+	{
+		SaveObj->ActiveQuests = Quest->ActiveQuests;
+		SaveObj->CompletedQuests = Quest->CompletedQuests;
+		SaveObj->EverCompletedQuestIDs = Quest->EverCompletedQuestIDs;
+	}
+
+	// 傷・タトゥー・ピアス・病気
+	if (USkinOverlayComponent* Skin = Character->FindComponentByClass<USkinOverlayComponent>())
+	{
+		SaveObj->ActiveTattoos = Skin->GetActiveTattoos();
+		SaveObj->ActiveScars = Skin->GetActiveScars();
+		SaveObj->ActivePiercings = Skin->GetActivePiercings();
+		SaveObj->ActiveDiseases = Skin->GetActiveDiseases();
+	}
+
+	// 暦・時間（GameInstance常駐データ）
+	SaveObj->CurrentTimeInMinutes = CurrentTimeInMinutes;
+	SaveObj->CurrentYear = CurrentYear;
+	SaveObj->CurrentMonth = CurrentMonth;
+	SaveObj->CurrentDay = CurrentDay;
+	SaveObj->TotalElapsedDays = TotalElapsedDays;
+	SaveObj->CurrentCycleState = CurrentCycleState;
+
+	return SaveObj;
+}
+
+bool UMyProject1GameInstance::SaveCurrentGame(const FString& SlotName)
+{
+	APlayerController* PC = GetWorld() ? GetWorld()->GetFirstPlayerController() : nullptr;
+	AMyProject1Character* Character = PC ? Cast<AMyProject1Character>(PC->GetPawn()) : nullptr;
+	if (!Character) return false;
+
+	UMyProject1SaveGame* SaveObj = CapturePlayerStateSnapshot(Character);
+	if (!SaveObj) return false;
+
+	return UGameplayStatics::SaveGameToSlot(SaveObj, SlotName, 0);
+}
+
+bool UMyProject1GameInstance::LoadSavedGame(const FString& SlotName)
+{
+	UMyProject1SaveGame* Loaded = Cast<UMyProject1SaveGame>(UGameplayStatics::LoadGameFromSlot(SlotName, 0));
+	if (!Loaded) return false;
+
+	// レベル移動後、新しいキャラクターのBeginPlayから読み込まれるまで保持しておく
+	PendingLoadSaveGame = Loaded;
+
+	// 暦・時間はGameInstance常駐データなので即座に反映
+	CurrentTimeInMinutes = Loaded->CurrentTimeInMinutes;
+	CurrentYear = Loaded->CurrentYear;
+	CurrentMonth = Loaded->CurrentMonth;
+	CurrentDay = Loaded->CurrentDay;
+	TotalElapsedDays = Loaded->TotalElapsedDays;
+	CurrentCycleState = Loaded->CurrentCycleState;
+
+	// 傷・タトゥー・ピアス・病気の「箱」も先にGameInstance側へ反映しておく。
+	// SkinOverlayComponent::BeginPlayがLoadOverlayStateFromGameInstance()で自動的に読みに来る。
+	SavedActiveTattoos = Loaded->ActiveTattoos;
+	SavedActiveScars = Loaded->ActiveScars;
+	SavedActivePiercings = Loaded->ActivePiercings;
+	SavedActiveDiseases = Loaded->ActiveDiseases;
+
+	// 既存のワープ着地機構に相乗りして、保存された座標にキャラクターを出現させる
+	bHasPendingWarp = true;
+	PendingWarpTransform = Loaded->PlayerTransform;
+
+	UGameplayStatics::OpenLevel(GetWorld(), Loaded->PlayerLevelName);
+	return true;
+}
+
+bool UMyProject1GameInstance::DoesSaveGameExist(const FString& SlotName) const
+{
+	return UGameplayStatics::DoesSaveGameExist(SlotName, 0);
+}
+
+void UMyProject1GameInstance::ApplyPendingCharacterLoad(AMyProject1Character* Character)
+{
+	if (!Character || !PendingLoadSaveGame) return;
+
+	UMyProject1SaveGame* Loaded = PendingLoadSaveGame;
+
+	// ステータス
+	Character->MyStats = Loaded->PlayerStats;
+
+	// 所持品
+	if (UInventoryComponent* Inv = Character->FindComponentByClass<UInventoryComponent>())
+	{
+		Inv->InventoryContent = Loaded->InventoryContent;
+		Inv->Gil = Loaded->Gil;
+		Inv->OnInventoryUpdated.Broadcast();
+	}
+
+	// クエスト進行
+	if (UQuestComponent* Quest = Character->GetQuestComponent())
+	{
+		Quest->ActiveQuests = Loaded->ActiveQuests;
+		Quest->CompletedQuests = Loaded->CompletedQuests;
+		Quest->EverCompletedQuestIDs = Loaded->EverCompletedQuestIDs;
+		Quest->OnQuestUpdated.Broadcast(NAME_None);
+	}
+
+	// 装備（見た目・鎖・移動制限も含めて既存のEquipItemロジックで正しく再構築させる）
+	if (Character->EquipmentDataTable)
+	{
+		for (const TPair<EEquipmentSlot, FName>& Pair : Loaded->EquippedItems)
+		{
+			if (FEquipmentData* Row = Character->EquipmentDataTable->FindRow<FEquipmentData>(Pair.Value, TEXT("LoadGameEquip")))
+			{
+				Character->EquipItem(Pair.Value, *Row);
+			}
+		}
+	}
+
+	// サイクル状態はTotalElapsedDaysから再計算されるだけなので、明示的に呼んで最新化する
+	Character->UpdateCycleState();
+
+	Character->NotifyStatsChanged();
+
+	PendingLoadSaveGame = nullptr;
 }
 

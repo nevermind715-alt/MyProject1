@@ -2,16 +2,16 @@
 #include "WBP_ShopSlot.h"
 #include "Kismet/GameplayStatics.h"
 #include "InventoryComponent.h"
-#include "GameFramework/Pawn.h" // ’Ç‰ÁFAPawn‚ÌŠî–{‹@”\‚ðŽg‚¤‚½‚ß
+#include "GameFramework/Pawn.h" // ï¿½Ç‰ï¿½ï¿½FAPawnï¿½ÌŠï¿½{ï¿½@ï¿½\ï¿½ï¿½ï¿½gï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 
 void UWBP_ShopSlot::NativeOnMouseEnter(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent)
 {
     Super::NativeOnMouseEnter(InGeometry, InMouseEvent);
 
-    // š“Á’è‚ÌƒLƒƒƒ‰ƒNƒ^[–¼‚ð–¼Žw‚µ‚¹‚¸A‚½‚¾‚Ìu‘€ì’†‚ÌPawnv‚Æ‚µ‚Äˆµ‚¤
+    // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ÌƒLï¿½ï¿½ï¿½ï¿½ï¿½Nï¿½^ï¿½[ï¿½ï¿½ï¿½ð–¼Žwï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Aï¿½ï¿½ï¿½ï¿½ï¿½Ìuï¿½ï¿½ï¿½ì’†ï¿½ï¿½Pawnï¿½vï¿½Æ‚ï¿½ï¿½Äˆï¿½ï¿½ï¿½
     if (APawn* PlayerPawn = GetOwningPlayerPawn())
     {
-        // ‘ŠŽè‚ª’N‚Å‚ ‚êAInventoryComponent‚ðŽ‚Á‚Ä‚¢‚é‚©’T‚·
+        // ï¿½ï¿½ï¿½è‚ªï¿½Nï¿½Å‚ï¿½ï¿½ï¿½AInventoryComponentï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä‚ï¿½ï¿½é‚©ï¿½Tï¿½ï¿½
         if (UInventoryComponent* Inv = PlayerPawn->FindComponentByClass<UInventoryComponent>())
         {
             if (Inv->bIsItemActionMenuOpen)
@@ -37,7 +37,14 @@ void UWBP_ShopSlot::NativeOnMouseLeave(const FPointerEvent& InMouseEvent)
     {
         if (UInventoryComponent* Inv = PlayerPawn->FindComponentByClass<UInventoryComponent>())
         {
-            // —£‚ê‚½Žž‚ÍNone(‹ó‚Á‚Û)‚ð‘—‚é
+            // ã‚¢ã‚¯ã‚·ãƒ§ãƒ³ãƒ¡ãƒ‹ãƒ¥ãƒ¼è¡¨ç¤ºä¸­ã¯ã€ãã¡ã‚‰ã¸ã‚«ãƒ¼ã‚½ãƒ«ãŒç§»å‹•ã—ãŸã ã‘ã§
+            // è©³ç´°ãƒ‘ãƒãƒ«ã‚’æ¶ˆã—ã¦ã—ã¾ã‚ãªã„ã‚ˆã†ã«ãƒ›ãƒãƒ¼è§£é™¤ã‚’ç„¡è¦–ã™ã‚‹
+            if (Inv->bIsItemActionMenuOpen)
+            {
+                return;
+            }
+
+            // é›¢ã‚ŒãŸã®ã§None(æœªé¸æŠž)ã‚’é€ã‚‹
             Inv->ReportItemHover(NAME_None);
         }
     }

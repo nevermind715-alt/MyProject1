@@ -10,6 +10,8 @@
 // ★デリゲートの宣言（ItemIDを渡すために OneParam を使用）
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnItemHoverChanged, FName, ItemID);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnInventoryUpdated);
+// アクションメニュー側のUIに「強制的に閉じてほしい」ことを伝えるための合図
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnItemActionMenuForceClose);
 
 UCLASS(ClassGroup = (Custom), meta = (BlueprintSpawnableComponent))
 class MYPROJECT1_API UInventoryComponent : public UActorComponent
@@ -69,6 +71,10 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Inventory|UI")
 	void SetItemActionMenuState(bool bIsOpen);
+
+	// bIsOpen=falseで呼ばれるたびに発信される。ActionMenuのUIはこれを購読して自分自身を閉じる
+	UPROPERTY(BlueprintAssignable, Category = "Inventory|UI")
+	FOnItemActionMenuForceClose OnItemActionMenuForceClose;
 
 public:
 	// --- 機能関数 ---

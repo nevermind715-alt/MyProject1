@@ -145,6 +145,18 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "UI|Audio")
 	USoundBase* TargetCursorSound;
 
+	// クエスト受注時の既定音（DT_QuestData側で個別に設定されていればそちらを優先）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Audio")
+	USoundBase* DefaultQuestAcceptSound;
+
+	// クエスト完了時の既定音（DT_QuestData側で個別に設定されていればそちらを優先）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Audio")
+	USoundBase* DefaultQuestCompletionSound;
+
+	// クエスト目的達成時の既定音（DT_QuestData側で個別に設定されていればそちらを優先）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Audio")
+	USoundBase* DefaultQuestObjectiveClearedSound;
+
 protected:
 	// ゲーム開始時に呼ばれる関数
 	virtual void BeginPlay() override;
