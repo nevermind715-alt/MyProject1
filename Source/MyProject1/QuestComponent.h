@@ -59,6 +59,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Quest")
 	void UpdateTalkObjective(FName QuestID, AActor* TalkedToNPC);
 
+	/** Delivery（会話）クエストがInProgressの場合に、指定NPCが「今まさに話しかけられるべき相手」かどうかを判定する。順番を無視して話しかけたNPCでは会話を出さないようにするための事前チェック用（Delivery以外・進行中でない場合は常にtrue） */
+	UFUNCTION(BlueprintPure, Category = "Quest")
+	bool IsExpectedTalkTarget(FName QuestID, AActor* NPC);
+
 	// --- �֗��֐� ---
 	/** �N�G�X�g�̏�Ԃ��m�F����i���󒍂��A�i�s�����A�N���A�ς��j */
 	UFUNCTION(BlueprintPure, Category = "Quest")
@@ -67,6 +71,14 @@ public:
 	/** �f�[�^�e�[�u������N�G�X�g�����擾���� */
 	UFUNCTION(BlueprintPure, Category = "Quest")
 	bool GetQuestData(FName QuestID, FQuestData& OutData);
+
+	/** 受注条件（RequiredFlag・PrerequisiteQuestIDs・RequiredStats）を全て満たしているか判定する */
+	UFUNCTION(BlueprintCallable, Category = "Quest")
+	bool CanAcceptQuest(FName QuestID);
+
+	/** 優先順位付きの候補クエストIDリストから、NPCが今提示すべき1件を選ぶ（複数クエスト・連鎖対応NPC用） */
+	UFUNCTION(BlueprintCallable, Category = "Quest")
+	FName GetNextOfferableQuest(const TArray<FName>& CandidateQuestIDs);
 
 	// �ǉ�: �A�C�e������肵�����ɃJ�E���g��i�߂�֐�
 	UFUNCTION(BlueprintCallable, Category = "Quest")

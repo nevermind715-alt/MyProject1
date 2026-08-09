@@ -76,12 +76,17 @@ public:
 
 	// --- ワープ実行関数 ---
 
-	/** ワープを要求する（同じマップなら即移動、別マップならロードを挟む） */
+	/** ワープを要求する（同じマップなら即移動、別マップならロードを挟む）
+	 *  bBypassRequiredFlag: trueにするとRequiredFlagの所持チェックを無視する（デバッグワープメニュー用） */
 	UFUNCTION(BlueprintCallable, Category = "Warp")
-	void RequestWarp(FName WarpID, class ACharacter* PlayerCharacter);
+	void RequestWarp(FName WarpID, class ACharacter* PlayerCharacter, bool bBypassRequiredFlag = false);
 
 	UFUNCTION(BlueprintCallable, Category = "Warp")
 	void ExecuteWarpProcess();
+
+	/** DT_WarpDestinationsの全行を、UI表示用の軽量データ一覧として取得する（デバッグメニュー等がBP側で一覧を組み立てる際に使う） */
+	UFUNCTION(BlueprintCallable, Category = "Warp")
+	TArray<FWarpDestinationInfo> GetAllWarpDestinations() const;
 
 	/** マップのロード完了後に呼ばれ、記憶した座標にプレイヤーを動かす */
 	UFUNCTION(BlueprintCallable, Category = "Warp")

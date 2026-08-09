@@ -381,6 +381,37 @@ struct FCharacterStats
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats|Flags")
 	TArray<FName> UnlockedFlags;
 
+	// 名前指定でステータス数値を取り出す（クエストの受注条件判定などで使う汎用ルックアップ）
+	// 既知のステータス名で見つからなければExtraStatsにフォールバックする
+	bool TryGetStatValue(FName StatName, float& OutValue) const
+	{
+		if (StatName == FName(TEXT("Level")))        { OutValue = (float)Level; return true; }
+		if (StatName == FName(TEXT("HP")))            { OutValue = HP; return true; }
+		if (StatName == FName(TEXT("MaxHP")))         { OutValue = MaxHP; return true; }
+		if (StatName == FName(TEXT("STR")))           { OutValue = STR; return true; }
+		if (StatName == FName(TEXT("VIT")))           { OutValue = VIT; return true; }
+		if (StatName == FName(TEXT("DEX")))           { OutValue = DEX; return true; }
+		if (StatName == FName(TEXT("AGI")))           { OutValue = AGI; return true; }
+		if (StatName == FName(TEXT("AttackPower")))   { OutValue = AttackPower; return true; }
+		if (StatName == FName(TEXT("DefensePower")))  { OutValue = DefensePower; return true; }
+		if (StatName == FName(TEXT("Karma")))         { OutValue = Karma; return true; }
+		if (StatName == FName(TEXT("Fame")))          { OutValue = Fame; return true; }
+		if (StatName == FName(TEXT("Favor")))         { OutValue = Favor; return true; }
+		if (StatName == FName(TEXT("Hostility")))     { OutValue = Hostility; return true; }
+		if (StatName == FName(TEXT("Charm")))         { OutValue = Charm; return true; }
+		if (StatName == FName(TEXT("Mental")))        { OutValue = Mental; return true; }
+		if (StatName == FName(TEXT("Energy")))        { OutValue = Energy; return true; }
+		if (StatName == FName(TEXT("CurrentXP")))     { OutValue = (float)CurrentXP; return true; }
+
+		if (const float* Extra = ExtraStats.Find(StatName))
+		{
+			OutValue = *Extra;
+			return true;
+		}
+
+		return false;
+	}
+
 	void ClampAll()
 	{
 		// 1. [-100, 100] グループ（Karma、精神力、名声）
@@ -840,6 +871,34 @@ enum class EQuestStatus : uint8
 	Completed           UMETA(DisplayName = "完了（報酬受取済）")
 };
 
+// --- 数値ステータス条件の比較演算子 ---
+UENUM(BlueprintType)
+enum class EStatCompareOp : uint8
+{
+	GreaterOrEqual  UMETA(DisplayName = "以上"),
+	LessOrEqual     UMETA(DisplayName = "以下"),
+	Equal           UMETA(DisplayName = "等しい"),
+	Greater         UMETA(DisplayName = "より大きい"),
+	Less            UMETA(DisplayName = "より小さい")
+};
+
+// --- 数値ステータス条件1件分（例：Level が 10 以上） ---
+USTRUCT(BlueprintType)
+struct FQuestStatRequirement
+{
+	GENERATED_BODY()
+
+	// FCharacterStats::TryGetStatValueが認識する名前（"Level","Karma"等）か、ExtraStatsのキー
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Condition")
+	FName StatName;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Condition")
+	EStatCompareOp CompareOp = EStatCompareOp::GreaterOrEqual;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Condition")
+	float RequiredValue = 0.0f;
+};
+
 // --- クエストの基本データ（データテーブル用） ---
 // --- クエストの基本データ（データテーブル用） ---
 USTRUCT(BlueprintType)
@@ -851,6 +910,16 @@ struct FQuestData : public FTableRowBase
 	// 空欄なら誰でも受注可能。文字が入っていれば、そのフラグ（称号）が必要
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Condition")
 	FName RequiredFlag;
+
+	// 汎用の受注前提クエスト（クエスト種別を問わず使える）。ここに列挙した全てのクエストが
+	// EverCompletedQuestIDsに含まれていないと受注不可。
+	// ※Achievement専用のRequiredQuestIDs（達成カウント用の進捗判定）とは役割が別なので分離している
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Condition")
+	TArray<FName> PrerequisiteQuestIDs;
+
+	// 受注に必要な数値ステータス条件（レベル・Karma等、複数指定した場合は全てAND判定）。空なら制限なし
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Condition")
+	TArray<FQuestStatRequirement> RequiredStats;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Info")
 	FText QuestName;
@@ -960,6 +1029,30 @@ struct FCompletedQuestInfo
 	int32 CompletedTotalDays = 0;
 };
 
+// --- NPCが扱うクエスト1件分の設定（QuestID + 状態別ダイアログ行名） ---
+// AQuestNPCBaseのQuests配列の要素。1体のNPCがこれを複数持てるので、
+// 「クエスト1完了後は自動的にクエスト2を提示する」といった連鎖をNPC側の分岐ロジック無しで表現できる
+USTRUCT(BlueprintType)
+struct FQuestDialogSet
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC")
+	FName QuestID;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC")
+	FName DialogRowName_NotStarted;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC")
+	FName DialogRowName_InProgress;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC")
+	FName DialogRowName_ObjectiveCleared;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC")
+	FName DialogRowName_Completed;
+};
+
 
 // --- ワープポータルの種類（今後のマップ配置用） ---
 UENUM(BlueprintType)
@@ -992,6 +1085,23 @@ struct FWarpDestination : public FTableRowBase
 	// 飛ぶために必要なフラグ（空欄なら無条件。フラグ名があれば、それを持っていないと飛べない）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Warp")
 	FName RequiredFlag;
+};
+
+// --- ワープ一覧UI用の軽量データ（デバッグメニュー等、C++からBPへ一覧を渡す用） ---
+// DT_WarpDestinationsの行そのものではなく、UI表示に必要な最小限だけを持つ。
+// 将来ポータル側の行先選択UIを作る際も、このままフィルタして流用できる想定。
+USTRUCT(BlueprintType)
+struct FWarpDestinationInfo
+{
+	GENERATED_BODY()
+
+	// DT_WarpDestinationsの行名（RequestWarpへ渡すWarpID）
+	UPROPERTY(BlueprintReadOnly, Category = "Warp")
+	FName WarpID;
+
+	// UIに表示する名前
+	UPROPERTY(BlueprintReadOnly, Category = "Warp")
+	FText DisplayName;
 };
 
 // --- 装備スロットの定義 ---

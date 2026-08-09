@@ -24,6 +24,7 @@
 #include "NavigationSystem.h"
 #include "MyProject1HUD.h"
 #include "ShopNPCBase.h"
+#include "QuestNPCBase.h"
 #include "Blueprint/UserWidget.h"
 #include "QuestComponent.h"
 #include "DialogComponent.h"
@@ -345,16 +346,59 @@ void AMyProject1Character::SetupPlayerInputComponent(UInputComponent* PlayerInpu
 
 		
 
-		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Started, this, &AMyProject1Character::OnToggleMenuPressed);
+		// Space(JumpAction)：ターゲット中のNPC/敵に応じて会話開始・ショップ開始・戦闘開始を行う
+		if (JumpAction)
+		{
+			EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Started, this, &AMyProject1Character::OnActionKeyPressed);
+		}
+
+		// Tab(ToggleMenuAction)：MaineWindow(コマンドメニュー)の開閉
+		if (ToggleMenuAction)
+		{
+			EnhancedInputComponent->BindAction(ToggleMenuAction, ETriggerEvent::Started, this, &AMyProject1Character::OnToggleMenuPressed);
+		}
 
 	}
-	
-	
+
+
+}
+
+void AMyProject1Character::OnActionKeyPressed()
+{
+	// 会話中・カットシーン中などの操作ロック中は何もしない
+	if (bIsInputLocked) return;
+
+	if (!CurrentTarget) return;
+
+	// 会話クエストNPCなら会話開始
+	if (AQuestNPCBase* QuestNPC = Cast<AQuestNPCBase>(CurrentTarget))
+	{
+		QuestNPC->TalkToNPC(this);
+		return;
+	}
+
+	// ショップNPCならショップ開始
+	if (AShopNPCBase* ShopNPC = Cast<AShopNPCBase>(CurrentTarget))
+	{
+		ShopNPC->OpenShop(this);
+		return;
+	}
+
+	// Enemyタグなら攻撃開始/解除をトグル
+	if (CurrentTarget->ActorHasTag(FName("Enemy")))
+	{
+		ToggleCombatMode();
+		return;
+	}
+
+	// QuestNPC/ShopNPC/Enemyのどれでもない場合（クエストボード等のBlueprint専用Interactable）は
+	// BP側の実装（Eキーと同じInteract呼び出し）に委ねる
+	BP_TryInteractWithTarget(CurrentTarget);
 }
 
 void AMyProject1Character::OnToggleMenuPressed()
 {
-	// スペースキー入力があったのでログウィンドウを再表示させる
+	// Tabキー入力があったのでログウィンドウを再表示させる
 	OnRequestShowLogWindow();
 
 	APlayerController* PC = Cast<APlayerController>(GetController());
@@ -367,6 +411,12 @@ void AMyProject1Character::OnToggleMenuPressed()
 
 			// 「メニューは閉じていて」かつ「操作ロック中（＝ショップや会話中）」なら、メニューを開かせない
 			if (!bIsCommandMenuOpen && bIsInputLocked)
+			{
+				return;
+			}
+
+			// 「メニューが開いていて」かつ「戦闘中」なら、誤ってメニューを消せないようにする
+			if (bIsCommandMenuOpen && (bIsAutoAttacking || bIsPreparingAttack))
 			{
 				return;
 			}
@@ -401,6 +451,18 @@ void AMyProject1Character::ToggleCombatMode()
 	{
 		// 直接攻撃せず、StartAutoAttack(準備)を呼ぶ
 		StartAutoAttack();
+
+		// 戦闘開始と同時にMaineMenuを表示する
+		if (APlayerController* PC = Cast<APlayerController>(GetController()))
+		{
+			if (AMyProject1HUD* HUD = Cast<AMyProject1HUD>(PC->GetHUD()))
+			{
+				if (!HUD->IsCommandMenuOpen())
+				{
+					HUD->ToggleCommandMenu();
+				}
+			}
+		}
 	}
 }
 

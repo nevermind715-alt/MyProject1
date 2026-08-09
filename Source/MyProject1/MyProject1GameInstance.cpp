@@ -86,7 +86,7 @@ int32 UMyProject1GameInstance::GetDaysInMonth(int32 Year, int32 Month)
 // ----------------------------------------------------
 // 1. ワープの「要求」と「暗転の開始」
 // ----------------------------------------------------
-void UMyProject1GameInstance::RequestWarp(FName WarpID, ACharacter* PlayerCharacter)
+void UMyProject1GameInstance::RequestWarp(FName WarpID, ACharacter* PlayerCharacter, bool bBypassRequiredFlag)
 {
 	if (!PlayerCharacter || !WarpDataTable || WarpID.IsNone()) return;
 
@@ -98,7 +98,7 @@ void UMyProject1GameInstance::RequestWarp(FName WarpID, ACharacter* PlayerCharac
 	}
 
 	AMyProject1Character* MyChar = Cast<AMyProject1Character>(PlayerCharacter);
-	if (MyChar && !WarpData->RequiredFlag.IsNone())
+	if (!bBypassRequiredFlag && MyChar && !WarpData->RequiredFlag.IsNone())
 	{
 		if (!MyChar->HasFlag(WarpData->RequiredFlag))
 		{
@@ -195,6 +195,27 @@ void UMyProject1GameInstance::ApplyPendingWarp(ACharacter* PlayerCharacter)
 	}
 
 	bHasPendingWarp = false;
+}
+
+// ----------------------------------------------------
+// デバッグワープメニュー等がBP側で一覧UIを組み立てるためのデータ取得
+// ----------------------------------------------------
+TArray<FWarpDestinationInfo> UMyProject1GameInstance::GetAllWarpDestinations() const
+{
+	TArray<FWarpDestinationInfo> Result;
+	if (!WarpDataTable) return Result;
+
+	for (const FName& RowName : WarpDataTable->GetRowNames())
+	{
+		const FWarpDestination* Row = WarpDataTable->FindRow<FWarpDestination>(RowName, TEXT("GetAllWarpDestinations"));
+		if (!Row) continue;
+
+		FWarpDestinationInfo Info;
+		Info.WarpID = RowName;
+		Info.DisplayName = Row->DisplayName.IsEmpty() ? FText::FromName(RowName) : Row->DisplayName;
+		Result.Add(Info);
+	}
+	return Result;
 }
 
 // ----------------------------------------------------

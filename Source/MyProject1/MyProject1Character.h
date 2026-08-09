@@ -620,6 +620,19 @@ protected:
 
 	void OnToggleMenuPressed();
 
+	/** Space(JumpAction)：ターゲット中の対象に応じて会話開始/ショップ開始/戦闘開始を振り分ける */
+	void OnActionKeyPressed();
+
+public:
+	/**
+	 * OnActionKeyPressedで、CurrentTargetがQuestNPC/ShopNPC/Enemyのどれでもなかった場合に呼ばれる。
+	 * BPI_InteractableはBlueprint専用インターフェースでC++から直接呼べないため、
+	 * BP_Character側でEキーと同じ「Interact(Message)」ノードをTargetピンに繋いで実装する。
+	 */
+	UFUNCTION(BlueprintImplementableEvent, Category = "Input")
+	void BP_TryInteractWithTarget(AActor* Target);
+
+protected:
 	/** インプットのセットアップ */
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
 

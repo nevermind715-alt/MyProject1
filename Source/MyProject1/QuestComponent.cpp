@@ -96,7 +96,7 @@ EQuestStatus UQuestComponent::GetQuestStatus(FName QuestID)
 	return EQuestStatus::NotStarted;
 }
 
-bool UQuestComponent::AcceptQuest(FName QuestID)
+bool UQuestComponent::CanAcceptQuest(FName QuestID)
 {
 	// すでに受注している、またはクリア済みなら受けられない
 	if (GetQuestStatus(QuestID) != EQuestStatus::NotStarted)
@@ -104,24 +104,117 @@ bool UQuestComponent::AcceptQuest(FName QuestID)
 		return false;
 	}
 
-	// データテーブルにそのクエストが存在するか確認
+	// QuestIDが空欄の場合は「クエスト管理をしない、会話専用のエントリ」とみなし、常に表示可能とする
+	// （GetQuestStatusは常にNotStartedを返し続けるので、NPCは毎回同じ固定セリフを表示できる）
+	if (QuestID.IsNone())
+	{
+		return true;
+	}
+
 	FQuestData Data;
 	if (!GetQuestData(QuestID, Data))
 	{
 		return false;
 	}
 
-	// 受注条件（RequiredFlag）のチェック
-	if (!Data.RequiredFlag.IsNone())
+	AMyProject1Character* OwnerChar = Cast<AMyProject1Character>(GetOwner());
+	if (!OwnerChar)
 	{
-		AMyProject1Character* OwnerChar = Cast<AMyProject1Character>(GetOwner());
-		if (OwnerChar && !OwnerChar->HasFlag(Data.RequiredFlag))
+		return false;
+	}
+
+	// 受注条件1：フラグ（称号）
+	if (!Data.RequiredFlag.IsNone() && !OwnerChar->HasFlag(Data.RequiredFlag))
+	{
+		return false;
+	}
+
+	// 受注条件2：前提クエスト（種別問わず。全て一度はクリア済みである必要がある）
+	for (const FName& ReqQuestID : Data.PrerequisiteQuestIDs)
+	{
+		if (!EverCompletedQuestIDs.Contains(ReqQuestID))
 		{
-			// 条件を満たしていない場合はシステムログを出して中断
-			OwnerChar->OnReceiveLogMessage(TEXT("このクエストを受けるための条件を満たしていません。"), ELogMessageType::System);
 			return false;
 		}
 	}
+
+	// 受注条件3：数値ステータス条件（レベル・Karma等、全てAND判定）
+	if (Data.RequiredStats.Num() > 0)
+	{
+		const FCharacterStats& Stats = OwnerChar->GetCharacterStats();
+		for (const FQuestStatRequirement& Req : Data.RequiredStats)
+		{
+			float StatValue = 0.0f;
+			if (!Stats.TryGetStatValue(Req.StatName, StatValue))
+			{
+				// 存在しないステータス名が指定された場合は設定ミスとみなし、安全側（受注不可）に倒す
+				UE_LOG(LogTemp, Warning, TEXT("【Quest Error】クエスト「%s」のRequiredStatsに未知のステータス名 '%s' が指定されています。"), *QuestID.ToString(), *Req.StatName.ToString());
+				return false;
+			}
+
+			switch (Req.CompareOp)
+			{
+			case EStatCompareOp::GreaterOrEqual: if (!(StatValue >= Req.RequiredValue)) return false; break;
+			case EStatCompareOp::LessOrEqual:    if (!(StatValue <= Req.RequiredValue)) return false; break;
+			case EStatCompareOp::Equal:          if (!FMath::IsNearlyEqual(StatValue, Req.RequiredValue)) return false; break;
+			case EStatCompareOp::Greater:        if (!(StatValue > Req.RequiredValue)) return false; break;
+			case EStatCompareOp::Less:           if (!(StatValue < Req.RequiredValue)) return false; break;
+			}
+		}
+	}
+
+	return true;
+}
+
+FName UQuestComponent::GetNextOfferableQuest(const TArray<FName>& CandidateQuestIDs)
+{
+	// 1. 進行中/報告待ちの候補があれば会話の続きとして最優先で返す
+	for (const FName& ID : CandidateQuestIDs)
+	{
+		const EQuestStatus Status = GetQuestStatus(ID);
+		if (Status == EQuestStatus::InProgress || Status == EQuestStatus::ObjectiveCleared)
+		{
+			return ID;
+		}
+	}
+
+	// 2. 条件を満たした未受注クエストがあれば、優先順位（配列の先頭）通りに返す
+	for (const FName& ID : CandidateQuestIDs)
+	{
+		if (GetQuestStatus(ID) == EQuestStatus::NotStarted && CanAcceptQuest(ID))
+		{
+			return ID;
+		}
+	}
+
+	// 3. 何も提示できない場合は、リスト末尾の状態（例：連鎖最後のクエストの完了フレーバー）をフォールバックとして返す
+	if (CandidateQuestIDs.Num() > 0)
+	{
+		return CandidateQuestIDs.Last();
+	}
+
+	return NAME_None;
+}
+
+bool UQuestComponent::AcceptQuest(FName QuestID)
+{
+	// 受注条件を満たしていなければ受けられない
+	if (!CanAcceptQuest(QuestID))
+	{
+		if (AMyProject1Character* OwnerChar = Cast<AMyProject1Character>(GetOwner()))
+		{
+			// 条件を満たしていない場合はシステムログを出して中断
+			OwnerChar->OnReceiveLogMessage(TEXT("このクエストを受けるための条件を満たしていません。"), ELogMessageType::System);
+		}
+		return false;
+	}
+
+	FQuestData Data;
+	if (!GetQuestData(QuestID, Data))
+	{
+		return false;
+	}
+
 	// 進行中リストに追加
 	FQuestProgress NewQuest(QuestID);
 	ActiveQuests.Add(NewQuest);
@@ -414,6 +507,23 @@ void UQuestComponent::UpdateTalkObjective(FName QuestID, AActor* TalkedToNPC)
 		OnQuestUpdated.Broadcast(QuestID);
 		break;
 	}
+}
+
+bool UQuestComponent::IsExpectedTalkTarget(FName QuestID, AActor* NPC)
+{
+	if (QuestID.IsNone()) return true;
+
+	for (const FQuestProgress& Progress : ActiveQuests)
+	{
+		if (Progress.QuestID != QuestID || Progress.Status != EQuestStatus::InProgress) continue;
+
+		FQuestData Data;
+		if (!GetQuestData(QuestID, Data) || Data.QuestType != EQuestType::Delivery) return true;
+
+		return NPC && Data.RequiredTalkNPCIDs.IsValidIndex(Progress.CurrentAmount) && NPC->ActorHasTag(Data.RequiredTalkNPCIDs[Progress.CurrentAmount]);
+	}
+
+	return true;
 }
 
 void UQuestComponent::UpdateAchievementObjective(FName CompletedQuestID)
