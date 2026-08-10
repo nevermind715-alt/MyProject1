@@ -39,6 +39,18 @@ bool UInventoryComponent::AddItem(FName ItemID, int32 Amount)
 		return false;
 	}
 
+	// ★世界に1つしかない（bIsRare）アイテムは、一度手に入れたら二度と手に入らない。
+	// チェスト等が何らかの理由で同じIDを再度渡してきても、ここで確実に弾く。
+	if (ItemInfo->bIsRare && ObtainedRareItemIDs.Contains(ItemID))
+	{
+		if (IRpgCharacterInterface* RpgInterface = Cast<IRpgCharacterInterface>(GetOwner()))
+		{
+			FString LogMsg = FString::Printf(TEXT("%s は既に手に入れている。"), *ItemInfo->Name);
+			RpgInterface->OnReceiveLogMessage(LogMsg, ELogMessageType::System);
+		}
+		return false;
+	}
+
 	int32 RemainingAmount = Amount;
 
 	// 1. 既に持っているスロットを探して、スタック（重ねる）できるか試す
@@ -83,6 +95,12 @@ bool UInventoryComponent::AddItem(FName ItemID, int32 Amount)
 	// 1個でもカバンに入った場合の処理
 	if (ActuallyAdded > 0)
 	{
+		// ★bIsRareアイテムを入手したことを記録しておく（二度と入手できないようにするため）
+		if (ItemInfo->bIsRare)
+		{
+			ObtainedRareItemIDs.AddUnique(ItemID);
+		}
+
 		// クエストへの通知などは、まだ依存関係があるため一旦既存のキャラクターへのキャストを残します
 		AMyProject1Character* OwnerChar = Cast<AMyProject1Character>(GetOwner());
 		if (OwnerChar && OwnerChar->QuestComp)
@@ -104,6 +122,12 @@ bool UInventoryComponent::AddItem(FName ItemID, int32 Amount)
 				LogMsg = FString::Printf(TEXT("%sを%d個手に入れた。"), *ItemInfo->Name, ActuallyAdded);
 			}
 			RpgInterface->OnReceiveLogMessage(LogMsg, ELogMessageType::System);
+		}
+
+		// 取得音を再生（入手経路を問わず共通。位置に依存しないUI寄りの音なのでPlaySound2Dを使用）
+		if (ItemPickupSound)
+		{
+			UGameplayStatics::PlaySound2D(this, ItemPickupSound);
 		}
 
 		// UI更新

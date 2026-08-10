@@ -111,6 +111,23 @@ void UChestComponent::Interact(AMyProject1Character* InteractingPlayer)
 		InteractingPlayer->InventoryComp->SetItemActionMenuState(false);
 	}
 
+	// ★世界に1つしかない（bIsRare）アイテムを既にプレイヤーが入手済みなら、
+	// チェストの中身から取り除いておく（レベル移動でチェストが初期状態に戻っても、
+	// 見た目上「取れないアイテム」が残らないようにするため）
+	if (InteractingPlayer->InventoryComp)
+	{
+		UInventoryComponent* Inv = InteractingPlayer->InventoryComp;
+		for (int32 i = ChestContents.Num() - 1; i >= 0; --i)
+		{
+			FItemData ItemInfo;
+			if (Inv->GetItemDataBP(ChestContents[i].ItemID, ItemInfo) &&
+				ItemInfo.bIsRare && Inv->ObtainedRareItemIDs.Contains(ChestContents[i].ItemID))
+			{
+				ChestContents.RemoveAt(i);
+			}
+		}
+	}
+
 	// 初回のインタラクトの時だけ、ふたを開くアニメーションを再生する
 	if (!bIsOpen)
 	{

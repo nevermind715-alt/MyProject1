@@ -35,6 +35,10 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Save|Inventory")
 	int32 Gil = 0;
 
+	// 世界に1つしかない（bIsRare）アイテムのうち、一度でも入手したことがあるIDの記録
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Save|Inventory")
+	TArray<FName> ObtainedRareItemIDs;
+
 	// --- クエスト進行 ---
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Save|Quest")
 	TArray<FQuestProgress> ActiveQuests;

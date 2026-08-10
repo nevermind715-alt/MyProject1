@@ -244,6 +244,7 @@ UMyProject1SaveGame* UMyProject1GameInstance::CapturePlayerStateSnapshot(AMyProj
 	{
 		SaveObj->InventoryContent = Inv->InventoryContent;
 		SaveObj->Gil = Inv->Gil;
+		SaveObj->ObtainedRareItemIDs = Inv->ObtainedRareItemIDs;
 	}
 
 	// クエスト進行
@@ -336,6 +337,7 @@ void UMyProject1GameInstance::ApplyPendingCharacterLoad(AMyProject1Character* Ch
 	{
 		Inv->InventoryContent = Loaded->InventoryContent;
 		Inv->Gil = Loaded->Gil;
+		Inv->ObtainedRareItemIDs = Loaded->ObtainedRareItemIDs;
 		Inv->OnInventoryUpdated.Broadcast();
 	}
 

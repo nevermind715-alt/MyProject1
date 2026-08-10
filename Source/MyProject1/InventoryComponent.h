@@ -55,11 +55,21 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory")
 	int32 Gil = 0;
 
+	// アイテムがカバンに入った時に鳴らす共通の取得音（チェスト・クエスト報酬・ショップ購入など、入手経路を問わず鳴る）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory|Audio")
+	class USoundBase* ItemPickupSound = nullptr;
+
 	// --- カバンの実体 ---
 
 	// 実際にアイテムが入っているリスト
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Inventory")
 	TArray<FInventorySlot> InventoryContent;
+
+	// bIsRare（世界に1つしかない/だいじなもの系）アイテムのうち、一度でも入手したことがあるIDの記録。
+	// 一度入っても消えない（EverCompletedQuestIDsと同じ考え方）。チェストの中身がレベル移動で
+	// 初期状態に戻っても、ここに記録が残っていれば同じアイテムを二重に入手できないようにする。
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Inventory")
+	TArray<FName> ObtainedRareItemIDs;
 
 	// UI更新用のイベントディスパッチャー
 	UPROPERTY(BlueprintAssignable, Category = "Inventory")
