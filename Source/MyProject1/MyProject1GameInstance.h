@@ -84,6 +84,11 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Warp")
 	void ExecuteWarpProcess();
 
+	/** エリアChangeと同じ暗転（OnWarpFadeOutRequested）を再利用して、画面が真っ暗になった瞬間にFlagNameを
+	 *  TargetCharacterへ付与する。ワープを伴わない「NPCの表示切替を暗転の裏で行いたい」時に使う */
+	UFUNCTION(BlueprintCallable, Category = "Warp")
+	void RequestFadeThenGrantFlag(FName FlagName, class AMyProject1Character* TargetCharacter);
+
 	/** DT_WarpDestinationsの全行を、UI表示用の軽量データ一覧として取得する（デバッグメニュー等がBP側で一覧を組み立てる際に使う） */
 	UFUNCTION(BlueprintCallable, Category = "Warp")
 	TArray<FWarpDestinationInfo> GetAllWarpDestinations() const;
@@ -155,6 +160,10 @@ private:
 	// ★追加：暗転が終わるまで待機している「ワープID」と「プレイヤー」の記憶
 	FName ReservedWarpID;
 	TWeakObjectPtr<class ACharacter> ReservedPlayer;
+
+	// 暗転が終わるまで待機している「付与予定のフラグ」と「付与対象」の記憶（RequestFadeThenGrantFlag用）
+	FName ReservedFlagToGrant;
+	TWeakObjectPtr<class AMyProject1Character> ReservedFlagGrantTarget;
 
 	/** 現在のプレイヤー状態を新しいUMyProject1SaveGameへ複製する（ディスクへは書き込まない一時オブジェクト）。
 	 *  ディスクへのセーブ（SaveCurrentGame）と、別マップへのワープでキャラクターが再生成される際の

@@ -3,11 +3,43 @@
 #include "QuestComponent.h"
 #include "DialogComponent.h"
 #include "RpgCharacterInterface.h"
+#include "Kismet/GameplayStatics.h"
 
 AQuestNPCBase::AQuestNPCBase()
 {
 	PrimaryActorTick.bCanEverTick = false;
 	Tags.Add(FName("NPC"));
+}
+
+void AQuestNPCBase::BeginPlay()
+{
+	Super::BeginPlay();
+
+	if (VisibilityMode == EFlagVisibilityMode::None || VisibilityFlag.IsNone()) return;
+
+	AMyProject1Character* PlayerChar = Cast<AMyProject1Character>(UGameplayStatics::GetPlayerCharacter(this, 0));
+	if (!PlayerChar) return;
+
+	UpdateFlagVisibility(PlayerChar);
+	PlayerChar->OnFlagAdded.AddDynamic(this, &AQuestNPCBase::OnPlayerFlagAdded);
+}
+
+void AQuestNPCBase::UpdateFlagVisibility(const AMyProject1Character* PlayerChar)
+{
+	const bool bHasFlag = PlayerChar && PlayerChar->HasFlag(VisibilityFlag);
+	const bool bVisible = (VisibilityMode == EFlagVisibilityMode::ShowOnFlag) ? bHasFlag : !bHasFlag;
+
+	SetActorHiddenInGame(!bVisible);
+	SetActorEnableCollision(bVisible);
+}
+
+void AQuestNPCBase::OnPlayerFlagAdded(FName FlagName)
+{
+	if (VisibilityFlag.IsNone() || FlagName != VisibilityFlag) return;
+
+	const bool bVisible = (VisibilityMode == EFlagVisibilityMode::ShowOnFlag);
+	SetActorHiddenInGame(!bVisible);
+	SetActorEnableCollision(bVisible);
 }
 
 void AQuestNPCBase::TalkToNPC(AMyProject1Character* PlayerChar)
@@ -43,7 +75,18 @@ void AQuestNPCBase::TalkToNPC(AMyProject1Character* PlayerChar)
 	{
 		switch (QuestComp->GetQuestStatus(ResolvedQuestID))
 		{
-		case EQuestStatus::NotStarted:       RowName = Entry->DialogRowName_NotStarted; break;
+		case EQuestStatus::NotStarted:
+			// 受注条件（フラグ・前提クエスト等）を満たすまでは、クエストの気配を出さないLocked行を表示する。
+			// Locked行が未設定のNPCは従来通りNotStarted行をそのまま使う
+			if (!QuestComp->CanAcceptQuest(ResolvedQuestID) && !Entry->DialogRowName_Locked.IsNone())
+			{
+				RowName = Entry->DialogRowName_Locked;
+			}
+			else
+			{
+				RowName = Entry->DialogRowName_NotStarted;
+			}
+			break;
 		case EQuestStatus::InProgress:       RowName = Entry->DialogRowName_InProgress; break;
 		case EQuestStatus::ObjectiveCleared: RowName = Entry->DialogRowName_ObjectiveCleared; break;
 		case EQuestStatus::Completed:        RowName = Entry->DialogRowName_Completed; break;

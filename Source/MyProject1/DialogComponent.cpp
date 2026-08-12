@@ -5,6 +5,7 @@
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
 #include "MyProject1GameInstance.h"
+#include "MyProject1Character.h"
 #include "WarpPortal.h"
 #include "MyProject1HUD.h"
 #include "RpgCharacterInterface.h" 
@@ -74,7 +75,7 @@ void UDialogComponent::SelectChoice(int32 ChoiceIndex)
 
 	const FDialogChoice& SelectedChoice = CurrentDialogData.Choices[ChoiceIndex];
 
-	ExecuteActionCore(SelectedChoice.ActionType, SelectedChoice.ActionPayload, SelectedChoice.StatToChange, SelectedChoice.ExtraStatName, SelectedChoice.StatChangeAmount);
+	ExecuteActionCore(SelectedChoice.ActionType, SelectedChoice.ActionPayload, SelectedChoice.GrantFlag, SelectedChoice.bFadeOnGrantFlag, SelectedChoice.StatToChange, SelectedChoice.ExtraStatName, SelectedChoice.StatChangeAmount);
 
 	FString NextIDStr = SelectedChoice.NextDialogID.ToString().TrimStartAndEnd();
 	bool bHasNext = !SelectedChoice.NextDialogID.IsNone() && !NextIDStr.IsEmpty() && NextIDStr.ToLower() != TEXT("none");
@@ -91,11 +92,28 @@ void UDialogComponent::SelectChoice(int32 ChoiceIndex)
 	}
 }
 
-void UDialogComponent::ExecuteActionCore(EDialogActionType ActionType, const FString& ActionPayload, ETargetStat StatToChange, FName ExtraStatName, float StatChangeAmount)
+void UDialogComponent::ExecuteActionCore(EDialogActionType ActionType, const FString& ActionPayload, FName GrantFlag, bool bFadeOnGrantFlag, ETargetStat StatToChange, FName ExtraStatName, float StatChangeAmount)
 {
 
 	IRpgCharacterInterface* RpgInterface = Cast<IRpgCharacterInterface>(GetOwner());
 	if (!RpgInterface) return;
+
+	// ActionType（TalkProgressなど）と併用できる、ActionTypeとは独立したフラグ付与
+	if (!GrantFlag.IsNone())
+	{
+		if (bFadeOnGrantFlag)
+		{
+			// エリアChangeと同じ暗転を挟んでから付与する（NPCの表示切替などを暗転の裏で行いたい時用）
+			if (UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetWorld()->GetGameInstance()))
+			{
+				GameInst->RequestFadeThenGrantFlag(GrantFlag, Cast<AMyProject1Character>(GetOwner()));
+			}
+		}
+		else
+		{
+			RpgInterface->AddFlag(GrantFlag);
+		}
+	}
 
 	switch (ActionType)
 	{
@@ -187,6 +205,11 @@ void UDialogComponent::ExecuteActionCore(EDialogActionType ActionType, const FSt
 		case ETargetStat::Charm:
 			Stats.Charm += ChangeVal;
 			StatName = TEXT("魅力");
+			break;
+
+		case ETargetStat::Alcohol:
+			Stats.Alcohol += ChangeVal;
+			StatName = TEXT("酒量");
 			break;
 
 		case ETargetStat::CustomExtraStat:
@@ -334,7 +357,7 @@ void UDialogComponent::ShowCurrentLine()
 		// （会話終了設定の場合、この下でAdvanceDialogを経由せず直接CloseDialogするため、ここで実行しないと機会を失う）
 		if (CurrentDialogData.Choices.Num() == 0)
 		{
-			ExecuteActionCore(CurrentDialogData.ActionType, CurrentDialogData.ActionPayload, CurrentDialogData.StatToChange, CurrentDialogData.ExtraStatName, CurrentDialogData.StatChangeAmount);
+			ExecuteActionCore(CurrentDialogData.ActionType, CurrentDialogData.ActionPayload, CurrentDialogData.GrantFlag, CurrentDialogData.bFadeOnGrantFlag, CurrentDialogData.StatToChange, CurrentDialogData.ExtraStatName, CurrentDialogData.StatChangeAmount);
 		}
 
 		if (CurrentDialogData.Choices.Num() == 0 &&

@@ -35,6 +35,8 @@
 #include "GameFramework/PhysicsVolume.h"
 #include "CableComponent.h"
 #include "SkinOverlayComponent.h"
+#include "WallWarpLink.h"
+#include "QuestItemPoint.h"
 
 
 
@@ -384,6 +386,13 @@ void AMyProject1Character::OnActionKeyPressed()
 		return;
 	}
 
+	// アイテム授受ギミック（お供え物・ゴミ拾い等）ならアイテムのやり取りを実行
+	if (AQuestItemPoint* ItemPoint = Cast<AQuestItemPoint>(CurrentTarget))
+	{
+		ItemPoint->TryInteract(this);
+		return;
+	}
+
 	// Enemyタグなら攻撃開始/解除をトグル
 	if (CurrentTarget->ActorHasTag(FName("Enemy")))
 	{
@@ -598,12 +607,25 @@ void AMyProject1Character::TargetNearestEnemy()
 		// キャストする前に、Actor自体が対象のタグを持っているかチェックする！
 		if (!Actor->ActorHasTag(FName("Enemy")) && !Actor->ActorHasTag(FName("NPC"))) continue;
 
+		// 壁抜けワープ（AWallWarpLink）は、TargetingRangeの固定半径ではなく、
+		// 実際にボックスへ触れている間だけターゲット対象にする
+		if (AWallWarpLink* WarpLink = Cast<AWallWarpLink>(Actor))
+		{
+			if (!WarpLink->IsReadyToInteract()) continue;
+		}
+
 		// 戦闘キャラ(MyProject1Character)の場合のみ、死んでいるかをチェックする
 		AMyProject1Character* TargetChar = Cast<AMyProject1Character>(Actor);
 		if (TargetChar && TargetChar->IsDead()) continue;
 
 		// 距離を測る
 		float Dist = GetDistanceTo(Actor);
+
+		// NPCは自動解除の判定と同じInteractRangeを射程にする（TargetingRangeで拾うと、
+		// InteractRangeより遠いNPCを一瞬ターゲットした直後に自動解除ログが出てしまうため）
+		const bool bIsNPCActor = Actor->ActorHasTag(FName("NPC"));
+		const float AcquireRange = bIsNPCActor ? InteractRange : TargetingRange;
+		if (Dist > AcquireRange) continue;
 
 		// 「今の最小距離」より近ければ、候補を更新
 		if (Dist < MinDistance)
@@ -662,11 +684,22 @@ void AMyProject1Character::CycleTarget()
 			if (!Actor->ActorHasTag(FName("Enemy")) && !Actor->ActorHasTag(FName("NPC"))) continue;
 		}
 
+		// 壁抜けワープ（AWallWarpLink）は、TargetingRangeの固定半径ではなく、
+		// 実際にボックスへ触れている間だけターゲット対象にする
+		if (AWallWarpLink* WarpLink = Cast<AWallWarpLink>(Actor))
+		{
+			if (!WarpLink->IsReadyToInteract()) continue;
+		}
+
 		// 戦闘キャラ(MyProject1Character)の場合のみ、死んでいるかをチェックする
 		AMyProject1Character* TargetChar = Cast<AMyProject1Character>(Actor);
 		if (TargetChar && TargetChar->IsDead()) continue;
 
-		if (GetDistanceTo(Actor) <= TargetingRange) // 射程内か？
+		// NPCは自動解除の判定と同じInteractRangeを射程にする（TargetNearestEnemy()と揃える）
+		const bool bIsNPCActor = Actor->ActorHasTag(FName("NPC"));
+		const float AcquireRange = bIsNPCActor ? InteractRange : TargetingRange;
+
+		if (GetDistanceTo(Actor) <= AcquireRange) // 射程内か？
 		{
 			ValidTargets.Add(Actor);
 		}
@@ -828,17 +861,28 @@ void AMyProject1Character::Tick(float DeltaTime)
 	//ターゲットから離れすぎたら自動解除する
 	if (CurrentTarget != nullptr && IsPlayerControlled())
 	{
-		float DistanceToTarget = GetDistanceTo(CurrentTarget);
-
-		// NPC/宝箱などの近距離インタラクト対象は、InteractRange基準の短い距離で解除する。
-		// 敵（戦闘ロックオン）は従来通りTargetingRange基準のまま（境界でのカーソル点滅防止バッファも維持）。
-		const bool bIsInteractTarget = CurrentTarget->ActorHasTag(FName("NPC"));
-		const float CancelDistance = bIsInteractTarget ? (InteractRange + 100.0f) : (TargetingRange + 500.0f);
-
-		if (DistanceToTarget > CancelDistance)
+		// 壁抜けワープ（AWallWarpLink）は、距離ではなくボックスから出たかどうかで即座に解除する
+		if (AWallWarpLink* WarpLink = Cast<AWallWarpLink>(CurrentTarget))
 		{
-			CancelTarget(); // これを呼ぶだけで、UIのカーソルが消えます
-			OnReceiveLogMessage(TEXT("ターゲットから離れすぎたため解除しました。"), ELogMessageType::System);
+			if (!WarpLink->IsReadyToInteract())
+			{
+				CancelTarget();
+			}
+		}
+		else
+		{
+			float DistanceToTarget = GetDistanceTo(CurrentTarget);
+
+			// NPC/宝箱などの近距離インタラクト対象は、InteractRange基準の短い距離で解除する。
+			// 敵（戦闘ロックオン）は従来通りTargetingRange基準のまま（境界でのカーソル点滅防止バッファも維持）。
+			const bool bIsInteractTarget = CurrentTarget->ActorHasTag(FName("NPC"));
+			const float CancelDistance = bIsInteractTarget ? (InteractRange + 100.0f) : (TargetingRange + 500.0f);
+
+			if (DistanceToTarget > CancelDistance)
+			{
+				CancelTarget(); // これを呼ぶだけで、UIのカーソルが消えます
+				OnReceiveLogMessage(TEXT("ターゲットから離れすぎたため解除しました。"), ELogMessageType::System);
+			}
 		}
 	}
 
@@ -1839,7 +1883,8 @@ bool AMyProject1Character::TryRankUp()
 		case ETargetStat::Favor:        MyStats.Favor += Bonus.Amount;        break;
 		case ETargetStat::Fame:         MyStats.Fame += Bonus.Amount;         break;
 		case ETargetStat::Charm:        MyStats.Charm += Bonus.Amount;        break;
-		case ETargetStat::Mental:       MyStats.Mental += Bonus.Amount;       break;
+		case ETargetStat::Alcohol:      MyStats.Alcohol += Bonus.Amount;      break;
+		case ETargetStat::Mental:       MyStats.MentalBonus += Bonus.Amount;  break;
 		default: break;
 		}
 	}
@@ -2040,22 +2085,32 @@ void AMyProject1Character::ApplyItemBuff(FString ItemName, UTexture2D* Icon, con
 {
 	if (bIsDead || Duration <= 0.0f) return;
 
-	for (const FActiveBuff& ActiveBuff : ActiveBuffs)
-	{
-		// 今使おうとしているアイテム名が、すでにリストに存在する場合
-		if (ActiveBuff.BuffName == ItemName)
-		{
-			// ログに「効果なし」のメッセージを出す
-			FString Msg = FString::Printf(TEXT("%sの効果はすでに発動しているため効果なし。"), *ItemName);
-			if (IsPlayerControlled())
-			{
-				OnReceiveLogMessage(Msg, ELogMessageType::System);
-			}
+	// 効果のどれか1つでも「重複可」がチェックされていれば、このアイテムは重ねがけを許可する
+	const bool bAllowStacking = Effects.ContainsByPredicate([](const FItemEffect& Effect) { return Effect.bAllowStacking; });
 
-			// returnでここで処理を強制終了する（ステータス加算もアイコン追加も起きない）
-			return;
+	if (!bAllowStacking)
+	{
+		for (const FActiveBuff& ActiveBuff : ActiveBuffs)
+		{
+			// 今使おうとしているアイテム名が、すでにリストに存在する場合
+			if (ActiveBuff.BuffName == ItemName)
+			{
+				// ログに「効果なし」のメッセージを出す
+				FString Msg = FString::Printf(TEXT("%sの効果はすでに発動しているため効果なし。"), *ItemName);
+				if (IsPlayerControlled())
+				{
+					OnReceiveLogMessage(Msg, ELogMessageType::System);
+				}
+
+				// returnでここで処理を強制終了する（ステータス加算もアイコン追加も起きない）
+				return;
+			}
 		}
 	}
+
+	// 今回の使用分を識別するID（重複可アイテムを連続使用した時、期限切れ処理で
+	// 「今回の使用分」だけを正しく取り除くために使う）
+	const int32 ThisStackID = NextBuffStackID++;
 
 	bool bHasAddedBuffIcon = false;
 
@@ -2073,6 +2128,11 @@ void AMyProject1Character::ApplyItemBuff(FString ItemName, UTexture2D* Icon, con
 		case ETargetStat::AttackPower: MyStats.AttackPower += Effect.EffectAmount; break;
 		case ETargetStat::DefensePower: MyStats.DefensePower += Effect.EffectAmount; break;
 		case ETargetStat::Stamina:     MyStats.Stamina += Effect.EffectAmount;     break;
+		case ETargetStat::Alcohol:     MyStats.Alcohol += Effect.EffectAmount;     break;
+		case ETargetStat::Fame:        MyStats.Fame += Effect.EffectAmount;        break;
+		case ETargetStat::Favor:       MyStats.Favor += Effect.EffectAmount;       break;
+		case ETargetStat::Charm:       MyStats.Charm += Effect.EffectAmount;       break;
+		case ETargetStat::Mental:      MyStats.Mental += Effect.EffectAmount;      break;
 		default: break;
 		}
 
@@ -2087,6 +2147,7 @@ void AMyProject1Character::ApplyItemBuff(FString ItemName, UTexture2D* Icon, con
 				NewBuff.BuffName = ItemName; // 削除時の目印としてアイテム名を記録
 				NewBuff.BuffIcon = BuffRow->BuffIcon; // ★アイテム画像ではなく、バフ専用画像をセット！
 				NewBuff.ExpirationTime = GetWorld()->GetTimeSeconds() + Duration;
+				NewBuff.StackID = ThisStackID;
 				ActiveBuffs.Add(NewBuff);
 				bHasAddedBuffIcon = true;
 			}
@@ -2100,13 +2161,14 @@ void AMyProject1Character::ApplyItemBuff(FString ItemName, UTexture2D* Icon, con
 		NewBuff.BuffName = ItemName;
 		NewBuff.BuffIcon = Icon;
 		NewBuff.ExpirationTime = GetWorld()->GetTimeSeconds() + Duration;
+		NewBuff.StackID = ThisStackID;
 		ActiveBuffs.Add(NewBuff);
 	}
 
 	// 2. タイマーを1つだけセットする
 	FTimerHandle TimerHandle;
 	FTimerDelegate Delegate;
-	Delegate.BindUObject(this, &AMyProject1Character::ExpireItemBuff, ItemName, Effects);
+	Delegate.BindUObject(this, &AMyProject1Character::ExpireItemBuff, ItemName, Effects, ThisStackID);
 	GetWorldTimerManager().SetTimer(TimerHandle, Delegate, Duration, false);
 
 	if (OnBuffListChangedDelegate.IsBound())
@@ -2115,7 +2177,7 @@ void AMyProject1Character::ApplyItemBuff(FString ItemName, UTexture2D* Icon, con
 	}
 }
 
-void AMyProject1Character::ExpireItemBuff(FString ItemName, TArray<FItemEffect> Effects)
+void AMyProject1Character::ExpireItemBuff(FString ItemName, TArray<FItemEffect> Effects, int32 StackID)
 {
 	// 3. すべての効果を元に戻す
 	for (const FItemEffect& Effect : Effects)
@@ -2131,16 +2193,22 @@ void AMyProject1Character::ExpireItemBuff(FString ItemName, TArray<FItemEffect> 
 		case ETargetStat::AttackPower: MyStats.AttackPower -= Effect.EffectAmount; break;
 		case ETargetStat::DefensePower: MyStats.DefensePower -= Effect.EffectAmount; break;
 		case ETargetStat::Stamina:     MyStats.Stamina -= Effect.EffectAmount;     break;
+		case ETargetStat::Alcohol:     MyStats.Alcohol -= Effect.EffectAmount;     break;
+		case ETargetStat::Fame:        MyStats.Fame -= Effect.EffectAmount;        break;
+		case ETargetStat::Favor:       MyStats.Favor -= Effect.EffectAmount;       break;
+		case ETargetStat::Charm:       MyStats.Charm -= Effect.EffectAmount;       break;
+		case ETargetStat::Mental:      MyStats.Mental -= Effect.EffectAmount;      break;
 		default: break;
 		}
 	}
 
 	// --- 追加：バフリストから削除してUIに通知 ---
-	// ★ポイント：1つのアイテムから複数のバフアイコンが出ている可能性があるので、
-	// 配列の「後ろから」順番に確認し、名前が一致するものを全て消去します。
+	// ★ポイント：1つのアイテムから複数のバフアイコンが出ている可能性がある上、
+	// 重複可アイテムだと同名バフが複数同時に存在しうるので、名前ではなく
+	// 「今回の使用分」を示すStackIDが一致するものだけを消去します。
 	for (int32 i = ActiveBuffs.Num() - 1; i >= 0; --i)
 	{
-		if (ActiveBuffs[i].BuffName == ItemName)
+		if (ActiveBuffs[i].StackID == StackID)
 		{
 			ActiveBuffs.RemoveAt(i);
 		}
@@ -2359,6 +2427,7 @@ void AMyProject1Character::AddFlag(FName FlagName)
 	if (!FlagName.IsNone() && !MyStats.UnlockedFlags.Contains(FlagName))
 	{
 		MyStats.UnlockedFlags.Add(FlagName);
+		OnFlagAdded.Broadcast(FlagName);
 	}
 }
 
@@ -3181,7 +3250,7 @@ void AMyProject1Character::RefreshEquipmentStats()
 	MyStats.VIT = BaseVIT + GetBonus(ETargetStat::VIT);
 	MyStats.DEX = BaseDEX + GetBonus(ETargetStat::DEX);
 	MyStats.AGI = BaseAGI + GetBonus(ETargetStat::AGI);
-	MyStats.Mental = 1.0f + GetBonus(ETargetStat::Mental); // 初期値1.0 + ボーナス
+	MyStats.Mental = 1.0f + MyStats.MentalBonus + GetBonus(ETargetStat::Mental); // 初期値1.0 + 恒久加算分 + 装備ボーナス
 
 	// 5. STRやVITから派生する戦闘力（攻撃力・防御力）を計算
 	MyStats.AttackPower = MyStats.STR * 2.0f + GetBonus(ETargetStat::AttackPower);

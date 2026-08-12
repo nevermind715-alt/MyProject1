@@ -37,6 +37,13 @@ void UMusicControlComponent::BeginPlay()
 	BattleAudioComp->bAutoActivate = false;
 	BattleAudioComp->bIsUISound = true;
 
+	RoomAudioComp = NewObject<UAudioComponent>(GetOwner());
+	RoomAudioComp->AttachToComponent(GetOwner()->GetRootComponent(), FAttachmentTransformRules::KeepRelativeTransform);
+	RoomAudioComp->bAutoDestroy = false;
+	RoomAudioComp->RegisterComponent();
+	RoomAudioComp->bAutoActivate = false;
+	RoomAudioComp->bIsUISound = true;
+
 	AMusicManagerActor* LevelMusicManager = nullptr;
 	for (TActorIterator<AMusicManagerActor> It(GetWorld()); It; ++It)
 	{
@@ -73,8 +80,8 @@ void UMusicControlComponent::SetCombatMusicActive(bool bIsCombat)
 
 	if (bIsCombat)
 	{
-		// 【戦闘開始】目標の音量を SilentVolume（0.01）と 1.0 に設定
-		TargetFieldVolume = SilentVolume;
+		// 【戦闘開始】戦闘曲を目標1.0に。フィールド曲はRefreshFieldTargetで無音化される
+		RefreshFieldTarget();
 		TargetBattleVolume = 1.0f;
 
 		double CurrentTime = GetWorld()->GetTimeSeconds();
@@ -100,9 +107,63 @@ void UMusicControlComponent::SetCombatMusicActive(bool bIsCombat)
 		// 【戦闘終了】
 		LastCombatEndTime = GetWorld()->GetTimeSeconds();
 
-		TargetFieldVolume = 1.0f;
 		TargetBattleVolume = SilentVolume;
+		RefreshFieldTarget();
 
+		if (!bInRoom)
+		{
+			FieldAudioComp->SetPaused(false);
+		}
+	}
+}
+
+void UMusicControlComponent::RefreshFieldTarget()
+{
+	// 戦闘中または部屋の中にいる間は、フィールド曲を無音にしておく
+	TargetFieldVolume = (bIsCombatMusicPlaying || bInRoom) ? SilentVolume : 1.0f;
+}
+
+void UMusicControlComponent::EnterRoomMusic(TSoftObjectPtr<USoundBase> NewRoomMusic)
+{
+	if (!RoomAudioComp) return;
+
+	// 同じ部屋に入り直した場合（同一Volume内で再Overlapした場合など）は何もしない
+	if (bInRoom && CurrentRoomMusic == NewRoomMusic) return;
+
+	bInRoom = true;
+	CurrentRoomMusic = NewRoomMusic;
+	RefreshFieldTarget();
+
+	if (!NewRoomMusic.IsNull())
+	{
+		USoundBase* LoadedRoomMusic = NewRoomMusic.LoadSynchronous();
+		RoomAudioComp->SetSound(LoadedRoomMusic);
+		RoomAudioComp->SetVolumeMultiplier(SilentVolume);
+		CurrentRoomVolume = SilentVolume;
+		RoomAudioComp->SetPaused(false);
+		RoomAudioComp->Stop();
+		RoomAudioComp->Play(0.0f);
+		TargetRoomVolume = 1.0f;
+	}
+	else
+	{
+		// 部屋にBGMが設定されていない場合は、フィールド曲を無音化するだけ（無音の部屋）
+		TargetRoomVolume = SilentVolume;
+	}
+}
+
+void UMusicControlComponent::ExitRoomMusic()
+{
+	if (!RoomAudioComp) return;
+	if (!bInRoom) return;
+
+	bInRoom = false;
+	CurrentRoomMusic = nullptr;
+	TargetRoomVolume = SilentVolume;
+	RefreshFieldTarget();
+
+	if (!bIsCombatMusicPlaying)
+	{
 		FieldAudioComp->SetPaused(false);
 	}
 }
@@ -137,6 +198,19 @@ void UMusicControlComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 	if (CurrentBattleVolume <= SilentVolume && TargetBattleVolume <= SilentVolume && BattleAudioComp->IsPlaying())
 	{
 		BattleAudioComp->SetPaused(true);
+	}
+
+	// --- 部屋BGMのフェード ---
+	if (!RoomAudioComp) return;
+
+	if (CurrentRoomVolume != TargetRoomVolume)
+	{
+		CurrentRoomVolume = FMath::FInterpConstantTo(CurrentRoomVolume, TargetRoomVolume, DeltaTime, FadeSpeed);
+		RoomAudioComp->SetVolumeMultiplier(CurrentRoomVolume);
+	}
+	if (CurrentRoomVolume <= SilentVolume && TargetRoomVolume <= SilentVolume && RoomAudioComp->IsPlaying())
+	{
+		RoomAudioComp->SetPaused(true);
 	}
 }
 

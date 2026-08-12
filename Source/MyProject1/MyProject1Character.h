@@ -33,6 +33,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnStatsUpdatedSignature);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnBuffListChangedSignature);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnSkinOverlayUIChangedSignature);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnAdventurerRankChangedSignature);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnFlagAddedSignature, FName, FlagName);
 
 
 // クリティカルダメージを識別するための専用クラス
@@ -159,7 +160,7 @@ protected:
 	/** ズーム入力を処理する関数 */
 	void ZoomCamera(const struct FInputActionValue& Value);
 
-	void ExpireItemBuff(FString ItemName, TArray<FItemEffect> Effects);
+	void ExpireItemBuff(FString ItemName, TArray<FItemEffect> Effects, int32 StackID);
 
 	// --- まばたき・目閉じ（モーフターゲット）制御 ---
 
@@ -213,6 +214,9 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|Buff")
 	TArray<FActiveBuff> ActiveBuffs;
 
+	// 重複可のバフを連続使用した際に、使用ごとへ振る通し番号（次に使う値）
+	int32 NextBuffStackID = 1;
+
 	// バフが増減した時にUIへ知らせる合図
 	UPROPERTY(BlueprintAssignable, Category = "Combat|UI")
 	FOnBuffListChangedSignature OnBuffListChangedDelegate;
@@ -230,6 +234,11 @@ public:
 
 
 	// --- フラグ管理 ---
+	/** フラグが追加された瞬間に発火する。会話フラグをトリガーに、同じレベル内でワープや
+	    クエストアイテムポイントをレベル再読み込みなしにその場で出現させたい時に購読する */
+	UPROPERTY(BlueprintAssignable, Category = "RPG Combat|Flags")
+	FOnFlagAddedSignature OnFlagAdded;
+
 	/** フラグ（条件）を獲得する */
 	UFUNCTION(BlueprintCallable, Category = "RPG Combat|Flags")
 	void AddFlag(FName FlagName) override;

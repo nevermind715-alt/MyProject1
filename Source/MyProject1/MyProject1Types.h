@@ -339,7 +339,14 @@ struct FCharacterStats
 	float Charm = 1.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats")
+	float Alcohol = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats")
 	float Mental = 1.0f;
+
+	/** ランクアップ等で恒久的に加算される分（RefreshEquipmentStatsの再計算で消えないよう、装備ボーナスとは別に保持する） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats")
+	float MentalBonus = 0.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats")
 	float Energy = 1.0f;
@@ -400,6 +407,7 @@ struct FCharacterStats
 		if (StatName == FName(TEXT("Hostility")))     { OutValue = Hostility; return true; }
 		if (StatName == FName(TEXT("Charm")))         { OutValue = Charm; return true; }
 		if (StatName == FName(TEXT("Mental")))        { OutValue = Mental; return true; }
+		if (StatName == FName(TEXT("Alcohol")))       { OutValue = Alcohol; return true; }
 		if (StatName == FName(TEXT("Energy")))        { OutValue = Energy; return true; }
 		if (StatName == FName(TEXT("CurrentXP")))     { OutValue = (float)CurrentXP; return true; }
 
@@ -484,7 +492,8 @@ enum class ETargetStat : uint8
 	Charm       UMETA(DisplayName = "魅力 (Charm)"),
 	CustomExtraStat UMETA(DisplayName = "カスタムステータス (ExtraStats)"),
 	DefensePower UMETA(DisplayName = "防御力"),
-	Mental      UMETA(DisplayName = "精神力 (Mental)")
+	Mental      UMETA(DisplayName = "精神力 (Mental)"),
+	Alcohol     UMETA(DisplayName = "酒量 (Alcohol)")
 };
 
 // --- バフ・デバフ専用のデータ（データテーブル用） ---
@@ -519,12 +528,21 @@ struct FItemEffect
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	float EffectAmount = 0.0f;
 
+	/** このアイテムで上げられる上限値（0なら上限なし。既にこの値以上なら効果なし、途中までならこの値までで頭打ち） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	float CapValue = 0.0f;
+
 	/** 効果時間（0なら即時、0より大きければリジェネやバフとして扱う想定） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	float EffectDuration = 0.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Buff")
 	FName BuffID;
+
+	/** チェックを入れると、この効果が発動中でも再度アイテムを使うたびに効果が重複して乗る（例：ビールを連続で飲むとアルコール度がその都度加算される）。
+	    チェックなし（デフォルト）の場合は、既に効果が発動中なら再使用しても効果なし（従来通り） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Buff")
+	bool bAllowStacking = false;
 };
 
 // ==========================================
@@ -654,6 +672,11 @@ struct FActiveBuff
 	// ゲーム内時間（GetTimeSeconds）を基準にした、このバフが切れる時刻
 	UPROPERTY(BlueprintReadOnly, Category = "Buff")
 	float ExpirationTime = 0.0f;
+
+	// このバフが「何回目の使用で発動したか」を区別するID（重複可アイテムを連続使用した際に、
+	// 期限切れになった使用分の効果・アイコンだけを正しく取り除くために使う）
+	UPROPERTY(BlueprintReadOnly, Category = "Buff")
+	int32 StackID = 0;
 };
 
 
@@ -784,6 +807,15 @@ struct FDialogChoice
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog")
 	FString ActionPayload;
 
+	// 空欄でなければ、ActionTypeが何であっても（TalkProgressなどと併用でも）このフラグを追加で獲得する
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog")
+	FName GrantFlag;
+
+	// trueにすると、GrantFlagの付与をエリアChangeと同じ暗転（フェード）を挟んでから行う
+	// （NPCの表示切替などを、フラグが立った瞬間の一瞬のポップではなく暗転の裏で行いたい時に使う。GrantFlagが空欄なら意味を持たない）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog")
+	bool bFadeOnGrantFlag = false;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog")
 	ETargetStat StatToChange = ETargetStat::None;
 
@@ -840,6 +872,15 @@ struct FDialogData : public FTableRowBase
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Action")
 	FString ActionPayload;
+
+	// 空欄でなければ、ActionTypeが何であっても（TalkProgressなどと併用でも）このフラグを追加で獲得する
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Action")
+	FName GrantFlag;
+
+	// trueにすると、GrantFlagの付与をエリアChangeと同じ暗転（フェード）を挟んでから行う
+	// （NPCの表示切替などを、フラグが立った瞬間の一瞬のポップではなく暗転の裏で行いたい時に使う。GrantFlagが空欄なら意味を持たない）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Action")
+	bool bFadeOnGrantFlag = false;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Action")
 	ETargetStat StatToChange = ETargetStat::None;
@@ -1040,6 +1081,12 @@ struct FQuestDialogSet
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC")
 	FName QuestID;
 
+	// RequiredFlag・PrerequisiteQuestIDs等の受注条件を満たしていない間に表示する行（クエストの気配を出さない世間話用）。
+	// 空欄なら従来通りDialogRowName_NotStartedをそのまま使う（後方互換）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC")
+	FName DialogRowName_Locked;
+
+	// 受注条件を満たした後に表示する、クエストの導入セリフ（ここから受注選択に繋げる）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC")
 	FName DialogRowName_NotStarted;
 
@@ -1061,6 +1108,25 @@ enum class EWarpPortalType : uint8
 	TouchToWarp     UMETA(DisplayName = "触れると即ワープ"),
 	InteractToWarp  UMETA(DisplayName = "調べてワープ（確認なし）"),
 	ConfirmToWarp   UMETA(DisplayName = "調べてワープ（「移動しますか？」の確認あり）")
+};
+
+// --- 壁抜けワープ（AWallWarpLink）の起動条件。同一レベル内の2点間を直結する軽量ワープ専用で、
+// DataTable検索や確認ダイアログを挟まないためEWarpPortalTypeとは別に定義する ---
+UENUM(BlueprintType)
+enum class EWallWarpTriggerType : uint8
+{
+	TouchToWarp     UMETA(DisplayName = "触れると即ワープ"),
+	InteractToWarp  UMETA(DisplayName = "調べてワープ")
+};
+
+// --- フラグの有無でアクターの表示/非表示を切り替える時の挙動。
+// 「フラグが立つまで隠しておく」「フラグが立ったら消える」の両方をこの1つで表現する ---
+UENUM(BlueprintType)
+enum class EFlagVisibilityMode : uint8
+{
+	None       UMETA(DisplayName = "何もしない（常に表示）"),
+	ShowOnFlag UMETA(DisplayName = "フラグが立ったら表示する"),
+	HideOnFlag UMETA(DisplayName = "フラグが立ったら消える")
 };
 
 // --- ワープ先の基本データ（データテーブル用） ---

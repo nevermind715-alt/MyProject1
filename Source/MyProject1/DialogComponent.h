@@ -60,7 +60,7 @@ private:
 	FDialogData CurrentDialogData;
 
 	// アクションの実行本体（Choice経由でもセリフ単体経由でも共通で使う）
-	void ExecuteActionCore(EDialogActionType ActionType, const FString& ActionPayload, ETargetStat StatToChange, FName ExtraStatName, float StatChangeAmount);
+	void ExecuteActionCore(EDialogActionType ActionType, const FString& ActionPayload, FName GrantFlag, bool bFadeOnGrantFlag, ETargetStat StatToChange, FName ExtraStatName, float StatChangeAmount);
 
 	// --- ���s�����V�X�e���p�̕ϐ��Ɗ֐� ---
 

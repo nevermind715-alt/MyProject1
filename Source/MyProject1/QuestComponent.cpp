@@ -178,16 +178,19 @@ FName UQuestComponent::GetNextOfferableQuest(const TArray<FName>& CandidateQuest
 		}
 	}
 
-	// 2. 条件を満たした未受注クエストがあれば、優先順位（配列の先頭）通りに返す
+	// 2. 未受注（NotStarted）の候補があれば、優先順位（配列の先頭）通りに最初の1件を返す。
+	// 受注条件を満たしているかどうかはここでは見ない（Locked/NotStarted行のどちらを出すかは呼び出し側の役割）。
+	// こうしないと、連鎖の先頭クエストが条件未達の間、条件判定でスキップされて末尾のCompletedフレーバーに
+	// 誤って飛んでしまう
 	for (const FName& ID : CandidateQuestIDs)
 	{
-		if (GetQuestStatus(ID) == EQuestStatus::NotStarted && CanAcceptQuest(ID))
+		if (GetQuestStatus(ID) == EQuestStatus::NotStarted)
 		{
 			return ID;
 		}
 	}
 
-	// 3. 何も提示できない場合は、リスト末尾の状態（例：連鎖最後のクエストの完了フレーバー）をフォールバックとして返す
+	// 3. 何も提示できない場合（候補が全てCompleted等）は、リスト末尾の状態をフォールバックとして返す
 	if (CandidateQuestIDs.Num() > 0)
 	{
 		return CandidateQuestIDs.Last();
@@ -511,7 +514,7 @@ void UQuestComponent::UpdateTalkObjective(FName QuestID, AActor* TalkedToNPC)
 
 bool UQuestComponent::IsExpectedTalkTarget(FName QuestID, AActor* NPC)
 {
-	if (QuestID.IsNone()) return true;
+	if (QuestID.IsNone() || !NPC) return true;
 
 	for (const FQuestProgress& Progress : ActiveQuests)
 	{
@@ -520,7 +523,22 @@ bool UQuestComponent::IsExpectedTalkTarget(FName QuestID, AActor* NPC)
 		FQuestData Data;
 		if (!GetQuestData(QuestID, Data) || Data.QuestType != EQuestType::Delivery) return true;
 
-		return NPC && Data.RequiredTalkNPCIDs.IsValidIndex(Progress.CurrentAmount) && NPC->ActorHasTag(Data.RequiredTalkNPCIDs[Progress.CurrentAmount]);
+		// このNPCがそもそもRequiredTalkNPCIDsのいずれのTagも持っていないなら、
+		// 依頼主など「会話チェーンの対象外」のNPCとみなし、順番チェックをスキップする
+		// （依頼主にはTagを付けない設計のため、チェックしないと受注後に再度話しかけた時
+		// 「順番違い」と誤判定されてNotStarted行＝再受注の勧誘が出てしまう）
+		bool bIsChainMember = false;
+		for (const FName& Tag : Data.RequiredTalkNPCIDs)
+		{
+			if (NPC->ActorHasTag(Tag))
+			{
+				bIsChainMember = true;
+				break;
+			}
+		}
+		if (!bIsChainMember) return true;
+
+		return Data.RequiredTalkNPCIDs.IsValidIndex(Progress.CurrentAmount) && NPC->ActorHasTag(Data.RequiredTalkNPCIDs[Progress.CurrentAmount]);
 	}
 
 	return true;

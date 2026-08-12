@@ -124,10 +124,37 @@ void UMyProject1GameInstance::RequestWarp(FName WarpID, ACharacter* PlayerCharac
 }
 
 // ----------------------------------------------------
+// 1.5. ワープを伴わない「暗転を挟んだフラグ付与」の要求（NPCの表示切替など向け）
+// ----------------------------------------------------
+void UMyProject1GameInstance::RequestFadeThenGrantFlag(FName FlagName, AMyProject1Character* TargetCharacter)
+{
+	if (FlagName.IsNone() || !TargetCharacter) return;
+
+	ReservedFlagToGrant = FlagName;
+	ReservedFlagGrantTarget = TargetCharacter;
+
+	// エリアChangeと全く同じ合図を使う。WBP_LoadingScreen側の変更は不要
+	OnWarpFadeOutRequested.Broadcast();
+}
+
+// ----------------------------------------------------
 // 2. 暗転が終わった後に呼ばれる「実際の移動」
 // ----------------------------------------------------
 void UMyProject1GameInstance::ExecuteWarpProcess()
 {
+	// ワープの予約より先に、フラグ付与だけの予約がないか確認する（RequestFadeThenGrantFlag経由の場合はこちらで完結させる）
+	if (!ReservedFlagToGrant.IsNone())
+	{
+		if (AMyProject1Character* Character = ReservedFlagGrantTarget.Get())
+		{
+			Character->AddFlag(ReservedFlagToGrant);
+		}
+
+		ReservedFlagToGrant = NAME_None;
+		ReservedFlagGrantTarget.Reset();
+		return;
+	}
+
 	// 予約された情報がなければ何もしない
 	if (!ReservedPlayer.IsValid() || ReservedWarpID.IsNone() || !WarpDataTable) return;
 

@@ -284,6 +284,15 @@ bool UInventoryComponent::UseItem(FName ItemID)
 	float TotalStaminaHealed = 0.0f; // ← 【追加】スタミナ回復量を記録する変数
 	bool bAnyEffectApplied = false;
 
+	// CapValue（0=上限なし）を考慮して、実際に加算していい量を計算するヘルパー
+	// 現在値が既にCapValue以上なら0、途中までならCapValueに届く分だけを返す
+	auto ClampAmountToCap = [](float CurrentValue, float RawAmount, float CapValue) -> float
+	{
+		if (CapValue <= 0.0f || RawAmount <= 0.0f) return RawAmount;
+		if (CurrentValue >= CapValue) return 0.0f;
+		return FMath::Min(RawAmount, CapValue - CurrentValue);
+	};
+
 	for (const FItemEffect& Effect : ItemInfo->Effects)
 	{
 		switch (Effect.TargetStat)
@@ -325,25 +334,75 @@ bool UInventoryComponent::UseItem(FName ItemID)
 			break;
 
 		case ETargetStat::Fame:
-			OwnerChar->MyStats.Fame += Effect.EffectAmount;
+			if (Effect.EffectDuration > 0.0f)
+			{
+				TimedEffects.Add(Effect);
+			}
+			else
+			{
+				OwnerChar->MyStats.Fame += ClampAmountToCap(OwnerChar->MyStats.Fame, Effect.EffectAmount, Effect.CapValue);
+			}
 			bAnyEffectApplied = true;
 			break;
 
 		case ETargetStat::Favor:
-			OwnerChar->MyStats.Favor += Effect.EffectAmount;
+			if (Effect.EffectDuration > 0.0f)
+			{
+				TimedEffects.Add(Effect);
+			}
+			else
+			{
+				OwnerChar->MyStats.Favor += ClampAmountToCap(OwnerChar->MyStats.Favor, Effect.EffectAmount, Effect.CapValue);
+			}
 			bAnyEffectApplied = true;
 			break;
 
 		case ETargetStat::Charm:
-			OwnerChar->MyStats.Charm += Effect.EffectAmount;
+			if (Effect.EffectDuration > 0.0f)
+			{
+				TimedEffects.Add(Effect);
+			}
+			else
+			{
+				OwnerChar->MyStats.Charm += ClampAmountToCap(OwnerChar->MyStats.Charm, Effect.EffectAmount, Effect.CapValue);
+			}
+			bAnyEffectApplied = true;
+			break;
+
+		case ETargetStat::Alcohol:
+			if (Effect.EffectDuration > 0.0f)
+			{
+				TimedEffects.Add(Effect);
+			}
+			else
+			{
+				OwnerChar->MyStats.Alcohol += ClampAmountToCap(OwnerChar->MyStats.Alcohol, Effect.EffectAmount, Effect.CapValue);
+			}
+			bAnyEffectApplied = true;
+			break;
+
+		case ETargetStat::Mental:
+			if (Effect.EffectDuration > 0.0f)
+			{
+				TimedEffects.Add(Effect);
+			}
+			else
+			{
+				OwnerChar->MyStats.MentalBonus += ClampAmountToCap(OwnerChar->MyStats.MentalBonus, Effect.EffectAmount, Effect.CapValue);
+				OwnerChar->RefreshEquipmentStats();
+			}
 			bAnyEffectApplied = true;
 			break;
 
 		case ETargetStat::CustomExtraStat:
 			if (!Effect.ExtraStatName.IsNone())
 			{
-				float CurrentValue = OwnerChar->MyStats.ExtraStats.FindRef(Effect.ExtraStatName);
-				OwnerChar->MyStats.ExtraStats.Add(Effect.ExtraStatName, CurrentValue + Effect.EffectAmount);
+				float CurrentValue = OwnerChar->GetExtraStat(Effect.ExtraStatName);
+				float AddAmount = ClampAmountToCap(CurrentValue, Effect.EffectAmount, Effect.CapValue);
+				if (AddAmount != 0.0f)
+				{
+					OwnerChar->AddExtraStat(Effect.ExtraStatName, AddAmount);
+				}
 				bAnyEffectApplied = true;
 			}
 			break;
