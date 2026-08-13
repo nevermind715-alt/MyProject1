@@ -34,6 +34,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnBuffListChangedSignature);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnSkinOverlayUIChangedSignature);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnAdventurerRankChangedSignature);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnFlagAddedSignature, FName, FlagName);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnFlagRemovedSignature, FName, FlagName);
 
 
 // クリティカルダメージを識別するための専用クラス
@@ -238,6 +239,11 @@ public:
 	    クエストアイテムポイントをレベル再読み込みなしにその場で出現させたい時に購読する */
 	UPROPERTY(BlueprintAssignable, Category = "RPG Combat|Flags")
 	FOnFlagAddedSignature OnFlagAdded;
+
+	/** フラグが削除された瞬間に発火する。表示切替（VisibilityFlag）などフラグ追加時と対になる
+	    後片付け・リセット処理を、レベル再読込なしにその場で反映させたい時に購読する */
+	UPROPERTY(BlueprintAssignable, Category = "RPG Combat|Flags")
+	FOnFlagRemovedSignature OnFlagRemoved;
 
 	/** フラグ（条件）を獲得する */
 	UFUNCTION(BlueprintCallable, Category = "RPG Combat|Flags")

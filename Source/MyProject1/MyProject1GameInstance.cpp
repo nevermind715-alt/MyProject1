@@ -7,6 +7,7 @@
 #include "QuestComponent.h"
 #include "SkinOverlayComponent.h"
 #include "GameFramework/PlayerController.h"
+#include "WallWarpLink.h"
 
 
 void UMyProject1GameInstance::Init()
@@ -102,7 +103,8 @@ void UMyProject1GameInstance::RequestWarp(FName WarpID, ACharacter* PlayerCharac
 	{
 		if (!MyChar->HasFlag(WarpData->RequiredFlag))
 		{
-			MyChar->OnReceiveLogMessage(TEXT("A mysterious force prevents you from advancing..."), ELogMessageType::System);
+			const FString Msg = WarpData->RequiredFlagMessage.IsEmpty() ? TEXT("何か目に見えない力に阻まれて、先に進めない…。") : WarpData->RequiredFlagMessage;
+			MyChar->OnReceiveLogMessage(Msg, ELogMessageType::System);
 			return;
 		}
 	}
@@ -133,6 +135,61 @@ void UMyProject1GameInstance::RequestFadeThenGrantFlag(FName FlagName, AMyProjec
 	ReservedFlagToGrant = FlagName;
 	ReservedFlagGrantTarget = TargetCharacter;
 
+	// エリアChangeと同じく、暗転中に動けてしまわないよう入力を禁止する
+	// （これが無いとRequestWarpと違い、暗転の裏でプレイヤーが動けてしまう）
+	if (APlayerController* PC = Cast<APlayerController>(TargetCharacter->GetController()))
+	{
+		TargetCharacter->DisableInput(PC);
+	}
+
+	// エリアChangeと全く同じ合図を使う。WBP_LoadingScreen側の変更は不要
+	OnWarpFadeOutRequested.Broadcast();
+}
+
+// ----------------------------------------------------
+// 1.5.5. ワープを伴わない「暗転を挟んだフラグ消去」の要求（NPCの表示切替など向け）
+// ----------------------------------------------------
+void UMyProject1GameInstance::RequestFadeThenRemoveFlag(FName FlagName, AMyProject1Character* TargetCharacter)
+{
+	if (FlagName.IsNone() || !TargetCharacter) return;
+
+	ReservedFlagToRemove = FlagName;
+	ReservedFlagRemoveTarget = TargetCharacter;
+
+	// 同じ選択肢のActionType=Warp（またはWallWarp）が既にこのフレームで暗転を予約済みなら、
+	// そちらの暗転にそのまま相乗りする（二重にOnWarpFadeOutRequestedを鳴らして暗転を壊さないため）。
+	// フラグの消去自体はExecuteWarpProcessの先頭で必ず反映されるので、ここでreturnしても消え忘れない
+	if (!ReservedWarpID.IsNone() || ReservedWallWarpLink.IsValid())
+	{
+		return;
+	}
+
+	// エリアChangeと同じく、暗転中に動けてしまわないよう入力を禁止する
+	if (APlayerController* PC = Cast<APlayerController>(TargetCharacter->GetController()))
+	{
+		TargetCharacter->DisableInput(PC);
+	}
+
+	// エリアChangeと全く同じ合図を使う。WBP_LoadingScreen側の変更は不要
+	OnWarpFadeOutRequested.Broadcast();
+}
+
+// ----------------------------------------------------
+// 1.6. WallWarpLink用の「暗転を挟んだ軽量ワープ」の要求
+// ----------------------------------------------------
+void UMyProject1GameInstance::RequestFadeThenWallWarp(AWallWarpLink* SourceLink, ACharacter* TargetCharacter)
+{
+	if (!SourceLink || !TargetCharacter) return;
+
+	ReservedWallWarpLink = SourceLink;
+	ReservedWallWarpCharacter = TargetCharacter;
+
+	// エリアChangeと同じく、暗転中は入力を禁止して動けないようにする
+	if (APlayerController* PC = Cast<APlayerController>(TargetCharacter->GetController()))
+	{
+		TargetCharacter->DisableInput(PC);
+	}
+
 	// エリアChangeと全く同じ合図を使う。WBP_LoadingScreen側の変更は不要
 	OnWarpFadeOutRequested.Broadcast();
 }
@@ -142,6 +199,19 @@ void UMyProject1GameInstance::RequestFadeThenGrantFlag(FName FlagName, AMyProjec
 // ----------------------------------------------------
 void UMyProject1GameInstance::ExecuteWarpProcess()
 {
+	// フラグ消去の予約は、Warp/WallWarp等の他の予約と同じ暗転に相乗りしている可能性があるため、
+	// ここではreturnせず必ず先に消化してから、下の各分岐（Warp本来の移動など）へ続ける
+	if (!ReservedFlagToRemove.IsNone())
+	{
+		if (AMyProject1Character* Character = ReservedFlagRemoveTarget.Get())
+		{
+			Character->RemoveFlag(ReservedFlagToRemove);
+		}
+
+		ReservedFlagToRemove = NAME_None;
+		ReservedFlagRemoveTarget.Reset();
+	}
+
 	// ワープの予約より先に、フラグ付与だけの予約がないか確認する（RequestFadeThenGrantFlag経由の場合はこちらで完結させる）
 	if (!ReservedFlagToGrant.IsNone())
 	{
@@ -152,6 +222,16 @@ void UMyProject1GameInstance::ExecuteWarpProcess()
 
 		ReservedFlagToGrant = NAME_None;
 		ReservedFlagGrantTarget.Reset();
+		return;
+	}
+
+	// WallWarpLink経由の予約があれば、こちらで完結させる（RequestFadeThenWallWarp用）
+	if (ReservedWallWarpLink.IsValid() && ReservedWallWarpCharacter.IsValid())
+	{
+		ReservedWallWarpLink->ExecuteWarpNow(ReservedWallWarpCharacter.Get());
+
+		ReservedWallWarpLink.Reset();
+		ReservedWallWarpCharacter.Reset();
 		return;
 	}
 

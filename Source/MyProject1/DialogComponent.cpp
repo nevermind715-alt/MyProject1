@@ -75,7 +75,7 @@ void UDialogComponent::SelectChoice(int32 ChoiceIndex)
 
 	const FDialogChoice& SelectedChoice = CurrentDialogData.Choices[ChoiceIndex];
 
-	ExecuteActionCore(SelectedChoice.ActionType, SelectedChoice.ActionPayload, SelectedChoice.GrantFlag, SelectedChoice.bFadeOnGrantFlag, SelectedChoice.StatToChange, SelectedChoice.ExtraStatName, SelectedChoice.StatChangeAmount);
+	ExecuteActionCore(SelectedChoice.ActionType, SelectedChoice.ActionPayload, SelectedChoice.GrantFlag, SelectedChoice.bFadeOnGrantFlag, SelectedChoice.RemoveFlag, SelectedChoice.bFadeOnRemoveFlag, SelectedChoice.StatToChange, SelectedChoice.ExtraStatName, SelectedChoice.StatChangeAmount);
 
 	FString NextIDStr = SelectedChoice.NextDialogID.ToString().TrimStartAndEnd();
 	bool bHasNext = !SelectedChoice.NextDialogID.IsNone() && !NextIDStr.IsEmpty() && NextIDStr.ToLower() != TEXT("none");
@@ -92,7 +92,7 @@ void UDialogComponent::SelectChoice(int32 ChoiceIndex)
 	}
 }
 
-void UDialogComponent::ExecuteActionCore(EDialogActionType ActionType, const FString& ActionPayload, FName GrantFlag, bool bFadeOnGrantFlag, ETargetStat StatToChange, FName ExtraStatName, float StatChangeAmount)
+void UDialogComponent::ExecuteActionCore(EDialogActionType ActionType, const FString& ActionPayload, FName GrantFlag, bool bFadeOnGrantFlag, FName FlagToRemove, bool bFadeOnRemoveFlag, ETargetStat StatToChange, FName ExtraStatName, float StatChangeAmount)
 {
 
 	IRpgCharacterInterface* RpgInterface = Cast<IRpgCharacterInterface>(GetOwner());
@@ -183,6 +183,26 @@ void UDialogComponent::ExecuteActionCore(EDialogActionType ActionType, const FSt
 		break;
 	}
 
+	// GrantFlagと同じく、ActionType（Warpなど）と併用できる、ActionTypeとは独立したフラグ消去。
+	// switch(Warp等)より後に実行することで、暗転が絡む場合にRequestFadeThenRemoveFlag側から
+	// 「Warpの暗転に既に予約が乗っているか」を判定できるようにしている（二重に暗転させないため）
+	// （例：バイトを終了してワープで部屋を出る選択肢で、開始時に立てたフラグをここで消す）
+	if (!FlagToRemove.IsNone())
+	{
+		if (bFadeOnRemoveFlag)
+		{
+			// エリアChangeと同じ暗転を挟んでから消去する（NPCの表示切替を暗転の裏で行いたい時用。
+			// 直前のWarpで既に暗転が予約されていれば、そちらに相乗りして二重に暗転しない）
+			if (UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetWorld()->GetGameInstance()))
+			{
+				GameInst->RequestFadeThenRemoveFlag(FlagToRemove, Cast<AMyProject1Character>(GetOwner()));
+			}
+		}
+		else
+		{
+			RpgInterface->RemoveFlag(FlagToRemove);
+		}
+	}
 
 	if (StatToChange != ETargetStat::None && StatChangeAmount != 0.0f)
 	{
@@ -357,7 +377,7 @@ void UDialogComponent::ShowCurrentLine()
 		// （会話終了設定の場合、この下でAdvanceDialogを経由せず直接CloseDialogするため、ここで実行しないと機会を失う）
 		if (CurrentDialogData.Choices.Num() == 0)
 		{
-			ExecuteActionCore(CurrentDialogData.ActionType, CurrentDialogData.ActionPayload, CurrentDialogData.GrantFlag, CurrentDialogData.bFadeOnGrantFlag, CurrentDialogData.StatToChange, CurrentDialogData.ExtraStatName, CurrentDialogData.StatChangeAmount);
+			ExecuteActionCore(CurrentDialogData.ActionType, CurrentDialogData.ActionPayload, CurrentDialogData.GrantFlag, CurrentDialogData.bFadeOnGrantFlag, CurrentDialogData.RemoveFlag, CurrentDialogData.bFadeOnRemoveFlag, CurrentDialogData.StatToChange, CurrentDialogData.ExtraStatName, CurrentDialogData.StatChangeAmount);
 		}
 
 		if (CurrentDialogData.Choices.Num() == 0 &&

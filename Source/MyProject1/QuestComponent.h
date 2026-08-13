@@ -51,6 +51,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Quest")
 	bool ReportQuest(FName QuestID);
 
+	/** デバッグ用: Ctrlキーが押されている時だけ動作し、対象クエストを強制的に条件達成扱いにしてから報告処理まで行う（受注クエスト一覧のCtrl+クリックから呼ぶ想定。呼び出し元のノードを外せば無効化できる） */
+	UFUNCTION(BlueprintCallable, Category = "Quest|Debug")
+	bool Debug_ForceCompleteQuest(FName QuestID);
+
 	/** �G��|�������ɌĂяo���A�����N�G�X�g�̃J�E���g��i�߂� */
 	UFUNCTION(BlueprintCallable, Category = "Quest")
 	void UpdateKillObjective(FName EnemyID);

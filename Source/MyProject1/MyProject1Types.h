@@ -816,6 +816,16 @@ struct FDialogChoice
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog")
 	bool bFadeOnGrantFlag = false;
 
+	// 空欄でなければ、ActionTypeが何であっても（Warpなどと併用でも）このフラグを消去する
+	// （例：バイトを終了してワープで部屋を出る選択肢に、開始時に立てたフラグの消去をここで併用させる）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog")
+	FName RemoveFlag;
+
+	// trueにすると、RemoveFlagの消去をエリアChangeと同じ暗転（フェード）を挟んでから行う。
+	// ActionType=Warpと併用時は、Warp自身の暗転に相乗りして同じ真っ暗タイミングで消去される（二重に暗転しない）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog")
+	bool bFadeOnRemoveFlag = false;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog")
 	ETargetStat StatToChange = ETargetStat::None;
 
@@ -881,6 +891,16 @@ struct FDialogData : public FTableRowBase
 	// （NPCの表示切替などを、フラグが立った瞬間の一瞬のポップではなく暗転の裏で行いたい時に使う。GrantFlagが空欄なら意味を持たない）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Action")
 	bool bFadeOnGrantFlag = false;
+
+	// 空欄でなければ、ActionTypeが何であっても（Warpなどと併用でも）このフラグを消去する
+	// （例：バイトを終了してワープで部屋を出る選択肢に、開始時に立てたフラグの消去をここで併用させる）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Action")
+	FName RemoveFlag;
+
+	// trueにすると、RemoveFlagの消去をエリアChangeと同じ暗転（フェード）を挟んでから行う。
+	// ActionType=Warpと併用時は、Warp自身の暗転に相乗りして同じ真っ暗タイミングで消去される（二重に暗転しない）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Action")
+	bool bFadeOnRemoveFlag = false;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Action")
 	ETargetStat StatToChange = ETargetStat::None;
@@ -1151,6 +1171,10 @@ struct FWarpDestination : public FTableRowBase
 	// 飛ぶために必要なフラグ（空欄なら無条件。フラグ名があれば、それを持っていないと飛べない）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Warp")
 	FName RequiredFlag;
+
+	// RequiredFlagを持っていない時にログへ流す台詞（空欄なら既定の文言を使う）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Warp")
+	FString RequiredFlagMessage;
 };
 
 // --- ワープ一覧UI用の軽量データ（デバッグメニュー等、C++からBPへ一覧を渡す用） ---

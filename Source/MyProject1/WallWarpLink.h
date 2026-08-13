@@ -70,8 +70,12 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Wall Warp")
 	bool IsReadyToInteract() const { return bIsPlayerOverlapping; }
 
+	/** 暗転が終わった瞬間にGameInstance（RequestFadeThenWallWarp経由）から呼ばれ、実際にキャラクターを
+	    TargetLinkへ移動させる。往復トリガー防止のクールダウンもここでセットする */
+	void ExecuteWarpNow(class ACharacter* TargetCharacter);
+
 private:
-	/** 実際にキャラクターをTargetLinkへ移動させる */
+	/** ワープ実行を要求する（GameInstance経由で暗転を挟み、実際の移動はExecuteWarpNowで行う） */
 	void ExecuteWarp(class ACharacter* TargetCharacter);
 
 	/** RequiredFlagの所持状況に応じて、表示/当たり判定のON・OFFを切り替える */

@@ -22,13 +22,18 @@ void AQuestNPCBase::BeginPlay()
 
 	UpdateFlagVisibility(PlayerChar);
 	PlayerChar->OnFlagAdded.AddDynamic(this, &AQuestNPCBase::OnPlayerFlagAdded);
+	PlayerChar->OnFlagRemoved.AddDynamic(this, &AQuestNPCBase::OnPlayerFlagRemoved);
 }
 
 void AQuestNPCBase::UpdateFlagVisibility(const AMyProject1Character* PlayerChar)
 {
 	const bool bHasFlag = PlayerChar && PlayerChar->HasFlag(VisibilityFlag);
-	const bool bVisible = (VisibilityMode == EFlagVisibilityMode::ShowOnFlag) ? bHasFlag : !bHasFlag;
+	ApplyVisibilityForFlagState(bHasFlag);
+}
 
+void AQuestNPCBase::ApplyVisibilityForFlagState(bool bHasFlag)
+{
+	const bool bVisible = (VisibilityMode == EFlagVisibilityMode::ShowOnFlag) ? bHasFlag : !bHasFlag;
 	SetActorHiddenInGame(!bVisible);
 	SetActorEnableCollision(bVisible);
 }
@@ -36,18 +41,37 @@ void AQuestNPCBase::UpdateFlagVisibility(const AMyProject1Character* PlayerChar)
 void AQuestNPCBase::OnPlayerFlagAdded(FName FlagName)
 {
 	if (VisibilityFlag.IsNone() || FlagName != VisibilityFlag) return;
+	ApplyVisibilityForFlagState(true);
+}
 
-	const bool bVisible = (VisibilityMode == EFlagVisibilityMode::ShowOnFlag);
-	SetActorHiddenInGame(!bVisible);
-	SetActorEnableCollision(bVisible);
+void AQuestNPCBase::OnPlayerFlagRemoved(FName FlagName)
+{
+	if (VisibilityFlag.IsNone() || FlagName != VisibilityFlag) return;
+	ApplyVisibilityForFlagState(false);
 }
 
 void AQuestNPCBase::TalkToNPC(AMyProject1Character* PlayerChar)
 {
-	if (!PlayerChar || !DialogTable || Quests.Num() == 0) return;
+	if (!PlayerChar || !DialogTable) return;
 
 	IRpgCharacterInterface* RpgInterface = Cast<IRpgCharacterInterface>(PlayerChar);
-	UQuestComponent* QuestComp = RpgInterface ? RpgInterface->GetQuestComponent() : nullptr;
+	if (!RpgInterface) return;
+
+	// 初回だけの挨拶（フラグ未取得の間だけ表示。Quests配列より優先。
+	// フラグの付与は自分では行わず、DT_Dialogs側の対象行のGrantFlagに任せる）
+	if (!FirstMeetFlag.IsNone() && !RpgInterface->HasFlag(FirstMeetFlag))
+	{
+		if (UDialogComponent* DialogComp = PlayerChar->FindComponentByClass<UDialogComponent>())
+		{
+			DialogComp->StartDialog(DialogRowName_FirstMeet, DialogTable, this);
+			RpgInterface->SetInputLocked(true);
+		}
+		return;
+	}
+
+	if (Quests.Num() == 0) return;
+
+	UQuestComponent* QuestComp = RpgInterface->GetQuestComponent();
 	if (!QuestComp) return;
 
 	TArray<FName> CandidateIDs;

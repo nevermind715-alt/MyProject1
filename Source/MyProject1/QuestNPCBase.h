@@ -33,6 +33,15 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC")
 	TArray<FQuestDialogSet> Quests;
 
+	// --- 初回だけの挨拶（クエストと無関係な一度きりの状態変化用） ---
+	// 空欄なら使わない（従来通りQuests配列のみで判定）。設定すると、このフラグを未取得の間だけ
+	// DialogRowName_FirstMeetを優先表示する。フラグの付与はDT_Dialogs側の対象行のGrantFlagで行う想定
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC|FirstMeet")
+	FName FirstMeetFlag;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC|FirstMeet")
+	FName DialogRowName_FirstMeet;
+
 	// BPI_InteractableのイベントからEキー等で呼び出す、会話開始の共通ネイティブ処理
 	UFUNCTION(BlueprintCallable, Category = "QuestNPC")
 	void TalkToNPC(class AMyProject1Character* PlayerChar);
@@ -52,7 +61,17 @@ private:
 	/** VisibilityFlag/VisibilityModeの設定に応じて、現在の表示/当たり判定を更新する */
 	void UpdateFlagVisibility(const class AMyProject1Character* PlayerChar);
 
+	/** bHasFlag（フラグを持っているか）を基に表示/当たり判定を反映する共通処理
+	    （UpdateFlagVisibility・OnPlayerFlagAdded・OnPlayerFlagRemovedの実体を1箇所にまとめたもの） */
+	void ApplyVisibilityForFlagState(bool bHasFlag);
+
 	/** プレイヤーがフラグを獲得した時に呼ばれる（OnFlagAddedの購読先）。VisibilityFlag一致時のみ表示を更新する */
 	UFUNCTION()
 	void OnPlayerFlagAdded(FName FlagName);
+
+	/** プレイヤーがフラグを失った時に呼ばれる（OnFlagRemovedの購読先）。VisibilityFlag一致時のみ表示を更新する。
+	    これが無いとRemoveFlagで消したフラグにNPCの表示/非表示が追従せず、部屋の出入りを挟んでも
+	    見た目（表示状態）が古いままになる */
+	UFUNCTION()
+	void OnPlayerFlagRemoved(FName FlagName);
 };

@@ -1,7 +1,9 @@
 #include "WallWarpLink.h"
 #include "Components/BoxComponent.h"
 #include "GameFramework/Character.h"
+#include "GameFramework/PlayerController.h"
 #include "MyProject1Character.h"
+#include "MyProject1GameInstance.h"
 #include "Kismet/GameplayStatics.h"
 
 // 日本語文字化け・コンパイルエラー対策
@@ -99,6 +101,22 @@ void AWallWarpLink::InteractWithLink(ACharacter* Interactor)
 }
 
 void AWallWarpLink::ExecuteWarp(ACharacter* TargetCharacter)
+{
+	if (!TargetCharacter || !TargetLink) return;
+
+	// エリアChangeと同じ暗転（OnWarpFadeOutRequested）を挟む。GameInstance側で入力も禁止されるため、
+	// 暗転中にプレイヤーが動けてしまうことはない。実際の移動は暗転後にExecuteWarpNowで行う
+	if (UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetGameInstance()))
+	{
+		GameInst->RequestFadeThenWallWarp(this, TargetCharacter);
+		return;
+	}
+
+	// GameInstanceが取得できない異常系のみ、暗転なしで即座にワープするフォールバック
+	ExecuteWarpNow(TargetCharacter);
+}
+
+void AWallWarpLink::ExecuteWarpNow(ACharacter* TargetCharacter)
 {
 	if (!TargetCharacter || !TargetLink) return;
 

@@ -417,6 +417,28 @@ bool UQuestComponent::ReportQuest(FName QuestID)
 	return false;
 }
 
+bool UQuestComponent::Debug_ForceCompleteQuest(FName QuestID)
+{
+	// Ctrlキーが押されている時だけ有効（通常クリックでは何もしない安全策）
+	APawn* OwnerPawn = Cast<APawn>(GetOwner());
+	APlayerController* PC = OwnerPawn ? Cast<APlayerController>(OwnerPawn->GetController()) : nullptr;
+	if (!PC || !(PC->IsInputKeyDown(EKeys::LeftControl) || PC->IsInputKeyDown(EKeys::RightControl)))
+	{
+		return false;
+	}
+
+	for (FQuestProgress& Progress : ActiveQuests)
+	{
+		if (Progress.QuestID == QuestID)
+		{
+			// 条件未達成でもデバッグで強制的に「条件達成」扱いにしてから、通常の報告処理に流す
+			Progress.Status = EQuestStatus::ObjectiveCleared;
+			return ReportQuest(QuestID);
+		}
+	}
+	return false;
+}
+
 void UQuestComponent::UpdateGatherObjective(FName ItemID, int32 AmountAdded)
 {
 	bool bUpdatedAny = false;

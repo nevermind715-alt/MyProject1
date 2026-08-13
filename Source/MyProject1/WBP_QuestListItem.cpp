@@ -22,3 +22,18 @@ void UWBP_QuestListItem::RefreshAchievedMark(FName InQuestID)
 
 	OnAchievedMarkChanged(bAchieved);
 }
+
+bool UWBP_QuestListItem::Debug_TryForceCompleteQuest(FName InQuestID)
+{
+	if (APawn* OwningPawn = GetOwningPlayerPawn())
+	{
+		if (IRpgCharacterInterface* CharInterface = Cast<IRpgCharacterInterface>(OwningPawn))
+		{
+			if (UQuestComponent* QuestComp = CharInterface->GetQuestComponent())
+			{
+				return QuestComp->Debug_ForceCompleteQuest(InQuestID);
+			}
+		}
+	}
+	return false;
+}

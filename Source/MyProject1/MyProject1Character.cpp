@@ -372,16 +372,32 @@ void AMyProject1Character::OnActionKeyPressed()
 
 	if (!CurrentTarget) return;
 
-	// 会話クエストNPCなら会話開始
+	// 会話クエストNPCなら会話開始（コマンドメニューが開いていたら先に閉じる排他処理）
 	if (AQuestNPCBase* QuestNPC = Cast<AQuestNPCBase>(CurrentTarget))
 	{
+		if (APlayerController* PC = Cast<APlayerController>(GetController()))
+		{
+			if (AMyProject1HUD* HUD = Cast<AMyProject1HUD>(PC->GetHUD()))
+			{
+				HUD->ForceCloseCommandMenuForInteract();
+			}
+		}
+
 		QuestNPC->TalkToNPC(this);
 		return;
 	}
 
-	// ショップNPCならショップ開始
+	// ショップNPCならショップ開始（同上、排他処理）
 	if (AShopNPCBase* ShopNPC = Cast<AShopNPCBase>(CurrentTarget))
 	{
+		if (APlayerController* PC = Cast<APlayerController>(GetController()))
+		{
+			if (AMyProject1HUD* HUD = Cast<AMyProject1HUD>(PC->GetHUD()))
+			{
+				HUD->ForceCloseCommandMenuForInteract();
+			}
+		}
+
 		ShopNPC->OpenShop(this);
 		return;
 	}
@@ -401,7 +417,16 @@ void AMyProject1Character::OnActionKeyPressed()
 	}
 
 	// QuestNPC/ShopNPC/Enemyのどれでもない場合（クエストボード等のBlueprint専用Interactable）は
-	// BP側の実装（Eキーと同じInteract呼び出し）に委ねる
+	// BP側の実装（Eキーと同じInteract呼び出し）に委ねる。
+	// Eキー側はInteract前にコマンドメニューを閉じる排他処理を行っているので、Spaceキーでも同様に行う
+	if (APlayerController* PC = Cast<APlayerController>(GetController()))
+	{
+		if (AMyProject1HUD* HUD = Cast<AMyProject1HUD>(PC->GetHUD()))
+		{
+			HUD->ForceCloseCommandMenuForInteract();
+		}
+	}
+
 	BP_TryInteractWithTarget(CurrentTarget);
 }
 
@@ -2440,9 +2465,11 @@ bool AMyProject1Character::HasFlag(FName FlagName) const
 void AMyProject1Character::RemoveFlag(FName FlagName)
 {
 	// リストから指定した名前を削除する（入れ物ごと消滅します！）
-	if (!FlagName.IsNone())
+	// 実際に持っていた場合のみ通知する（OnFlagAddedと対称。VisibilityFlag等がその場で表示を更新できる）
+	if (!FlagName.IsNone() && MyStats.UnlockedFlags.Contains(FlagName))
 	{
 		MyStats.UnlockedFlags.Remove(FlagName);
+		OnFlagRemoved.Broadcast(FlagName);
 	}
 }
 

@@ -15,6 +15,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Quest")
 	void RefreshAchievedMark(FName InQuestID);
 
+	// デバッグ用: Ctrlキーを押しながらこの行がクリックされた時に呼ぶ想定。
+	// Ctrl未使用時や通常クリック時は内部で何もせずfalseを返すだけなので、
+	// OnClicked等の既存の処理と並列に1本つなぐだけで良い（外せば無効化できる）。
+	UFUNCTION(BlueprintCallable, Category = "Quest|Debug")
+	bool Debug_TryForceCompleteQuest(FName InQuestID);
+
 protected:
 	// BP側で達成マーク用ウィジェット（Txt_Achieved）のVisibilityを切り替える
 	UFUNCTION(BlueprintImplementableEvent, Category = "Quest")

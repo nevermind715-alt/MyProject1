@@ -89,6 +89,16 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Warp")
 	void RequestFadeThenGrantFlag(FName FlagName, class AMyProject1Character* TargetCharacter);
 
+	/** RequestFadeThenGrantFlagの消去版。既にWarp/WallWarpの暗転が同フレームで予約済みなら、
+	 *  そちらに相乗りして二重に暗転させず、フラグの消去だけをExecuteWarpProcess側で一緒に反映する */
+	UFUNCTION(BlueprintCallable, Category = "Warp")
+	void RequestFadeThenRemoveFlag(FName FlagName, class AMyProject1Character* TargetCharacter);
+
+	/** AWallWarpLinkからの要求。同一レベル内の軽量ワープにも、エリアChangeと同じ暗転演出を挟む。
+	 *  暗転が終わった瞬間にSourceLink->ExecuteWarpNow()を呼び、実際のテレポートを行う */
+	UFUNCTION(BlueprintCallable, Category = "Warp")
+	void RequestFadeThenWallWarp(class AWallWarpLink* SourceLink, class ACharacter* TargetCharacter);
+
 	/** DT_WarpDestinationsの全行を、UI表示用の軽量データ一覧として取得する（デバッグメニュー等がBP側で一覧を組み立てる際に使う） */
 	UFUNCTION(BlueprintCallable, Category = "Warp")
 	TArray<FWarpDestinationInfo> GetAllWarpDestinations() const;
@@ -164,6 +174,14 @@ private:
 	// 暗転が終わるまで待機している「付与予定のフラグ」と「付与対象」の記憶（RequestFadeThenGrantFlag用）
 	FName ReservedFlagToGrant;
 	TWeakObjectPtr<class AMyProject1Character> ReservedFlagGrantTarget;
+
+	// 暗転が終わるまで待機している「消去予定のフラグ」と「消去対象」の記憶（RequestFadeThenRemoveFlag用）
+	FName ReservedFlagToRemove;
+	TWeakObjectPtr<class AMyProject1Character> ReservedFlagRemoveTarget;
+
+	// 暗転が終わるまで待機している「ワープ元のWallWarpLink」と「対象キャラクター」の記憶（RequestFadeThenWallWarp用）
+	TWeakObjectPtr<class AWallWarpLink> ReservedWallWarpLink;
+	TWeakObjectPtr<class ACharacter> ReservedWallWarpCharacter;
 
 	/** 現在のプレイヤー状態を新しいUMyProject1SaveGameへ複製する（ディスクへは書き込まない一時オブジェクト）。
 	 *  ディスクへのセーブ（SaveCurrentGame）と、別マップへのワープでキャラクターが再生成される際の
