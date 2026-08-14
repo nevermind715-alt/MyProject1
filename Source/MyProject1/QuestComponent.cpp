@@ -244,6 +244,36 @@ bool UQuestComponent::AcceptQuest(FName QuestID)
 	return true;
 }
 
+bool UQuestComponent::CancelQuest(FName QuestID)
+{
+	for (int32 i = 0; i < ActiveQuests.Num(); ++i)
+	{
+		if (ActiveQuests[i].QuestID != QuestID) continue;
+
+		// 既に条件達成済み（報告待ち）でも、報告前ならまだ放棄できる仕様
+		ActiveQuests.RemoveAt(i);
+
+		// UIに通知
+		OnQuestUpdated.Broadcast(QuestID);
+
+		// ログ表示
+		FQuestData Data;
+		if (AMyProject1Character* OwnerChar = Cast<AMyProject1Character>(GetOwner()))
+		{
+			if (GetQuestData(QuestID, Data))
+			{
+				FString LogMsg = FString::Printf(TEXT("クエスト「%s」を放棄した。"), *Data.QuestName.ToString());
+				OwnerChar->OnReceiveLogMessage(LogMsg, ELogMessageType::System);
+			}
+		}
+
+		return true;
+	}
+
+	// 進行中でないクエストは放棄しようがない
+	return false;
+}
+
 void UQuestComponent::UpdateKillObjective(FName EnemyID)
 {
 	bool bUpdatedAny = false;

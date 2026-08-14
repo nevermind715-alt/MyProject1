@@ -166,6 +166,21 @@ public:
 	/** レベル移動後、新しく生成されたキャラクターのBeginPlayから呼ばれ、PendingLoadSaveGameの中身を実際に適用する */
 	void ApplyPendingCharacterLoad(class AMyProject1Character* Character);
 
+	// --- ログウィンドウの履歴 ---
+	// レベル移動（OpenLevel）でWBP_LogWindowが再生成されても消えないよう、
+	// GameInstance側に「箱の中身」のコピーを保持しておく（SavedActiveTattoos等と同じ仕組み）。
+
+	/** 保持する最大件数（超えたら古いものから削除する） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Log")
+	int32 MaxLogHistoryEntries = 100;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Log")
+	TArray<FLogHistoryEntry> LogHistory;
+
+	/** ログウィンドウに新しい1件が表示された時、BP側（WBP_LogWindowのAddLogEntry）から呼んで履歴に積む */
+	UFUNCTION(BlueprintCallable, Category = "Log")
+	void AddLogHistoryEntry(const FString& Message, ELogMessageType InLogType);
+
 private:
 	// ★追加：暗転が終わるまで待機している「ワープID」と「プレイヤー」の記憶
 	FName ReservedWarpID;

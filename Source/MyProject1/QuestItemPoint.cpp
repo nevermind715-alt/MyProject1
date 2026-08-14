@@ -53,6 +53,9 @@ void AQuestItemPoint::TryInteract(AMyProject1Character* Interactor)
 {
 	if (!Interactor) return;
 
+	// 成功・失敗を問わず、インタラクトした時点でターゲットカーソルを消す
+	Interactor->CancelTarget();
+
 	if (bOneTimeUse && bUsed)
 	{
 		if (!FailureLogText.IsEmpty())
@@ -66,19 +69,40 @@ void AQuestItemPoint::TryInteract(AMyProject1Character* Interactor)
 		return;
 	}
 
+	// ItemIDが空欄なら「アイテムのやり取りはしない」の意味として扱う（お金だけのポイントを作れるようにするため）
+	const bool bWantsItem = (Mode != EItemInteractMode::InteractOnly) && !ItemID.IsNone();
+	const bool bWantsGil = (Mode != EItemInteractMode::InteractOnly) && GilAmount > 0;
+
 	bool bSuccess = false;
 	switch (Mode)
 	{
 	case EItemInteractMode::Acquire:
 		if (UInventoryComponent* InvComp = Interactor->FindComponentByClass<UInventoryComponent>())
 		{
-			bSuccess = InvComp->AddItem(ItemID, Amount);
+			// お金の追加には上限判定がなく必ず成功するので、成否を左右するのはアイテム側の空き容量だけ
+			const bool bItemOK = !bWantsItem || InvComp->AddItem(ItemID, Amount);
+			if (bItemOK && bWantsGil)
+			{
+				InvComp->AddGil(GilAmount);
+			}
+			bSuccess = bItemOK;
 		}
 		break;
 	case EItemInteractMode::Absorb:
 		if (UInventoryComponent* InvComp = Interactor->FindComponentByClass<UInventoryComponent>())
 		{
-			bSuccess = InvComp->RemoveItem(ItemID, Amount);
+			// アイテムとお金、両方使う設定なら、どちらか一方でも足りなければ失敗にする（片方だけ徴収してしまう事故を防ぐ）
+			const bool bHasEnoughItem = !bWantsItem || InvComp->GetItemQuantity(ItemID) >= Amount;
+			const bool bHasEnoughGil = !bWantsGil || InvComp->Gil >= GilAmount;
+			if (bHasEnoughItem && bHasEnoughGil)
+			{
+				const bool bItemOK = !bWantsItem || InvComp->RemoveItem(ItemID, Amount);
+				if (bItemOK && bWantsGil)
+				{
+					InvComp->TrySpendGil(GilAmount);
+				}
+				bSuccess = bItemOK;
+			}
 		}
 		break;
 	case EItemInteractMode::InteractOnly:

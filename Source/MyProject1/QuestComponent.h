@@ -51,6 +51,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Quest")
 	bool ReportQuest(FName QuestID);
 
+	/** 進行中のクエストを放棄する（あきらめる）。ActiveQuestsから取り除くだけで、報酬・アイテムの巻き戻しは行わない */
+	UFUNCTION(BlueprintCallable, Category = "Quest")
+	bool CancelQuest(FName QuestID);
+
 	/** デバッグ用: Ctrlキーが押されている時だけ動作し、対象クエストを強制的に条件達成扱いにしてから報告処理まで行う（受注クエスト一覧のCtrl+クリックから呼ぶ想定。呼び出し元のノードを外せば無効化できる） */
 	UFUNCTION(BlueprintCallable, Category = "Quest|Debug")
 	bool Debug_ForceCompleteQuest(FName QuestID);

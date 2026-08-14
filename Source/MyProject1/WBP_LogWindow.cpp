@@ -7,6 +7,9 @@ void UWBP_LogWindow::NativeConstruct()
 
 	// 初回ログが来るまでは非表示状態から始める（さもないとデザイナー上の初期Opacityのまま表示され続ける）
 	SetRenderOpacity(0.0f);
+
+	// レベル移動をまたいでGameInstanceに保存されているログ履歴を復元する（中身の復元はBP側で実装）
+	RestoreLogHistory();
 }
 
 void UWBP_LogWindow::NotifyNewLogEntry()

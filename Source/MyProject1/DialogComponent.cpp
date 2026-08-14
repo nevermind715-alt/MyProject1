@@ -127,6 +127,11 @@ void UDialogComponent::ExecuteActionCore(EDialogActionType ActionType, const FSt
 			QuestComp->ReportQuest(FName(*ActionPayload));
 		break;
 
+	case EDialogActionType::CancelQuest:
+		if (UQuestComponent* QuestComp = RpgInterface->GetQuestComponent())
+			QuestComp->CancelQuest(FName(*ActionPayload));
+		break;
+
 	case EDialogActionType::TalkProgress:
 		if (UQuestComponent* QuestComp = RpgInterface->GetQuestComponent())
 		{

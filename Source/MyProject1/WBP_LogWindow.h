@@ -29,6 +29,11 @@ protected:
 	UFUNCTION(BlueprintImplementableEvent, Category = "Log")
 	void OnHideLogWindow();
 
+	// レベル移動後にこのウィンドウが新しく生成された時、NativeConstructから自動的に呼ばれる。
+	// BP側で GameInstance の LogHistory をループし、AddLogEntry(bIsRestoring=true) で復元する処理を実装する。
+	UFUNCTION(BlueprintImplementableEvent, Category = "Log")
+	void RestoreLogHistory();
+
 private:
 	// 自動非表示タイマーが切れた時に呼ばれる
 	void HandleAutoHideTimeout();

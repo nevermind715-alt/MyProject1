@@ -477,3 +477,17 @@ void UMyProject1GameInstance::ApplyPendingCharacterLoad(AMyProject1Character* Ch
 	PendingLoadSaveGame = nullptr;
 }
 
+void UMyProject1GameInstance::AddLogHistoryEntry(const FString& Message, ELogMessageType InLogType)
+{
+	FLogHistoryEntry NewEntry;
+	NewEntry.Message = Message;
+	NewEntry.LogType = InLogType;
+	LogHistory.Add(NewEntry);
+
+	// 古いものから削除して上限件数を保つ
+	while (LogHistory.Num() > MaxLogHistoryEntries)
+	{
+		LogHistory.RemoveAt(0);
+	}
+}
+

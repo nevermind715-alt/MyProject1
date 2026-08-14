@@ -48,13 +48,17 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item Interact")
 	EItemInteractMode Mode = EItemInteractMode::Acquire;
 
-	/** 対象アイテム（DT_ItemDataの行名）。InteractOnlyモードでは未使用 */
+	/** 対象アイテム（DT_ItemDataの行名）。空欄（None）ならアイテムのやり取りをせず、お金だけのポイントにできる。InteractOnlyモードでは未使用 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item Interact", meta = (EditCondition = "Mode != EItemInteractMode::InteractOnly"))
 	FName ItemID;
 
 	/** 個数。InteractOnlyモードでは未使用 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item Interact", meta = (ClampMin = "1", EditCondition = "Mode != EItemInteractMode::InteractOnly"))
 	int32 Amount = 1;
+
+	/** 増減するお金（ギル）。Acquireなら渡す、Absorbなら回収する。0ならお金のやり取りなし。InteractOnlyモードでは未使用 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item Interact", meta = (ClampMin = "0", EditCondition = "Mode != EItemInteractMode::InteractOnly"))
+	int32 GilAmount = 0;
 
 	// --- ログ ---
 	/** インタラクト成功時にログへ流す台詞（空欄なら何も流さない） */

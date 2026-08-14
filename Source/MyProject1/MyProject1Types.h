@@ -27,6 +27,19 @@ enum class ELogMessageType : uint8
 	Dialogue     UMETA(DisplayName = "Dialogue")
 };
 
+// --- ログウィンドウの履歴1件分（レベル移動をまたいでGameInstanceに保存するため） ---
+USTRUCT(BlueprintType)
+struct FLogHistoryEntry
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadWrite, Category = "Log")
+	FString Message;
+
+	UPROPERTY(BlueprintReadWrite, Category = "Log")
+	ELogMessageType LogType = ELogMessageType::Default;
+};
+
 // --- 追加：選択肢の文字色 ---
 UENUM(BlueprintType)
 enum class EDialogChoiceColor : uint8
@@ -766,6 +779,7 @@ enum class EDialogActionType : uint8
 	None            UMETA(DisplayName = "何もしない（次の会話へ）"),
 	AcceptQuest     UMETA(DisplayName = "クエストを受注する"),
 	ReportQuest     UMETA(DisplayName = "クエストを報告する"),
+	CancelQuest     UMETA(DisplayName = "クエストを放棄する（あきらめる）"),
 	TalkProgress    UMETA(DisplayName = "会話クエストの進捗を進める（このNPCと話した）"),
 	ChangeStat      UMETA(DisplayName = "ステータスを変化させる"),
 	GiveItem        UMETA(DisplayName = "アイテムを渡す/奪う"),
