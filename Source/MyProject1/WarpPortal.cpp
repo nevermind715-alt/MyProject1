@@ -3,24 +3,24 @@
 #include "GameFramework/Character.h"
 #include "MyProject1GameInstance.h"
 
-// “ú–{Œê•¶š‰»‚¯EƒRƒ“ƒpƒCƒ‹ƒGƒ‰[‘Îô
+// ï¿½ï¿½ï¿½{ï¿½ê•¶ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Eï¿½Rï¿½ï¿½ï¿½pï¿½Cï¿½ï¿½ï¿½Gï¿½ï¿½ï¿½[ï¿½Îï¿½
 #pragma execution_character_set("utf-8")
 
 AWarpPortal::AWarpPortal()
 {
 	PrimaryActorTick.bCanEverTick = false;
 
-	// “–‚½‚è”»’è‚Ìƒ{ƒbƒNƒX‚ğì¬
+	// ï¿½ï¿½ï¿½ï¿½ï¿½è”»ï¿½ï¿½Ìƒ{ï¿½bï¿½Nï¿½Xï¿½ï¿½ï¿½ì¬
 	CollisionBox = CreateDefaultSubobject<UBoxComponent>(TEXT("CollisionBox"));
 	RootComponent = CollisionBox;
 
-	// ” ‚Ì‘å‚«‚³‚ğİ’èi­‚µ‘å‚«‚ß‚Éj
+	// ï¿½ï¿½ï¿½Ì‘å‚«ï¿½ï¿½ï¿½ï¿½İ’ï¿½iï¿½ï¿½ï¿½ï¿½ï¿½å‚«ï¿½ß‚Éj
 	CollisionBox->InitBoxExtent(FVector(100.f, 100.f, 100.f));
 
-	// Õ“Ëİ’èiƒvƒŒƒCƒ„[‚Ì‚İ‚É”½‰‚³‚¹‚é‚Ì‚ª—‘z‚Å‚·‚ªA‚±‚±‚Å‚Íˆê”Ê“I‚Èİ’è‚Éj
+	// ï¿½Õ“Ëİ’ï¿½iï¿½vï¿½ï¿½ï¿½Cï¿½ï¿½ï¿½[ï¿½Ì‚İ‚É”ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ì‚ï¿½ï¿½ï¿½ï¿½zï¿½Å‚ï¿½ï¿½ï¿½ï¿½Aï¿½ï¿½ï¿½ï¿½ï¿½Å‚Íˆï¿½Ê“Iï¿½Èİ’ï¿½Éj
 	CollisionBox->SetCollisionProfileName(TEXT("Trigger"));
 
-	// G‚ê‚½‚ÌƒCƒxƒ“ƒg‚ğ“o˜^
+	// ï¿½Gï¿½ê‚½ï¿½ï¿½ï¿½ÌƒCï¿½xï¿½ï¿½ï¿½gï¿½ï¿½oï¿½^
 	CollisionBox->OnComponentBeginOverlap.AddDynamic(this, &AWarpPortal::OnOverlapBegin);
 }
 
@@ -31,21 +31,24 @@ void AWarpPortal::BeginPlay()
 
 void AWarpPortal::OnOverlapBegin(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
 {
-	// ƒAƒNƒ^‚ªƒLƒƒƒ‰ƒNƒ^[iƒvƒŒƒCƒ„[j‚©‚Ç‚¤‚©ƒ`ƒFƒbƒN
+	// ï¿½Aï¿½Nï¿½^ï¿½ï¿½ï¿½Lï¿½ï¿½ï¿½ï¿½ï¿½Nï¿½^ï¿½[ï¿½iï¿½vï¿½ï¿½ï¿½Cï¿½ï¿½ï¿½[ï¿½jï¿½ï¿½ï¿½Ç‚ï¿½ï¿½ï¿½ï¿½`ï¿½Fï¿½bï¿½Nï¿½iï¿½pï¿½gï¿½ï¿½ï¿½[ï¿½ï¿½ï¿½ï¿½NPCï¿½È‚Ç‚ï¿½ï¿½Õ“Ë‚ï¿½ï¿½Äˆï¿½Äï¿½ï¿½sï¿½ï¿½ï¿½È‚ï¿½ï¿½æ‚¤ï¿½A
+	// ï¿½uPlayerï¿½vï¿½^ï¿½Oï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä‚ï¿½ï¿½é‚©ï¿½ï¿½ï¿½Kï¿½ï¿½ï¿½mï¿½Fï¿½ï¿½ï¿½ï¿½j
+	if (!OtherActor->ActorHasTag(TEXT("Player"))) return;
+
 	if (ACharacter* PlayerChar = Cast<ACharacter>(OtherActor))
 	{
-		// uG‚ê‚é‚Æ‘¦ƒ[ƒvv‚Ìİ’è‚È‚çA‚·‚®‚É”ò‚Ô
+		// ï¿½uï¿½Gï¿½ï¿½ï¿½Æ‘ï¿½ï¿½ï¿½ï¿½[ï¿½vï¿½vï¿½Ìİ’ï¿½È‚ï¿½Aï¿½ï¿½ï¿½ï¿½ï¿½É”ï¿½ï¿½
 		if (PortalType == EWarpPortalType::TouchToWarp)
 		{
 			ExecuteWarp(PlayerChar);
 		}
-		// ¦InteractToWarpi’²‚×‚éj‚â ConfirmToWarp ‚Ìê‡‚Í‚±‚±‚Å‚Í‰½‚à‚µ‚È‚¢iBP‚©‚ç‚ÌInteractWithPortal‚ğ‘Ò‚Âj
+		// ï¿½ï¿½InteractToWarpï¿½iï¿½ï¿½ï¿½×‚ï¿½jï¿½ï¿½ ConfirmToWarp ï¿½Ìê‡ï¿½Í‚ï¿½ï¿½ï¿½ï¿½Å‚Í‰ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½È‚ï¿½ï¿½iBPï¿½ï¿½ï¿½ï¿½ï¿½InteractWithPortalï¿½ï¿½Ò‚Âj
 	}
 }
 
 void AWarpPortal::InteractWithPortal(ACharacter* Interactor)
 {
-	// EƒL[“™‚Å’²‚×‚ç‚ê‚½
+	// Eï¿½Lï¿½[ï¿½ï¿½ï¿½Å’ï¿½ï¿½×‚ï¿½ê‚½ï¿½ï¿½
 	if (PortalType == EWarpPortalType::InteractToWarp)
 	{
 		ExecuteWarp(Interactor);
@@ -56,7 +59,7 @@ void AWarpPortal::ExecuteWarp(ACharacter* TargetCharacter)
 {
 	if (!TargetCharacter || TargetWarpID.IsNone()) return;
 
-	// ‘x”zliGameInstancej‚ğŒÄ‚ñ‚Åƒ[ƒv‚ğˆË—Š‚·‚é
+	// ï¿½ï¿½ï¿½xï¿½zï¿½lï¿½iGameInstanceï¿½jï¿½ï¿½ï¿½Ä‚ï¿½Åƒï¿½ï¿½[ï¿½vï¿½ï¿½ï¿½Ë—ï¿½ï¿½ï¿½ï¿½ï¿½
 	if (UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetWorld()->GetGameInstance()))
 	{
 		GameInst->RequestWarp(TargetWarpID, TargetCharacter);

@@ -2,7 +2,8 @@
 #include "BehaviorTree/BehaviorTree.h"
 #include "BehaviorTree/BlackboardComponent.h"
 #include "Kismet/GameplayStatics.h"
-#include "MyProject1Character.h" 
+#include "NPCAIInterface.h"
+#include "GameFramework/Character.h"
 #include "Perception/AIPerceptionComponent.h"
 #include "Perception/AISenseConfig_Sight.h"
 #include "Perception/AISenseConfig_Hearing.h"
@@ -11,26 +12,26 @@
 #include "Perception/AISense_Sight.h"
 #include "Perception/AISense_Hearing.h"
 
-// ƒRƒ“ƒXƒgƒ‰ƒNƒ^
+// ï¿½Rï¿½ï¿½ï¿½Xï¿½gï¿½ï¿½ï¿½Nï¿½^
 AMyAIController::AMyAIController()
 {
-    // 1. ’mŠoƒRƒ“ƒ|[ƒlƒ“ƒg‚Ìì¬
+    // 1. ï¿½mï¿½oï¿½Rï¿½ï¿½ï¿½|ï¿½[ï¿½lï¿½ï¿½ï¿½gï¿½Ìì¬
     PerceptionComp = CreateDefaultSubobject<UAIPerceptionComponent>(TEXT("PerceptionComp"));
 
-    // 2. ‹Šo‚Ìİ’è‚ğì¬
+    // 2. ï¿½ï¿½ï¿½oï¿½Ìİ’ï¿½ï¿½ï¿½ì¬
     SightConfig = CreateDefaultSubobject<UAISenseConfig_Sight>(TEXT("SightConfig"));
     SightConfig->SightRadius = 1500.0f;
     SightConfig->LoseSightRadius = 2000.0f;
     SightConfig->PeripheralVisionAngleDegrees = 90.0f;
-    // u“GE’†—§E–¡•ûv‘S•”‚É”½‰‚³‚¹‚éİ’è
+    // ï¿½uï¿½Gï¿½Eï¿½ï¿½ï¿½ï¿½ï¿½Eï¿½ï¿½ï¿½ï¿½ï¿½vï¿½Sï¿½ï¿½ï¿½É”ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½İ’ï¿½
     SightConfig->DetectionByAffiliation.bDetectEnemies = true;
     SightConfig->DetectionByAffiliation.bDetectNeutrals = true;
     SightConfig->DetectionByAffiliation.bDetectFriendlies = true;
 
-    // ƒRƒ“ƒ|[ƒlƒ“ƒg‚É‹Šoİ’è‚ğ“o˜^
+    // ï¿½Rï¿½ï¿½ï¿½|ï¿½[ï¿½lï¿½ï¿½ï¿½gï¿½Éï¿½ï¿½oï¿½İ’ï¿½ï¿½oï¿½^
     PerceptionComp->ConfigureSense(*SightConfig);
 
-    // 3. ’®Šo‚Ìİ’èi€”õj
+    // 3. ï¿½ï¿½ï¿½oï¿½Ìİ’ï¿½iï¿½ï¿½ï¿½ï¿½ï¿½j
     HearingConfig = CreateDefaultSubobject<UAISenseConfig_Hearing>(TEXT("HearingConfig"));
     HearingConfig->HearingRange = 3000.0f;
     HearingConfig->DetectionByAffiliation.bDetectEnemies = true;
@@ -38,163 +39,166 @@ AMyAIController::AMyAIController()
     HearingConfig->DetectionByAffiliation.bDetectFriendlies = true;
     PerceptionComp->ConfigureSense(*HearingConfig);
 
-    // ‹Šo‚ğ—DæƒZƒ“ƒX‚Éİ’è
+    // ï¿½ï¿½ï¿½oï¿½ï¿½Dï¿½ï¿½Zï¿½ï¿½ï¿½Xï¿½Éİ’ï¿½
     PerceptionComp->SetDominantSense(SightConfig->GetSenseImplementation());
 
-    // 4. ƒCƒxƒ“ƒg“o˜^
+    // 4. ï¿½Cï¿½xï¿½ï¿½ï¿½gï¿½oï¿½^
     PerceptionComp->OnTargetPerceptionUpdated.AddDynamic(this, &AMyAIController::OnTargetDetected);
 }
 
-// œßˆËiPossessj‚µ‚½‚ÉŒÄ‚Î‚ê‚éŠÖ”
+// ï¿½ßˆËiPossessï¿½jï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ÉŒÄ‚Î‚ï¿½ï¿½Öï¿½
 void AMyAIController::OnPossess(APawn* InPawn)
 {
     Super::OnPossess(InPawn);
 
-    AMyProject1Character* MyChar = Cast<AMyProject1Character>(InPawn);
-    if (!MyChar) return;
+    INPCAIInterface* AIPawn = Cast<INPCAIInterface>(InPawn);
+    if (!AIPawn) return;
 
-    // 1. ƒrƒwƒCƒrƒAƒcƒŠ[‚ğÀs & ‰Šúİ’è
+    ACharacter* MyChar = Cast<ACharacter>(InPawn);
+
+    // 1. ï¿½rï¿½wï¿½Cï¿½rï¿½Aï¿½cï¿½ï¿½ï¿½[ï¿½ï¿½ï¿½ï¿½ï¿½s & ï¿½ï¿½ï¿½ï¿½ï¿½İ’ï¿½
     if (BehaviorTreeAsset)
     {
         RunBehaviorTree(BehaviorTreeAsset);
 
         UBlackboardComponent* BB = GetBlackboardComponent();
-        if (BB && MyChar)
+        if (BB)
         {
-            // u‰ÆiHomejv‚ÌˆÊ’u‚ğ‹L‰¯
-            BB->SetValueAsVector(TEXT("HomeLocation"), MyChar->GetActorLocation());
+            // ï¿½uï¿½ÆiHomeï¿½jï¿½vï¿½ÌˆÊ’uï¿½ï¿½ï¿½Lï¿½ï¿½
+            BB->SetValueAsVector(TEXT("HomeLocation"), InPawn->GetActorLocation());
 
-            // uƒpƒgƒ[ƒ‹‚·‚é‚©Hv‚Ìİ’è‚ğƒRƒs[
-            BB->SetValueAsBool(TEXT("CanPatrol"), MyChar->bCanPatrol);
+            // ï¿½uï¿½pï¿½gï¿½ï¿½ï¿½[ï¿½ï¿½ï¿½ï¿½ï¿½é‚©ï¿½Hï¿½vï¿½Ìİ’ï¿½ï¿½ï¿½Rï¿½sï¿½[
+            BB->SetValueAsBool(TEXT("CanPatrol"), AIPawn->CanPatrol());
 
-            // Å‰‚Íu•à‚«‘¬“xv‚Éİ’è‚·‚é
-            if (MyChar->GetCharacterMovement())
+            // ï¿½Åï¿½ï¿½Íuï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½xï¿½vï¿½Éİ’è‚·ï¿½ï¿½
+            if (MyChar && MyChar->GetCharacterMovement())
             {
-                MyChar->GetCharacterMovement()->MaxWalkSpeed = MyChar->PatrolWalkSpeed;
+                MyChar->GetCharacterMovement()->MaxWalkSpeed = AIPawn->GetPatrolWalkSpeed();
             }
         }
     }
 
-    //ƒXƒ|[ƒ“’¼Œã‚Ì0.1•b‚¾‚¯‘Ò‚Á‚Ä‚©‚ç‹ŠE‚ğXV‚·‚éI
+    //ï¿½Xï¿½|ï¿½[ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½0.1ï¿½bï¿½ï¿½ï¿½ï¿½ï¿½Ò‚ï¿½ï¿½Ä‚ï¿½ï¿½ç‹ï¿½Eï¿½ï¿½ï¿½Xï¿½Vï¿½ï¿½ï¿½ï¿½I
     FTimerHandle TimerHandle;
     GetWorldTimerManager().SetTimer(TimerHandle, this, &AMyAIController::ApplyPerceptionSettings, 0.1f, false);
    
 }
 
 
-//‹ŠEE’®Šo‚Ìİ’è‚ğÀÛ‚Éã‘‚«‚·‚éˆ—
+//ï¿½ï¿½ï¿½Eï¿½Eï¿½ï¿½ï¿½oï¿½Ìİ’ï¿½ï¿½ï¿½ï¿½ï¿½Û‚Éã‘ï¿½ï¿½ï¿½ï¿½ï¿½éˆï¿½ï¿½
 void AMyAIController::ApplyPerceptionSettings()
 {
-    AMyProject1Character* MyChar = Cast<AMyProject1Character>(GetPawn());
-    if (!MyChar) return;
+    INPCAIInterface* AIPawn = Cast<INPCAIInterface>(GetPawn());
+    if (!AIPawn) return;
 
-    // 1. AI‚Ì”]“à‚©‚çuŒ»İƒAƒNƒeƒBƒu‚È‹Šoİ’èv‚ğæ‚èo‚µ‚Äã‘‚«‚·‚é
+    // 1. AIï¿½Ì”]ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½uï¿½ï¿½ï¿½İƒAï¿½Nï¿½eï¿½Bï¿½uï¿½Èï¿½ï¿½oï¿½İ’ï¿½vï¿½ï¿½ï¿½ï¿½ï¿½oï¿½ï¿½ï¿½Äã‘ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
     FAISenseID SightID = UAISense::GetSenseID<UAISense_Sight>();
     UAISenseConfig_Sight* ActiveSight = Cast<UAISenseConfig_Sight>(PerceptionComp->GetSenseConfig(SightID));
 
     if (ActiveSight)
     {
-        ActiveSight->SightRadius = MyChar->AISightRadius;
-        ActiveSight->LoseSightRadius = MyChar->AILoseSightRadius;
-        ActiveSight->PeripheralVisionAngleDegrees = MyChar->AIVisionAngle;
+        ActiveSight->SightRadius = AIPawn->GetAISightRadius();
+        ActiveSight->LoseSightRadius = AIPawn->GetAILoseSightRadius();
+        ActiveSight->PeripheralVisionAngleDegrees = AIPawn->GetAIVisionAngle();
 
         PerceptionComp->ConfigureSense(*ActiveSight);
     }
 
-    // 2. uŒ»İƒAƒNƒeƒBƒu‚È’®Šoİ’èv‚ğæ‚èo‚µ‚Äã‘‚«‚·‚é
+    // 2. ï¿½uï¿½ï¿½ï¿½İƒAï¿½Nï¿½eï¿½Bï¿½uï¿½È’ï¿½ï¿½oï¿½İ’ï¿½vï¿½ï¿½ï¿½ï¿½ï¿½oï¿½ï¿½ï¿½Äã‘ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
     FAISenseID HearingID = UAISense::GetSenseID<UAISense_Hearing>();
     UAISenseConfig_Hearing* ActiveHearing = Cast<UAISenseConfig_Hearing>(PerceptionComp->GetSenseConfig(HearingID));
 
     if (ActiveHearing)
     {
-        ActiveHearing->HearingRange = MyChar->bAIEnableHearing ? MyChar->AIHearingRange : 0.0f;
+        ActiveHearing->HearingRange = AIPawn->IsAIHearingEnabled() ? AIPawn->GetAIHearingRange() : 0.0f;
 
         PerceptionComp->ConfigureSense(*ActiveHearing);
     }
 
-    // 3. ƒRƒ“ƒ|[ƒlƒ“ƒg©g‚Éuİ’è‚ª•Ï‚í‚Á‚½‚©‚ç¡‚·‚®”½‰f‚µ‚ÄIv‚Æ–½—ß‚·‚é
+    // 3. ï¿½Rï¿½ï¿½ï¿½|ï¿½[ï¿½lï¿½ï¿½ï¿½gï¿½ï¿½ï¿½gï¿½Éuï¿½İ’è‚ªï¿½Ï‚ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ç¡ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½fï¿½ï¿½ï¿½ÄIï¿½vï¿½Æ–ï¿½ï¿½ß‚ï¿½ï¿½ï¿½
     PerceptionComp->RequestStimuliListenerUpdate();
 }
 
-// ƒ^[ƒQƒbƒg‚ğ”­Œ©EŒ©¸‚Á‚½‚Ìˆ—
+// ï¿½^ï¿½[ï¿½Qï¿½bï¿½gï¿½ğ”­Œï¿½ï¿½Eï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ìï¿½ï¿½ï¿½
 void AMyAIController::OnTargetDetected(AActor* Actor, FAIStimulus Stimulus)
 {
-    // uPlayervƒ^ƒO‚ğ‚Á‚Ä‚¢‚È‚¢‘Šè‚Í–³‹‚·‚é
+    // ï¿½uPlayerï¿½vï¿½^ï¿½Oï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä‚ï¿½ï¿½È‚ï¿½ï¿½ï¿½ï¿½ï¿½Í–ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
     if (!Actor->ActorHasTag(TEXT("Player")))
     {
         return;
     }
 
-    AMyProject1Character* MyChar = Cast<AMyProject1Character>(GetPawn());
+    INPCAIInterface* AIPawn = Cast<INPCAIInterface>(GetPawn());
+    ACharacter* MyChar = Cast<ACharacter>(GetPawn());
     UCharacterMovementComponent* MoveComp = MyChar ? MyChar->GetCharacterMovement() : nullptr;
     UBlackboardComponent* BB = GetBlackboardComponent();
 
     if (!BB) return;
 
-    // --- ƒpƒ^[ƒ“A: ”­Œ©‚µ‚½ ---
+    // --- ï¿½pï¿½^ï¿½[ï¿½ï¿½A: ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ---
     if (Stimulus.WasSuccessfullySensed())
     {
-        //©•ª‚ªƒmƒ“ƒAƒNƒeƒBƒui”ñƒAƒNƒeƒBƒuj‚È‚çA‹ŠE‚É“ü‚Á‚Ä‚àP‚í‚È‚¢I
-        if (MyChar && !MyChar->bIsActiveEnemy)
+        //ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½mï¿½ï¿½ï¿½Aï¿½Nï¿½eï¿½Bï¿½uï¿½iï¿½ï¿½Aï¿½Nï¿½eï¿½Bï¿½uï¿½jï¿½È‚ï¿½Aï¿½ï¿½ï¿½Eï¿½É“ï¿½ï¿½ï¿½ï¿½Ä‚ï¿½ï¿½Pï¿½ï¿½È‚ï¿½ï¿½I
+        if (AIPawn && !AIPawn->IsActiveEnemy())
         {
-            // ‚½‚¾‚µA‚·‚Å‚ÉUŒ‚‚³‚ê‚Äƒ^[ƒQƒbƒg‚Æ‚µ‚Ä”F¯‚µ‚Ä‚¢‚é‘Šè‚È‚ç’ÇÕ‚ğ‹–‰Â‚·‚é
+            // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Aï¿½ï¿½ï¿½Å‚ÉUï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Äƒ^ï¿½[ï¿½Qï¿½bï¿½gï¿½Æ‚ï¿½ï¿½Ä”Fï¿½ï¿½ï¿½ï¿½ï¿½Ä‚ï¿½ï¿½é‘Šï¿½ï¿½È‚ï¿½ÇÕ‚ï¿½ï¿½ï¿½ï¿½Â‚ï¿½ï¿½ï¿½
             AActor* CurrentBBTarget = Cast<AActor>(BB->GetValueAsObject(TEXT("TargetActor")));
             if (CurrentBBTarget != Actor)
             {
-                // ‚Ü‚¾í“¬ó‘Ô‚Å‚È‚¯‚ê‚ÎA–³‹‚µ‚Ä‹A‚éiUŒ‚‚µ‚È‚¢j
+                // ï¿½Ü‚ï¿½ï¿½í“¬ï¿½ï¿½Ô‚Å‚È‚ï¿½ï¿½ï¿½ÎAï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä‹Aï¿½ï¿½iï¿½Uï¿½ï¿½ï¿½ï¿½ï¿½È‚ï¿½ï¿½j
                 return;
             }
         }
 
         BB->SetValueAsObject(TEXT("TargetActor"), Actor);
 
-        if (MyChar)
+        if (AIPawn)
         {
-            //Œ©‚Â‚¯‚½uŠÔ‚É‘¬“x‚ğ ChaseRunSpeedi‘–‚èj‚ÉØ‚è‘Ö‚¦‚é
+            //ï¿½ï¿½ï¿½Â‚ï¿½ï¿½ï¿½ï¿½uï¿½Ô‚É‘ï¿½ï¿½xï¿½ï¿½ ChaseRunSpeedï¿½iï¿½ï¿½ï¿½ï¿½jï¿½ÉØ‚ï¿½Ö‚ï¿½ï¿½ï¿½
             if (MoveComp)
             {
-                MoveComp->MaxWalkSpeed = MyChar->ChaseRunSpeed;
+                MoveComp->MaxWalkSpeed = AIPawn->GetChaseRunSpeed();
             }
-            MyChar->SetCurrentTarget(Actor);
+            AIPawn->SetCurrentTarget(Actor);
         }
     }
-    // --- ƒpƒ^[ƒ“B: Œ©¸‚Á‚½ ---
+    // --- ï¿½pï¿½^ï¿½[ï¿½ï¿½B: ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ---
     else
     {
-        // 1. ƒ{ƒXƒ‚[ƒh‚È‚ç–³‹
-        if (MyChar && MyChar->bNeverLoseSight) return;
+        // 1. ï¿½{ï¿½Xï¿½ï¿½ï¿½[ï¿½hï¿½È‚ç–³ï¿½ï¿½
+        if (AIPawn && AIPawn->GetNeverLoseSight()) return;
 
-        // 2. ‹——£ƒ`ƒFƒbƒNFŒ©‚¦‚È‚­‚È‚Á‚Ä‚àA‹——£‚ª‹ß‚¯‚ê‚Î’ú‚ß‚È‚¢
+        // 2. ï¿½ï¿½ï¿½ï¿½ï¿½`ï¿½Fï¿½bï¿½Nï¿½Fï¿½ï¿½ï¿½ï¿½ï¿½È‚ï¿½ï¿½È‚ï¿½ï¿½Ä‚ï¿½ï¿½Aï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ß‚ï¿½ï¿½ï¿½Î’ï¿½ï¿½ß‚È‚ï¿½
         float Dist = GetPawn()->GetDistanceTo(Actor);
-        if (MyChar && Dist < MyChar->AILoseSightRadius)
+        if (AIPawn && Dist < AIPawn->GetAILoseSightRadius())
         {
-            return; // ‚Ü‚¾‹ß‚¢‚Ì‚Åƒ^[ƒQƒbƒgˆÛ
+            return; // ï¿½Ü‚ï¿½ï¿½ß‚ï¿½ï¿½Ì‚Åƒ^ï¿½[ï¿½Qï¿½bï¿½gï¿½Ûï¿½
         }
 
-        // 3. –{“–‚É’ú‚ß‚é
+        // 3. ï¿½{ï¿½ï¿½ï¿½É’ï¿½ï¿½ß‚é
         if (BB->GetValueAsObject(TEXT("TargetActor")) == Actor)
         {
             BB->SetValueAsObject(TEXT("TargetActor"), nullptr);
 
-            // ƒƒbƒNƒIƒ“‰ğœ
+            // ï¿½ï¿½ï¿½bï¿½Nï¿½Iï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
             ClearFocus(EAIFocusPriority::Gameplay);
 
-            // ‘Ì‚Ìƒ^[ƒQƒbƒg‚à‰ğœ‚·‚é (UŒ‚’†~)
-            if (MyChar)
+            // ï¿½Ì‚Ìƒ^ï¿½[ï¿½Qï¿½bï¿½gï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ (ï¿½Uï¿½ï¿½ï¿½ï¿½ï¿½~)
+            if (AIPawn)
             {
-                MyChar->SetCurrentTarget(nullptr);
+                AIPawn->SetCurrentTarget(nullptr);
             }
 
-            // ’ú‚ß‚½‚çu•à‚«‘¬“xv‚É–ß‚·
-            if (MoveComp && MyChar)
+            // ï¿½ï¿½ï¿½ß‚ï¿½ï¿½ï¿½uï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½xï¿½vï¿½É–ß‚ï¿½
+            if (MoveComp && AIPawn)
             {
-                MoveComp->MaxWalkSpeed = MyChar->PatrolWalkSpeed;
+                MoveComp->MaxWalkSpeed = AIPawn->GetPatrolWalkSpeed();
             }
         }
     }
 }
 
-// –ˆƒtƒŒ[ƒ€Às‚³‚ê‚éiŠÄ‹–ğj
+// ï¿½ï¿½ï¿½tï¿½ï¿½ï¿½[ï¿½ï¿½ï¿½ï¿½ï¿½sï¿½ï¿½ï¿½ï¿½ï¿½iï¿½Äï¿½ï¿½ï¿½ï¿½j
 void AMyAIController::Tick(float DeltaTime)
 {
     Super::Tick(DeltaTime);
@@ -202,41 +206,42 @@ void AMyAIController::Tick(float DeltaTime)
     UBlackboardComponent* BB = GetBlackboardComponent();
     if (!BB) return;
 
-    // 1. ¡‚Ìƒ^[ƒQƒbƒg‚ğæ“¾
+    // 1. ï¿½ï¿½ï¿½Ìƒ^ï¿½[ï¿½Qï¿½bï¿½gï¿½ï¿½ï¿½æ“¾
     AActor* Target = Cast<AActor>(BB->GetValueAsObject(TEXT("TargetActor")));
     if (!Target) return;
 
-    // 2. ƒ^[ƒQƒbƒg‚ªu€‚ñ‚Å‚¢‚é‚©vƒ`ƒFƒbƒN
-    AMyProject1Character* TargetChar = Cast<AMyProject1Character>(Target);
-    if (TargetChar && TargetChar->IsDead())
+    // 2. ï¿½^ï¿½[ï¿½Qï¿½bï¿½gï¿½ï¿½ï¿½uï¿½ï¿½ï¿½ï¿½Å‚ï¿½ï¿½é‚©ï¿½vï¿½`ï¿½Fï¿½bï¿½N
+    INPCAIInterface* TargetAI = Cast<INPCAIInterface>(Target);
+    if (TargetAI && TargetAI->IsDead())
     {
-        // --- €‚ñ‚¾‚çuŸ—˜ƒ‚[ƒhv‚ÖˆÚs ---
+        // --- ï¿½ï¿½ï¿½ñ‚¾‚ï¿½uï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½[ï¿½hï¿½vï¿½ÖˆÚs ---
 
-        // ‚·‚Å‚ÉŸ—˜ƒtƒ‰ƒO‚ª—§‚Á‚Ä‚¢‚ê‚Î‰½‚à‚µ‚È‚¢
+        // ï¿½ï¿½ï¿½Å‚Éï¿½ï¿½ï¿½ï¿½tï¿½ï¿½ï¿½Oï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä‚ï¿½ï¿½ï¿½Î‰ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½È‚ï¿½
         bool bHasWon = BB->GetValueAsBool(TEXT("HasWon"));
         if (!bHasWon)
         {
-            // A. uŸ‚Á‚½‚æƒtƒ‰ƒOv‚ğ—§‚Ä‚éi‚±‚ê‚ÅBT‚ªŸ—˜‰‰o‚É“ü‚éj
+            // A. ï¿½uï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½tï¿½ï¿½ï¿½Oï¿½vï¿½ğ—§‚Ä‚ï¿½iï¿½ï¿½ï¿½ï¿½ï¿½BTï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½oï¿½É“ï¿½ï¿½ï¿½j
             BB->SetValueAsBool(TEXT("HasWon"), true);
 
-            // B. “®‚«‚ğ~‚ß‚éi€‘Ì‚ğ‰Ÿ‚³‚È‚¢‚æ‚¤‚Éj
+            // B. ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½~ï¿½ß‚ï¿½iï¿½ï¿½ï¿½Ì‚ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½È‚ï¿½ï¿½æ‚¤ï¿½Éj
             StopMovement();
 
-            // C. ‘¬“x‚ğu•à‚«v‚É–ß‚µ‚Ä‚¨‚­iŸ‚É“®‚«o‚·‚Ì‚½‚ßj
-            AMyProject1Character* MyChar = Cast<AMyProject1Character>(GetPawn());
-            if (MyChar)
+            // C. ï¿½ï¿½ï¿½xï¿½ï¿½ï¿½uï¿½ï¿½ï¿½ï¿½ï¿½vï¿½É–ß‚ï¿½ï¿½Ä‚ï¿½ï¿½ï¿½ï¿½iï¿½ï¿½ï¿½É“ï¿½ï¿½ï¿½ï¿½oï¿½ï¿½ï¿½ï¿½ï¿½Ì‚ï¿½ï¿½ßj
+            INPCAIInterface* AIPawn = Cast<INPCAIInterface>(GetPawn());
+            ACharacter* MyChar = Cast<ACharacter>(GetPawn());
+            if (AIPawn)
             {
-                if (MyChar->GetCharacterMovement())
+                if (MyChar && MyChar->GetCharacterMovement())
                 {
-                    MyChar->GetCharacterMovement()->MaxWalkSpeed = MyChar->PatrolWalkSpeed;
+                    MyChar->GetCharacterMovement()->MaxWalkSpeed = AIPawn->GetPatrolWalkSpeed();
                 }
 
-                // UŒ‚ƒVƒXƒeƒ€i‘Ì‚Ìƒ^[ƒQƒbƒgj‚Í‰ğœ‚µ‚Ä‚¨‚­
-                MyChar->SetCurrentTarget(nullptr);
+                // ï¿½Uï¿½ï¿½ï¿½Vï¿½Xï¿½eï¿½ï¿½ï¿½iï¿½Ì‚Ìƒ^ï¿½[ï¿½Qï¿½bï¿½gï¿½jï¿½Í‰ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä‚ï¿½ï¿½ï¿½
+                AIPawn->SetCurrentTarget(nullptr);
             }
 
-            // ¦‚±‚±‚Å‚Í TargetActor ‚ğÁ‚µ‚Ü‚¹‚ñI
-            // Á‚·‚ÆBT‚ª‘¦À‚Éƒpƒgƒ[ƒ‹‚É–ß‚Á‚Ä‚µ‚Ü‚¤‚½‚ßABT‘¤‚ÌWaitƒ^ƒXƒN‚ÅÁ‚·‚Ì‚ğ‘Ò‚¿‚Ü‚·B
+            // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Å‚ï¿½ TargetActor ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ü‚ï¿½ï¿½ï¿½I
+            // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½BTï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Éƒpï¿½gï¿½ï¿½ï¿½[ï¿½ï¿½ï¿½É–ß‚ï¿½ï¿½Ä‚ï¿½ï¿½Ü‚ï¿½ï¿½ï¿½ï¿½ßABTï¿½ï¿½ï¿½ï¿½Waitï¿½^ï¿½Xï¿½Nï¿½Åï¿½ï¿½ï¿½ï¿½Ì‚ï¿½Ò‚ï¿½ï¿½Ü‚ï¿½ï¿½B
         }
     }
 }

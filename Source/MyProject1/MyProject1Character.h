@@ -10,6 +10,7 @@
 #include "InventoryComponent.h"
 #include "InputActionValue.h"
 #include "RpgCharacterInterface.h"
+#include "NPCAIInterface.h"
 #include "MyProject1Character.generated.h"
 
 class USpringArmComponent;
@@ -45,7 +46,7 @@ class UCriticalDamageType : public UDamageType
 };
 
 UCLASS(abstract)
-class AMyProject1Character : public ACharacter, public IRpgCharacterInterface
+class AMyProject1Character : public ACharacter, public IRpgCharacterInterface, public INPCAIInterface
 {
 	GENERATED_BODY()
 
@@ -391,6 +392,9 @@ public:
 	USkeletalMeshComponent* HairMeshComp;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Components")
+	USkeletalMeshComponent* FaceMeshComp;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Components")
 	USkeletalMeshComponent* HeadMeshComp;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Components")
@@ -512,6 +516,11 @@ public:
 	// 全装備のステータス補正を再計算して適用する
 	UFUNCTION(BlueprintCallable, Category = "Equipment")
 	void RefreshEquipmentStats();
+
+	// 装備（DT_EquipmentsのStatModifiers）によるステータス補正を反映するかどうか。
+	// Player本体ではtrueのまま、AQuestNPCBaseがfalseに上書きすることで、
+	// NPCはEquipItem()で見た目（メッシュ・オーバーレイ）だけ変わり、MyStatsは変化しなくなる
+	virtual bool ShouldApplyEquipmentStatBonuses() const { return true; }
 
 	// ==========================================
 	// 拘束具（足枷等）による移動制限
@@ -737,7 +746,7 @@ public:
 
 	// ★ UFUNCTIONを追加して、BPから呼べるようにする
 	UFUNCTION(BlueprintCallable, Category = "Combat")
-	void SetCurrentTarget(AActor* NewTarget);
+	void SetCurrentTarget(AActor* NewTarget) override;
 
 	// ターゲットを明示的に解除する関数
 	UFUNCTION(BlueprintCallable, Category = "Combat")
@@ -793,7 +802,7 @@ public:
 
 	// 死亡しているか確認
 	UFUNCTION(BlueprintCallable, Category = "Combat")
-	bool IsDead() const { return bIsDead; }
+	bool IsDead() const override { return bIsDead; }
 
 protected:
 	// 死亡処理
@@ -864,6 +873,24 @@ public:
 	/** 聴覚の範囲。これを小さくすると足音などに気づかれにくくなります */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Sensors")
 	float AIHearingRange = 3000.0f;
+
+public:
+	// --- INPCAIInterface実装 ---
+	// AMyAIController（汎用の徘徊・索敵AI）がこのクラスの型を知らなくても
+	// 同じ設定値・関数を読めるようにするための橋渡し。中身は既存プロパティの単純な受け渡し
+	UFUNCTION(BlueprintCallable, Category = "AI") virtual bool CanPatrol() const override { return bCanPatrol; }
+	UFUNCTION(BlueprintCallable, Category = "AI") virtual float GetPatrolWalkSpeed() const override { return PatrolWalkSpeed; }
+	UFUNCTION(BlueprintCallable, Category = "AI") virtual float GetChaseRunSpeed() const override { return ChaseRunSpeed; }
+	UFUNCTION(BlueprintCallable, Category = "AI") virtual float GetPatrolRadius() const override { return PatrolRadius; }
+	UFUNCTION(BlueprintCallable, Category = "AI") virtual float GetPatrolWaitMin() const override { return PatrolWaitMin; }
+	UFUNCTION(BlueprintCallable, Category = "AI") virtual float GetPatrolWaitMax() const override { return PatrolWaitMax; }
+	UFUNCTION(BlueprintCallable, Category = "AI") virtual float GetAISightRadius() const override { return AISightRadius; }
+	UFUNCTION(BlueprintCallable, Category = "AI") virtual float GetAILoseSightRadius() const override { return AILoseSightRadius; }
+	UFUNCTION(BlueprintCallable, Category = "AI") virtual float GetAIVisionAngle() const override { return AIVisionAngle; }
+	UFUNCTION(BlueprintCallable, Category = "AI") virtual bool IsAIHearingEnabled() const override { return bAIEnableHearing; }
+	UFUNCTION(BlueprintCallable, Category = "AI") virtual float GetAIHearingRange() const override { return AIHearingRange; }
+	UFUNCTION(BlueprintCallable, Category = "AI") virtual bool IsActiveEnemy() const override { return bIsActiveEnemy; }
+	UFUNCTION(BlueprintCallable, Category = "AI") virtual bool GetNeverLoseSight() const override { return bNeverLoseSight; }
 
 protected:
 

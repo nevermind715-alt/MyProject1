@@ -43,6 +43,11 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
 	class UStaticMeshComponent* Mesh;
 
+	// --- 表示名 ---
+	/** このポイントの名前（WBP_NPCNameに渡して表示する用）。空欄なら名前表示をしない想定 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item Interact|Display")
+	FString PointName;
+
 	// --- アイテム設定 ---
 	/** 取得させるか、回収するか、アイテムなしのインタラクトのみか */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item Interact")

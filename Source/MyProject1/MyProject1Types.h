@@ -245,6 +245,9 @@ public:
 	TSoftObjectPtr<USkeletalMesh> HairMesh;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "JobData")
+	TSoftObjectPtr<USkeletalMesh> FaceMesh;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "JobData")
 	TSoftObjectPtr<USoundBase> AttackSound;
 
 	// そのジョブが装備する武器のメッシュ
@@ -501,12 +504,21 @@ enum class ETargetStat : uint8
 	Evasion     UMETA(DisplayName = "回避率"),
 	AttackPower UMETA(DisplayName = "攻撃力"),
 	Favor       UMETA(DisplayName = "好感度 (Favor)"),
+	Hostility   UMETA(DisplayName = "敵対度 (Hostility)"),
 	Fame        UMETA(DisplayName = "名声 (Fame)"),
 	Charm       UMETA(DisplayName = "魅力 (Charm)"),
 	CustomExtraStat UMETA(DisplayName = "カスタムステータス (ExtraStats)"),
 	DefensePower UMETA(DisplayName = "防御力"),
 	Mental      UMETA(DisplayName = "精神力 (Mental)"),
 	Alcohol     UMETA(DisplayName = "酒量 (Alcohol)")
+};
+
+// Stats to Changeで変化させる対象。NPCを選ぶと、会話相手であるそのNPC自身のMyStats（個体ごとのFavor/Hostility等）を書き換える
+UENUM(BlueprintType)
+enum class EStatTargetActor : uint8
+{
+	Player  UMETA(DisplayName = "プレイヤー"),
+	NPC     UMETA(DisplayName = "話しかけているNPC")
 };
 
 // --- バフ・デバフ専用のデータ（データテーブル用） ---
@@ -843,6 +855,10 @@ struct FDialogChoice
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog")
 	ETargetStat StatToChange = ETargetStat::None;
 
+	// StatToChangeで選んだステータスを、プレイヤー自身と話しかけているNPCのどちらで変化させるか
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (EditCondition = "StatToChange != ETargetStat::None"))
+	EStatTargetActor StatTargetActor = EStatTargetActor::Player;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (EditCondition = "StatToChange == ETargetStat::CustomExtraStat"))
 	FName ExtraStatName;
 
@@ -918,6 +934,10 @@ struct FDialogData : public FTableRowBase
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Action")
 	ETargetStat StatToChange = ETargetStat::None;
+
+	// StatToChangeで選んだステータスを、プレイヤー自身と話しかけているNPCのどちらで変化させるか
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Action", meta = (EditCondition = "StatToChange != ETargetStat::None"))
+	EStatTargetActor StatTargetActor = EStatTargetActor::Player;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Action", meta = (EditCondition = "StatToChange == ETargetStat::CustomExtraStat"))
 	FName ExtraStatName;
@@ -1013,8 +1033,15 @@ struct FQuestData : public FTableRowBase
 	TArray<FName> RequiredQuestIDs;
 
 	// Delivery専用：この順番通りにNPCと話す必要がある（各NPCのActor詳細パネルのTagsに同じ名前を1つ設定する）。最後の依頼主は含めず、報告はReportQuestアクションで行う
+	// bUnorderedTalkがtrueの場合は「順番」ではなく「対象一覧」の意味になる（下記参照）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Objective", meta = (EditCondition = "QuestType == EQuestType::Delivery"))
 	TArray<FName> RequiredTalkNPCIDs;
+
+	// Delivery専用：trueにすると、RequiredTalkNPCIDsを「順番」ではなく「これを全部インタラクトすればOKな一覧」として扱う。
+	// 例：フィールドに複数設置したAQuestItemPoint（お供え物・お参り等）を、プレイヤーが好きな順に全部インタラクトしたらクリアにしたい場合に使う。
+	// 各ポイントのActor Tagsに、ここに列挙したのと同じ名前を1つずつ重複なく設定しておくこと
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Objective", meta = (EditCondition = "QuestType == EQuestType::Delivery"))
+	bool bUnorderedTalk = false;
 
 	// Kill/Gatherでの目標数。AchievementとDeliveryでは使用しない（それぞれRequiredQuestIDs/RequiredTalkNPCIDsの数で判定するため）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Objective", meta = (EditCondition = "QuestType != EQuestType::Achievement && QuestType != EQuestType::Delivery"))
@@ -1079,6 +1106,10 @@ struct FQuestProgress
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Quest|Progress")
 	int32 CurrentAmount = 0;
+
+	// Delivery型でbUnorderedTalk=trueの時だけ使用：既にインタラクト/会話済みのRequiredTalkNPCIDsのTagを記録する（順不同判定用）
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Quest|Progress")
+	TArray<FName> CollectedTalkIDs;
 
 	FQuestProgress() {}
 

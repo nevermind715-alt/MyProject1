@@ -1,15 +1,20 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "GameFramework/Character.h"
+#include "MyProject1Character.h"
 #include "MyProject1Types.h"
 #include "QuestNPCBase.generated.h"
 
-// クエストを提示するNPCの共通C++基底クラス。
+// クエストを提示するNPCの共通C++基底クラス。AMyProject1Characterを継承することで、
+// 移動（AMyAIController）・アニメーション（UMyProject1AnimInstanceBase）・装備（Hair/Face含む全メッシュスロット）の
+// 仕組みをそのまま流用できる（これらはコンポーネント化されておらずAMyProject1Character本体に組み込まれているため、
+// 継承せずに一部だけ切り出すと結局同じ仕組みを複製することになり非効率）。
+// 戦闘機能自体は使わない想定だが、bIsActiveEnemy=falseにしておけばAMyAIControllerが攻撃状態に移行しないため、
+// 実害はない。
 // 複数のFQuestDialogSetを優先順位付きで持てるので、1体のNPCが「クエスト1完了後は自動でクエスト2を提示する」
 // といった連鎖・分岐を、Blueprint側に判定ロジックを書かずに表現できる。
 UCLASS()
-class MYPROJECT1_API AQuestNPCBase : public ACharacter
+class MYPROJECT1_API AQuestNPCBase : public AMyProject1Character
 {
 	GENERATED_BODY()
 
@@ -57,7 +62,32 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC|Flag Visibility")
 	EFlagVisibilityMode VisibilityMode = EFlagVisibilityMode::None;
 
+	// --- NPC装備（見た目のみ） ---
+	// DT_Equipments（EquipmentDataTable、AMyProject1Character由来）のRowNameを並べるだけで、
+	// BeginPlay時に継承済みのEquipItem()経由でスケルタルメッシュ／スタティックメッシュ／スキンオーバーレイの
+	// 全てを反映できる。個別メッシュを直接指定する必要がなくなり、DataTable側の編集だけで見た目を差し替えられる。
+	// StatModifiers（ステータス補正）はShouldApplyEquipmentStatBonuses()のオーバーライドにより無視されるため、
+	// ここに指定した装備はMyStatsに一切影響しない（純粋に見た目だけ）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC|Equipment")
+	TArray<FName> InitialEquipmentRowNames;
+
+	// DT_Equipmentsと同じ考え方で、SkinOverlayComp側の刺青・傷跡もRow名を並べるだけで初期化できるようにする
+	// （SkinOverlayComp->TattooDataTable / ScarDataTableのRowName。テーブル自体はBP DetailsのSkinOverlayCompで設定する）。
+	// AddOverlay()経由で反映されるが、これもShouldApplyEquipmentStatBonuses()により見た目だけでMyStatsは変化しない
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC|Equipment")
+	TArray<FName> InitialTattooOverlayRowNames;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC|Equipment")
+	TArray<FName> InitialScarOverlayRowNames;
+
+protected:
+	// 装備によるステータス補正（StatModifiers）を無効化し、NPCの装備を見た目だけの変化にする
+	virtual bool ShouldApplyEquipmentStatBonuses() const override { return false; }
+
 private:
+	/** InitialEquipmentRowNamesをEquipmentDataTableから引いて、BeginPlay時に見た目だけ反映する */
+	void ApplyInitialEquipment();
+
 	/** VisibilityFlag/VisibilityModeの設定に応じて、現在の表示/当たり判定を更新する */
 	void UpdateFlagVisibility(const class AMyProject1Character* PlayerChar);
 

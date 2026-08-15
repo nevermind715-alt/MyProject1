@@ -62,6 +62,9 @@ void AWallWarpLink::OnPlayerFlagAdded(FName FlagName)
 
 void AWallWarpLink::OnOverlapBegin(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
 {
+	// 徘徊中のNPCなどが衝突して誤発火しないよう、「Player」タグを持つアクターだけを対象にする
+	if (!OtherActor->ActorHasTag(TEXT("Player"))) return;
+
 	ACharacter* PlayerChar = Cast<ACharacter>(OtherActor);
 	if (!PlayerChar) return;
 

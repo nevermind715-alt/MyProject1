@@ -1,6 +1,7 @@
 ﻿#include "SkinOverlayComponent.h"
 #include "MyProject1Character.h"
 #include "MyProject1GameInstance.h"
+#include "QuestNPCBase.h"
 #include "ShopNPCBase.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Materials/MaterialInstanceDynamic.h"
@@ -67,6 +68,12 @@ void USkinOverlayComponent::HandleRenderReadyTimer()
 
 void USkinOverlayComponent::SaveOverlayStateToGameInstance()
 {
+	// GameInstance側のSaved***は「Player 1体分」を前提にしたシングルトンの記憶領域。
+	// QuestNPCもこのコンポーネントを持つため、ここを区別せずに使うとNPCがタトゥーを
+	// 付けるたびにPlayerの記憶領域を上書きしてしまい、後でPlayer側にNPCのタトゥーが
+	// 漏れて表示される不具合を起こす。NPCは対象外にする。
+	if (Cast<AQuestNPCBase>(OwnerCharacter)) return;
+
 	UWorld* World = GetWorld();
 	UMyProject1GameInstance* GameInst = World ? World->GetGameInstance<UMyProject1GameInstance>() : nullptr;
 	if (!GameInst) return;
@@ -79,6 +86,9 @@ void USkinOverlayComponent::SaveOverlayStateToGameInstance()
 
 void USkinOverlayComponent::LoadOverlayStateFromGameInstance()
 {
+	// 保存側と同じ理由で、NPCはPlayer専用の記憶領域を読み込まない。
+	if (Cast<AQuestNPCBase>(OwnerCharacter)) return;
+
 	UWorld* World = GetWorld();
 	UMyProject1GameInstance* GameInst = World ? World->GetGameInstance<UMyProject1GameInstance>() : nullptr;
 	if (!GameInst) return;

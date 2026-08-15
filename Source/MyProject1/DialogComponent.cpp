@@ -75,7 +75,7 @@ void UDialogComponent::SelectChoice(int32 ChoiceIndex)
 
 	const FDialogChoice& SelectedChoice = CurrentDialogData.Choices[ChoiceIndex];
 
-	ExecuteActionCore(SelectedChoice.ActionType, SelectedChoice.ActionPayload, SelectedChoice.GrantFlag, SelectedChoice.bFadeOnGrantFlag, SelectedChoice.RemoveFlag, SelectedChoice.bFadeOnRemoveFlag, SelectedChoice.StatToChange, SelectedChoice.ExtraStatName, SelectedChoice.StatChangeAmount);
+	ExecuteActionCore(SelectedChoice.ActionType, SelectedChoice.ActionPayload, SelectedChoice.GrantFlag, SelectedChoice.bFadeOnGrantFlag, SelectedChoice.RemoveFlag, SelectedChoice.bFadeOnRemoveFlag, SelectedChoice.StatToChange, SelectedChoice.StatTargetActor, SelectedChoice.ExtraStatName, SelectedChoice.StatChangeAmount);
 
 	FString NextIDStr = SelectedChoice.NextDialogID.ToString().TrimStartAndEnd();
 	bool bHasNext = !SelectedChoice.NextDialogID.IsNone() && !NextIDStr.IsEmpty() && NextIDStr.ToLower() != TEXT("none");
@@ -92,7 +92,7 @@ void UDialogComponent::SelectChoice(int32 ChoiceIndex)
 	}
 }
 
-void UDialogComponent::ExecuteActionCore(EDialogActionType ActionType, const FString& ActionPayload, FName GrantFlag, bool bFadeOnGrantFlag, FName FlagToRemove, bool bFadeOnRemoveFlag, ETargetStat StatToChange, FName ExtraStatName, float StatChangeAmount)
+void UDialogComponent::ExecuteActionCore(EDialogActionType ActionType, const FString& ActionPayload, FName GrantFlag, bool bFadeOnGrantFlag, FName FlagToRemove, bool bFadeOnRemoveFlag, ETargetStat StatToChange, EStatTargetActor StatTargetActor, FName ExtraStatName, float StatChangeAmount)
 {
 
 	IRpgCharacterInterface* RpgInterface = Cast<IRpgCharacterInterface>(GetOwner());
@@ -214,14 +214,29 @@ void UDialogComponent::ExecuteActionCore(EDialogActionType ActionType, const FSt
 		float ChangeVal = StatChangeAmount;
 		FString StatName = TEXT("不明なステータス");
 
+		// StatTargetActor=NPCなら、話しかけている相手自身のMyStats（個体ごとのFavor/Hostility等）を書き換える。
+		// キャストに失敗した場合（NPCが未設定、IRpgCharacterInterface非対応など）はプレイヤー側にフォールバックする
+		IRpgCharacterInterface* StatOwnerInterface = RpgInterface;
+		if (StatTargetActor == EStatTargetActor::NPC)
+		{
+			if (IRpgCharacterInterface* NPCInterface = Cast<IRpgCharacterInterface>(CurrentNPC))
+			{
+				StatOwnerInterface = NPCInterface;
+			}
+		}
+
 		// 参照(&)で受け取るため、ここで書き換えると本体のステータスに直結します
-		FCharacterStats& Stats = RpgInterface->GetCharacterStats();
+		FCharacterStats& Stats = StatOwnerInterface->GetCharacterStats();
 
 		switch (StatToChange)
 		{
 		case ETargetStat::Favor:
 			Stats.Favor += ChangeVal;
 			StatName = TEXT("好感度");
+			break;
+		case ETargetStat::Hostility:
+			Stats.Hostility += ChangeVal;
+			StatName = TEXT("敵対度");
 			break;
 		case ETargetStat::Fame:
 			Stats.Fame += ChangeVal;
@@ -382,7 +397,7 @@ void UDialogComponent::ShowCurrentLine()
 		// （会話終了設定の場合、この下でAdvanceDialogを経由せず直接CloseDialogするため、ここで実行しないと機会を失う）
 		if (CurrentDialogData.Choices.Num() == 0)
 		{
-			ExecuteActionCore(CurrentDialogData.ActionType, CurrentDialogData.ActionPayload, CurrentDialogData.GrantFlag, CurrentDialogData.bFadeOnGrantFlag, CurrentDialogData.RemoveFlag, CurrentDialogData.bFadeOnRemoveFlag, CurrentDialogData.StatToChange, CurrentDialogData.ExtraStatName, CurrentDialogData.StatChangeAmount);
+			ExecuteActionCore(CurrentDialogData.ActionType, CurrentDialogData.ActionPayload, CurrentDialogData.GrantFlag, CurrentDialogData.bFadeOnGrantFlag, CurrentDialogData.RemoveFlag, CurrentDialogData.bFadeOnRemoveFlag, CurrentDialogData.StatToChange, CurrentDialogData.StatTargetActor, CurrentDialogData.ExtraStatName, CurrentDialogData.StatChangeAmount);
 		}
 
 		if (CurrentDialogData.Choices.Num() == 0 &&

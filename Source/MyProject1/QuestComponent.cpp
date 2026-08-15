@@ -98,9 +98,47 @@ EQuestStatus UQuestComponent::GetQuestStatus(FName QuestID)
 
 bool UQuestComponent::CanAcceptQuest(FName QuestID)
 {
+	FString UnusedReason;
+	return CanAcceptQuest(QuestID, UnusedReason);
+}
+
+bool UQuestComponent::CanAcceptQuest(FName QuestID, FString& OutFailReason)
+{
 	// すでに受注している、またはクリア済みなら受けられない
-	if (GetQuestStatus(QuestID) != EQuestStatus::NotStarted)
+	const EQuestStatus Status = GetQuestStatus(QuestID);
+	if (Status != EQuestStatus::NotStarted)
 	{
+		if (Status == EQuestStatus::Completed)
+		{
+			// リピート可能クエストなら「クールダウン中（残り日数）」、そうでなければ「クリア済みで再受注不可」
+			FQuestData CompletedData;
+			bool bReasonSet = false;
+			if (GetQuestData(QuestID, CompletedData) && CompletedData.bIsRepeatable)
+			{
+				for (const FCompletedQuestInfo& Completed : CompletedQuests)
+				{
+					if (Completed.QuestID == QuestID)
+					{
+						if (UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetWorld()->GetGameInstance()))
+						{
+							const int32 DaysPassed = GameInst->TotalElapsedDays - Completed.CompletedTotalDays;
+							const int32 RemainingDays = FMath::Max(CompletedData.CooldownDays - DaysPassed, 0);
+							OutFailReason = FString::Printf(TEXT("受注クールダウン中です（あと%d日）。"), RemainingDays);
+							bReasonSet = true;
+						}
+						break;
+					}
+				}
+			}
+			if (!bReasonSet)
+			{
+				OutFailReason = TEXT("このクエストはすでにクリア済みです。");
+			}
+		}
+		else
+		{
+			OutFailReason = TEXT("このクエストはすでに受注中です。");
+		}
 		return false;
 	}
 
@@ -114,18 +152,21 @@ bool UQuestComponent::CanAcceptQuest(FName QuestID)
 	FQuestData Data;
 	if (!GetQuestData(QuestID, Data))
 	{
+		OutFailReason = TEXT("クエストデータが見つかりません。");
 		return false;
 	}
 
 	AMyProject1Character* OwnerChar = Cast<AMyProject1Character>(GetOwner());
 	if (!OwnerChar)
 	{
+		OutFailReason = TEXT("受注条件を確認できませんでした。");
 		return false;
 	}
 
 	// 受注条件1：フラグ（称号）
 	if (!Data.RequiredFlag.IsNone() && !OwnerChar->HasFlag(Data.RequiredFlag))
 	{
+		OutFailReason = TEXT("受注条件が未達です（必要な称号を持っていません）。");
 		return false;
 	}
 
@@ -134,6 +175,7 @@ bool UQuestComponent::CanAcceptQuest(FName QuestID)
 	{
 		if (!EverCompletedQuestIDs.Contains(ReqQuestID))
 		{
+			OutFailReason = TEXT("受注条件が未達です（前提クエストが未クリアです）。");
 			return false;
 		}
 	}
@@ -149,16 +191,24 @@ bool UQuestComponent::CanAcceptQuest(FName QuestID)
 			{
 				// 存在しないステータス名が指定された場合は設定ミスとみなし、安全側（受注不可）に倒す
 				UE_LOG(LogTemp, Warning, TEXT("【Quest Error】クエスト「%s」のRequiredStatsに未知のステータス名 '%s' が指定されています。"), *QuestID.ToString(), *Req.StatName.ToString());
+				OutFailReason = TEXT("受注条件が未達です（ステータス条件の設定を確認してください）。");
 				return false;
 			}
 
+			bool bPass = true;
 			switch (Req.CompareOp)
 			{
-			case EStatCompareOp::GreaterOrEqual: if (!(StatValue >= Req.RequiredValue)) return false; break;
-			case EStatCompareOp::LessOrEqual:    if (!(StatValue <= Req.RequiredValue)) return false; break;
-			case EStatCompareOp::Equal:          if (!FMath::IsNearlyEqual(StatValue, Req.RequiredValue)) return false; break;
-			case EStatCompareOp::Greater:        if (!(StatValue > Req.RequiredValue)) return false; break;
-			case EStatCompareOp::Less:           if (!(StatValue < Req.RequiredValue)) return false; break;
+			case EStatCompareOp::GreaterOrEqual: bPass = (StatValue >= Req.RequiredValue); break;
+			case EStatCompareOp::LessOrEqual:    bPass = (StatValue <= Req.RequiredValue); break;
+			case EStatCompareOp::Equal:          bPass = FMath::IsNearlyEqual(StatValue, Req.RequiredValue); break;
+			case EStatCompareOp::Greater:        bPass = (StatValue > Req.RequiredValue); break;
+			case EStatCompareOp::Less:           bPass = (StatValue < Req.RequiredValue); break;
+			}
+
+			if (!bPass)
+			{
+				OutFailReason = FString::Printf(TEXT("受注条件が未達です（%s が条件を満たしていません）。"), *Req.StatName.ToString());
+				return false;
 			}
 		}
 	}
@@ -202,12 +252,13 @@ FName UQuestComponent::GetNextOfferableQuest(const TArray<FName>& CandidateQuest
 bool UQuestComponent::AcceptQuest(FName QuestID)
 {
 	// 受注条件を満たしていなければ受けられない
-	if (!CanAcceptQuest(QuestID))
+	FString FailReason;
+	if (!CanAcceptQuest(QuestID, FailReason))
 	{
 		if (AMyProject1Character* OwnerChar = Cast<AMyProject1Character>(GetOwner()))
 		{
-			// 条件を満たしていない場合はシステムログを出して中断
-			OwnerChar->OnReceiveLogMessage(TEXT("このクエストを受けるための条件を満たしていません。"), ELogMessageType::System);
+			// 条件を満たしていない場合はシステムログを出して中断（理由が取れなければ汎用メッセージにフォールバック）
+			OwnerChar->OnReceiveLogMessage(FailReason.IsEmpty() ? TEXT("受注条件が未達です。") : FailReason, ELogMessageType::System);
 		}
 		return false;
 	}
@@ -527,16 +578,41 @@ void UQuestComponent::UpdateTalkObjective(FName QuestID, AActor* TalkedToNPC)
 		FQuestData Data;
 		if (!GetQuestData(QuestID, Data) || Data.QuestType != EQuestType::Delivery) break;
 
-		// 次に期待している相手のTagを持っていないなら何もしない（順番を飛ばして進めさせない）
-		if (!Data.RequiredTalkNPCIDs.IsValidIndex(Progress.CurrentAmount) || !TalkedToNPC->ActorHasTag(Data.RequiredTalkNPCIDs[Progress.CurrentAmount]))
-		{
-			break;
-		}
-
-		Progress.CurrentAmount++;
 		const int32 RequiredCount = Data.RequiredTalkNPCIDs.Num();
-
 		AMyProject1Character* OwnerChar = Cast<AMyProject1Character>(GetOwner());
+
+		if (Data.bUnorderedTalk)
+		{
+			// 順不同：RequiredTalkNPCIDsのうち、まだ集めていないTagを持っているかを探す
+			FName MatchedTag = NAME_None;
+			for (const FName& ReqTag : Data.RequiredTalkNPCIDs)
+			{
+				if (TalkedToNPC->ActorHasTag(ReqTag) && !Progress.CollectedTalkIDs.Contains(ReqTag))
+				{
+					MatchedTag = ReqTag;
+					break;
+				}
+			}
+
+			// 対象外（無関係なNPC/ポイント）か、既にインタラクト済みのポイントを再度触っただけなら何もしない
+			if (MatchedTag.IsNone())
+			{
+				break;
+			}
+
+			Progress.CollectedTalkIDs.Add(MatchedTag);
+			Progress.CurrentAmount = Progress.CollectedTalkIDs.Num();
+		}
+		else
+		{
+			// 次に期待している相手のTagを持っていないなら何もしない（順番を飛ばして進めさせない）
+			if (!Data.RequiredTalkNPCIDs.IsValidIndex(Progress.CurrentAmount) || !TalkedToNPC->ActorHasTag(Data.RequiredTalkNPCIDs[Progress.CurrentAmount]))
+			{
+				break;
+			}
+
+			Progress.CurrentAmount++;
+		}
 
 		if (Progress.CurrentAmount >= RequiredCount)
 		{
@@ -589,6 +665,9 @@ bool UQuestComponent::IsExpectedTalkTarget(FName QuestID, AActor* NPC)
 			}
 		}
 		if (!bIsChainMember) return true;
+
+		// 順不同モードでは「次はこの相手」という概念がないので、チェーンの一員なら常にOK扱いにする
+		if (Data.bUnorderedTalk) return true;
 
 		return Data.RequiredTalkNPCIDs.IsValidIndex(Progress.CurrentAmount) && NPC->ActorHasTag(Data.RequiredTalkNPCIDs[Progress.CurrentAmount]);
 	}

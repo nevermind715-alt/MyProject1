@@ -84,6 +84,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Quest")
 	bool CanAcceptQuest(FName QuestID);
 
+	/** CanAcceptQuestと同じ判定を行い、受注できない場合はその理由（クールダウン中／条件未達等）をOutFailReasonに格納する（ログ表示用、C++専用） */
+	bool CanAcceptQuest(FName QuestID, FString& OutFailReason);
+
 	/** 優先順位付きの候補クエストIDリストから、NPCが今提示すべき1件を選ぶ（複数クエスト・連鎖対応NPC用） */
 	UFUNCTION(BlueprintCallable, Category = "Quest")
 	FName GetNextOfferableQuest(const TArray<FName>& CandidateQuestIDs);

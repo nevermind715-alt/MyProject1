@@ -68,6 +68,10 @@ AMyProject1Character::AMyProject1Character()
 	HairMeshComp->SetupAttachment(GetMesh());
 	HairMeshComp->SetLeaderPoseComponent(GetMesh());
 
+	FaceMeshComp = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("FaceMeshComp"));
+	FaceMeshComp->SetupAttachment(GetMesh());
+	FaceMeshComp->SetLeaderPoseComponent(GetMesh());
+
 	HeadMeshComp = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("HeadMeshComp"));
 	HeadMeshComp->SetupAttachment(GetMesh());
 	HeadMeshComp->SetLeaderPoseComponent(GetMesh());
@@ -283,7 +287,10 @@ void AMyProject1Character::BeginPlay()
 	{
 		// すぐに呼ぶのではなく、1フレーム待つか、
 		// あるいは確実に Controller が設定されていることを確認してから呼ぶ
-		if (GetController())
+		// ※IsPlayerControlled()も必須：AIControllerで自動所持されるNPC（AQuestNPCBase等）も
+		// GetController()は非nullになるため、これが無いとNPCが「1回だけ消費される」保留中の
+		// ワープ座標・セーブ復元を横取りしてしまい、本来のプレイヤーに反映されなくなる
+		if (GetController() && IsPlayerControlled())
 		{
 			GameInst->ApplyPendingWarp(this);
 			GameInst->ApplyPendingCharacterLoad(this);
@@ -1689,6 +1696,15 @@ void AMyProject1Character::ApplyJobData()
 				{
 					HairMeshComp->SetSkeletalMesh(JobData->HairMesh.LoadSynchronous());
 				}
+			}
+		}
+
+		if (FaceMeshComp)
+		{
+			// DT_Jobs に顔メッシュがセットされているかチェック（未設定なら完全に無視）
+			if (!JobData->FaceMesh.IsNull())
+			{
+				FaceMeshComp->SetSkeletalMesh(JobData->FaceMesh.LoadSynchronous());
 			}
 		}
 
@@ -3174,7 +3190,9 @@ void AMyProject1Character::RefreshEquipmentStats()
 	TMap<ETargetStat, float> StatBonuses;
 	TMap<FName, float> NewExtraStatBonuses;
 
-	if (EquipmentDataTable)
+	// NPC（AQuestNPCBase）はShouldApplyEquipmentStatBonuses()をfalseに上書きしており、
+	// ここをスキップすることでEquipItem()による見た目の変化のみを許可し、MyStatsは変化させない
+	if (ShouldApplyEquipmentStatBonuses() && EquipmentDataTable)
 	{
 		// 現在装備中のアイテムをループして合計値を出す
 		for (const auto& Pair : CurrentEquippedItems)
@@ -3203,8 +3221,9 @@ void AMyProject1Character::RefreshEquipmentStats()
 	}
 
 	// 2-b. 病気・ケガ／タトゥー／ピアス（SkinOverlayComponentの箱）のボーナスも同じ仕組みで合算する
+	// ※NPCはShouldApplyEquipmentStatBonuses()がfalseのため、タトゥー等を付けても見た目だけでMyStatsは変化しない
 	TMap<FName, float> NewSkinOverlayExtraStatBonuses;
-	if (SkinOverlayComp)
+	if (ShouldApplyEquipmentStatBonuses() && SkinOverlayComp)
 	{
 		for (const FEquipmentStatModifier& Modifier : SkinOverlayComp->GetActiveStatModifiers())
 		{
