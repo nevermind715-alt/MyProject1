@@ -141,7 +141,14 @@ void UMyProject1GameInstance::RequestWarp(FName WarpID, ACharacter* PlayerCharac
 	ReservedWarpID = WarpID;
 	ReservedPlayer = PlayerCharacter;
 
-	BeginWarpFade(PlayerCharacter);
+	// キャラクターの入力を禁止する（動けなくする）
+	if (APlayerController* PC = Cast<APlayerController>(PlayerCharacter->GetController()))
+	{
+		PlayerCharacter->DisableInput(PC);
+	}
+
+	// UI（Widget）へ「暗転開始アニメーションを再生して！」と合図を送る
+	OnWarpFadeOutRequested.Broadcast();
 }
 
 // ----------------------------------------------------
@@ -154,7 +161,15 @@ void UMyProject1GameInstance::RequestFadeThenGrantFlag(FName FlagName, AMyProjec
 	ReservedFlagToGrant = FlagName;
 	ReservedFlagGrantTarget = TargetCharacter;
 
-	BeginWarpFade(TargetCharacter);
+	// エリアChangeと同じく、暗転中に動けてしまわないよう入力を禁止する
+	// （これが無いとRequestWarpと違い、暗転の裏でプレイヤーが動けてしまう）
+	if (APlayerController* PC = Cast<APlayerController>(TargetCharacter->GetController()))
+	{
+		TargetCharacter->DisableInput(PC);
+	}
+
+	// エリアChangeと全く同じ合図を使う。WBP_LoadingScreen側の変更は不要
+	OnWarpFadeOutRequested.Broadcast();
 }
 
 // ----------------------------------------------------
@@ -175,7 +190,14 @@ void UMyProject1GameInstance::RequestFadeThenRemoveFlag(FName FlagName, AMyProje
 		return;
 	}
 
-	BeginWarpFade(TargetCharacter);
+	// エリアChangeと同じく、暗転中に動けてしまわないよう入力を禁止する
+	if (APlayerController* PC = Cast<APlayerController>(TargetCharacter->GetController()))
+	{
+		TargetCharacter->DisableInput(PC);
+	}
+
+	// エリアChangeと全く同じ合図を使う。WBP_LoadingScreen側の変更は不要
+	OnWarpFadeOutRequested.Broadcast();
 }
 
 // ----------------------------------------------------
@@ -189,7 +211,14 @@ void UMyProject1GameInstance::RequestFadeThenAdvanceTime(int32 MinutesToAdd, ACh
 	ReservedTimeSkipCharacter = TargetCharacter;
 	ReservedTimeSkipIsSleep = bIsSleep;
 
-	BeginWarpFade(TargetCharacter);
+	// エリアChangeと同じく、暗転中に動けてしまわないよう入力を禁止する
+	if (APlayerController* PC = Cast<APlayerController>(TargetCharacter->GetController()))
+	{
+		TargetCharacter->DisableInput(PC);
+	}
+
+	// エリアChangeと全く同じ合図を使う。WBP_LoadingScreen側の変更は不要
+	OnWarpFadeOutRequested.Broadcast();
 }
 
 // ----------------------------------------------------
@@ -202,57 +231,14 @@ void UMyProject1GameInstance::RequestFadeThenWallWarp(AWallWarpLink* SourceLink,
 	ReservedWallWarpLink = SourceLink;
 	ReservedWallWarpCharacter = TargetCharacter;
 
-	BeginWarpFade(TargetCharacter);
-}
-
-// ----------------------------------------------------
-// 1.7. 暗転演出の共通処理（入力停止→暗転タイマー予約→UIへ合図）
-// ----------------------------------------------------
-void UMyProject1GameInstance::BeginWarpFade(ACharacter* TargetCharacter)
-{
-	if (!TargetCharacter) return;
-
+	// エリアChangeと同じく、暗転中は入力を禁止して動けないようにする
 	if (APlayerController* PC = Cast<APlayerController>(TargetCharacter->GetController()))
 	{
 		TargetCharacter->DisableInput(PC);
 	}
-	InputDisabledCharacter = TargetCharacter;
 
-	// 同じフレームで複数のRequest系が呼ばれても（フラグ消去の相乗り等）、暗転タイマーは1本だけ動かす
-	if (!GetTimerManager().IsTimerActive(WarpFadeOutTimerHandle))
-	{
-		GetTimerManager().SetTimer(WarpFadeOutTimerHandle, this,
-			&UMyProject1GameInstance::HandleWarpFadeOutComplete, WarpFadeOutDuration, false);
-	}
-
-	// UI（Widget）へ「暗転開始アニメーションを再生して！」と合図を送る
+	// エリアChangeと全く同じ合図を使う。WBP_LoadingScreen側の変更は不要
 	OnWarpFadeOutRequested.Broadcast();
-}
-
-// ----------------------------------------------------
-// 1.8. 暗転が終わった（＝画面が真っ暗になった）タイミングで自動的に呼ばれる
-// ----------------------------------------------------
-void UMyProject1GameInstance::HandleWarpFadeOutComplete()
-{
-	ExecuteWarpProcess();
-
-	GetTimerManager().SetTimer(WarpFadeInTimerHandle, this,
-		&UMyProject1GameInstance::HandleWarpFadeInComplete, WarpFadeInDuration, false);
-}
-
-// ----------------------------------------------------
-// 1.9. 明転が終わったタイミングで自動的に呼ばれ、入力を戻す
-// ----------------------------------------------------
-void UMyProject1GameInstance::HandleWarpFadeInComplete()
-{
-	if (ACharacter* Character = InputDisabledCharacter.Get())
-	{
-		if (APlayerController* PC = Cast<APlayerController>(Character->GetController()))
-		{
-			Character->EnableInput(PC);
-		}
-	}
-	InputDisabledCharacter.Reset();
 }
 
 // ----------------------------------------------------
@@ -338,8 +324,7 @@ void UMyProject1GameInstance::ExecuteWarpProcess()
 				PC->SetControlRotation(WarpData->DestinationTransform.GetRotation().Rotator());
 			}
 		}
-		// 明転と入力復帰は、この関数の呼び出し元であるHandleWarpFadeOutCompleteが
-		// WarpFadeInDuration秒後に自動的に処理する（同じマップ/別マップどちらの場合も共通）
+		// ※同じマップの場合は、この直後にUI側で「フェードイン」を開始させる仕組みが必要です。
 	}
 	else
 	{

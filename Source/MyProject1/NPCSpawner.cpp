@@ -34,6 +34,12 @@ void ANPCSpawner::BeginPlay()
 
 void ANPCSpawner::SpawnEnemy()
 {
+	// スポーン回数が上限に達している場合は何もしない（0は無制限）
+	if (MaxSpawnCount > 0 && CurrentSpawnCount >= MaxSpawnCount)
+	{
+		return;
+	}
+
 	if (!EnemyClass) return;
 
 	UWorld* World = GetWorld();
@@ -123,6 +129,9 @@ void ANPCSpawner::SpawnEnemy()
 		SpawnedEnemy->RecalculateFatigueAdjustedCombatStats();
 
 		SpawnedEnemy->MyStats.HP = SpawnedEnemy->MyStats.MaxHP;
+
+		// スポーン回数をカウント
+		CurrentSpawnCount++;
 	}
 } 
 
@@ -132,6 +141,10 @@ void ANPCSpawner::OnEnemyDeath(AActor* DeadActor)
 	{
 		SpawnedEnemy = nullptr;
 
-		GetWorldTimerManager().SetTimer(RespawnTimerHandle, this, &ANPCSpawner::SpawnEnemy, RespawnTime, false);
+		// スポーン回数の上限に達していなければリスポーンする（0は無制限）
+		if (MaxSpawnCount <= 0 || CurrentSpawnCount < MaxSpawnCount)
+		{
+			GetWorldTimerManager().SetTimer(RespawnTimerHandle, this, &ANPCSpawner::SpawnEnemy, RespawnTime, false);
+		}
 	}
 }

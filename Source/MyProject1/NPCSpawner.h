@@ -67,6 +67,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Settings")
 	float InitialSpawnDelay = 5.0f;
 
+	/** スポーンできる回数の上限（初回スポーン＋リスポーンの合計）。0にすると無制限にリスポーンします。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Settings", meta = (ClampMin = "0", UIMin = "0"))
+	int32 MaxSpawnCount = 0;
+
+	/** 現在までにスポーンした回数（実行中のみ更新される確認用の値です） */
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category = "Spawner Settings", Transient)
+	int32 CurrentSpawnCount = 0;
+
 	// --- 上書き用ステータス（ここで設定した値が敵にコピーされます） ---
 
 	/** 敵のジョブデータ（戦士、モンクなど） */

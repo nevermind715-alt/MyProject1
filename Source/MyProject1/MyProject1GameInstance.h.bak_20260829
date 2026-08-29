@@ -72,15 +72,6 @@ public:
 
 	// --- ワープの記憶領域 ---
 
-	/** 暗転アニメーションの長さ（秒）。WBP_LoadingScreen側の暗転Widgetアニメーションと同じ秒数に合わせること。
-	 *  この秒数が経過した時点でExecuteWarpProcess()が自動的に呼ばれる */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Warp")
-	float WarpFadeOutDuration = 1.0f;
-
-	/** 明転アニメーションの長さ（秒）。この秒数が経過した時点で入力（EnableInput）が戻る */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Warp")
-	float WarpFadeInDuration = 1.0f;
-
 	/** マップ移動を伴うワープの待機中（ロード中）か？ */
 	UPROPERTY(BlueprintReadOnly, Category = "Warp")
 	bool bHasPendingWarp = false;
@@ -206,24 +197,6 @@ private:
 	// ★追加：暗転が終わるまで待機している「ワープID」と「プレイヤー」の記憶
 	FName ReservedWarpID;
 	TWeakObjectPtr<class ACharacter> ReservedPlayer;
-
-	// ★追加：暗転演出（暗転→ExecuteWarpProcess→明転→入力復帰）を自走させるためのタイマーと記憶領域
-	FTimerHandle WarpFadeOutTimerHandle;
-	FTimerHandle WarpFadeInTimerHandle;
-
-	/** 暗転中に入力を止めた対象（明転後にEnableInputで戻す用）。
-	 *  レベル跨ぎワープでOpenLevelにより対象が破棄された場合はGet()がnullを返すため、
-	 *  HandleWarpFadeInComplete側で安全にスキップされる（新しいPawnはbBlockInput=falseがデフォルトなので対応不要） */
-	TWeakObjectPtr<class ACharacter> InputDisabledCharacter;
-
-	/** 暗転開始の共通処理：入力停止＋暗転タイマー予約＋UIへ合図。各Request系関数から呼ぶ */
-	void BeginWarpFade(class ACharacter* TargetCharacter);
-
-	/** 暗転が終わった（＝画面が真っ暗になった）タイミングでタイマーから呼ばれ、実際の移動処理を実行する */
-	void HandleWarpFadeOutComplete();
-
-	/** 明転が終わったタイミングでタイマーから呼ばれ、入力を戻す */
-	void HandleWarpFadeInComplete();
 
 	// 暗転が終わるまで待機している「付与予定のフラグ」と「付与対象」の記憶（RequestFadeThenGrantFlag用）
 	FName ReservedFlagToGrant;
