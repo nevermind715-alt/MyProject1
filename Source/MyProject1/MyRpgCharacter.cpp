@@ -1,4 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+ï»¿// Fill out your copyright notice in the Description page of Project Settings.
 
 
 #include "MyRpgCharacter.h"
@@ -19,13 +19,13 @@ void AMyRpgCharacter::BeginPlay()
     
     FString DebugMessage = FString::Printf(TEXT("Spawned: %s / HP: %d"), *CharacterName, CurrentHP);
 
-    // ‰æ–Ê¶ã‚ÉƒVƒAƒ“Fi…Fj‚Å10•bŠÔ•\¦‚·‚é
+    // ç”»é¢å·¦ä¸Šã«ã‚·ã‚¢ãƒ³è‰²ï¼ˆæ°´è‰²ï¼‰ã§10ç§’é–“è¡¨ç¤ºã™ã‚‹
     if (GEngine)
     {
         GEngine->AddOnScreenDebugMessage(-1, 10.0f, FColor::Cyan, DebugMessage);
     }
 
-    // š‚±‚±‚Ü‚Å’Ç‰Áš
+    // â˜…ã“ã“ã¾ã§è¿½åŠ â˜…
 }
 
 // Called every frame
@@ -35,25 +35,25 @@ void AMyRpgCharacter::Tick(float DeltaTime)
 
 }
 
-// šˆê”Ô‰º‚É’Ç‰Á
+// â˜…ä¸€ç•ªä¸‹ã«è¿½åŠ 
 void AMyRpgCharacter::ReceiveDamage(int32 DamageAmount)
 {
-    // HP‚ğŒ¸‚ç‚·
+    // HPã‚’æ¸›ã‚‰ã™
     CurrentHP = CurrentHP - DamageAmount;
 
-    // HP‚ª0ˆÈ‰º‚É‚È‚ç‚È‚¢‚æ‚¤‚É‚·‚é
+    // HPãŒ0ä»¥ä¸‹ã«ãªã‚‰ãªã„ã‚ˆã†ã«ã™ã‚‹
     if (CurrentHP < 0)
     {
         CurrentHP = 0;
     }
 
-    // ƒfƒoƒbƒO•\¦i’N‚©‚ªƒ_ƒ[ƒW‚ğó‚¯‚½‚©•ª‚©‚é‚æ‚¤‚Éj
+    // ãƒ‡ãƒãƒƒã‚°è¡¨ç¤ºï¼ˆèª°ã‹ãŒãƒ€ãƒ¡ãƒ¼ã‚¸ã‚’å—ã‘ãŸã‹åˆ†ã‹ã‚‹ã‚ˆã†ã«ï¼‰
     if (GEngine)
     {
         FString Msg = FString::Printf(TEXT("%s took %d damage! HP: %d"), *CharacterName, DamageAmount, CurrentHP);
         GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Red, Msg);
     }
 
-    // ‚±‚±‚É€–S”»’è‚È‚Ç‚ğŒã‚Å’Ç‰Á‚Å‚«‚Ü‚·
+    // ã“ã“ã«æ­»äº¡åˆ¤å®šãªã©ã‚’å¾Œã§è¿½åŠ ã§ãã¾ã™
 }
 

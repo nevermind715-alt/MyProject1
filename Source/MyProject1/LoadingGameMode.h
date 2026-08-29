@@ -1,7 +1,7 @@
-#pragma once
+ï»¿#pragma once
 
 #include "CoreMinimal.h"
-#include "GameFramework/GameMode.h" // Š®‘S”Å‚ÌGameMode
+#include "GameFramework/GameMode.h" // å®Œå…¨ç‰ˆã®GameMode
 #include "LoadingGameMode.generated.h"
 
 UCLASS()
@@ -13,10 +13,10 @@ public:
 	ALoadingGameMode();
 
 protected:
-	// ƒ[ƒh‚ªI‚í‚Á‚½‚©”»’è‚·‚éŠÖ”
+	// ãƒ­ãƒ¼ãƒ‰ãŒçµ‚ã‚ã£ãŸã‹åˆ¤å®šã™ã‚‹é–¢æ•°
 	virtual bool ReadyToStartMatch_Implementation() override;
 
-	// š’Ç‰ÁFƒ[ƒh‚ªŠ®—¹‚µA‚¢‚æ‚¢‚æƒQ[ƒ€‚ªn‚Ü‚éuŠÔ‚ÉŒÄ‚Î‚ê‚éŠÖ”I
+	// â˜…è¿½åŠ ï¼šãƒ­ãƒ¼ãƒ‰ãŒå®Œäº†ã—ã€ã„ã‚ˆã„ã‚ˆã‚²ãƒ¼ãƒ ãŒå§‹ã¾ã‚‹ç¬é–“ã«å‘¼ã°ã‚Œã‚‹é–¢æ•°ï¼
 	virtual void StartMatch() override;
 
 private:

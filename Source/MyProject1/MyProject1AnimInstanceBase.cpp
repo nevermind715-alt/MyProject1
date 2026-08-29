@@ -1,4 +1,4 @@
-// MyProject1AnimInstanceBase.cpp
+﻿// MyProject1AnimInstanceBase.cpp
 
 #include "MyProject1AnimInstanceBase.h"
 #include "MyProject1Character.h"

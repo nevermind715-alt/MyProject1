@@ -41,6 +41,32 @@ void UMyProject1GameInstance::UpdateInGameTime()
 	}
 }
 
+// 待機/睡眠などで時間を一気に進める（分単位）
+void UMyProject1GameInstance::AdvanceTimeBy(int32 MinutesToAdd)
+{
+	if (MinutesToAdd <= 0)
+	{
+		return;
+	}
+
+	CurrentTimeInMinutes += MinutesToAdd;
+
+	// 日をまたぐ分だけAdvanceDayを個別に呼ぶ（複数日またぐ待機でも1日ずつ正しく進む）
+	while (CurrentTimeInMinutes >= 1440)
+	{
+		CurrentTimeInMinutes -= 1440;
+		AdvanceDay();
+	}
+
+	int32 Hour = CurrentTimeInMinutes / 60;
+	int32 Minute = CurrentTimeInMinutes % 60;
+
+	if (OnInGameTimeChanged.IsBound())
+	{
+		OnInGameTimeChanged.Broadcast(CurrentYear, CurrentMonth, CurrentDay, Hour, Minute);
+	}
+}
+
 // 日付を1日進める処理
 void UMyProject1GameInstance::AdvanceDay()
 {
@@ -175,6 +201,27 @@ void UMyProject1GameInstance::RequestFadeThenRemoveFlag(FName FlagName, AMyProje
 }
 
 // ----------------------------------------------------
+// 1.5.6. 待機/睡眠による「暗転を挟んだ時間スキップ」の要求
+// ----------------------------------------------------
+void UMyProject1GameInstance::RequestFadeThenAdvanceTime(int32 MinutesToAdd, ACharacter* TargetCharacter, bool bIsSleep)
+{
+	if (MinutesToAdd <= 0 || !TargetCharacter) return;
+
+	ReservedTimeSkipMinutes = MinutesToAdd;
+	ReservedTimeSkipCharacter = TargetCharacter;
+	ReservedTimeSkipIsSleep = bIsSleep;
+
+	// エリアChangeと同じく、暗転中に動けてしまわないよう入力を禁止する
+	if (APlayerController* PC = Cast<APlayerController>(TargetCharacter->GetController()))
+	{
+		TargetCharacter->DisableInput(PC);
+	}
+
+	// エリアChangeと全く同じ合図を使う。WBP_LoadingScreen側の変更は不要
+	OnWarpFadeOutRequested.Broadcast();
+}
+
+// ----------------------------------------------------
 // 1.6. WallWarpLink用の「暗転を挟んだ軽量ワープ」の要求
 // ----------------------------------------------------
 void UMyProject1GameInstance::RequestFadeThenWallWarp(AWallWarpLink* SourceLink, ACharacter* TargetCharacter)
@@ -210,6 +257,24 @@ void UMyProject1GameInstance::ExecuteWarpProcess()
 
 		ReservedFlagToRemove = NAME_None;
 		ReservedFlagRemoveTarget.Reset();
+	}
+
+	// 待機/睡眠による時間スキップの予約があれば、こちらで完結させる（RequestFadeThenAdvanceTime用）
+	if (ReservedTimeSkipMinutes > 0)
+	{
+		AdvanceTimeBy(ReservedTimeSkipMinutes);
+
+		// HandleFatigueTickは現実時間の経過にしか反応しないため、待機/睡眠でジャンプした分の疲労度は
+		// ここで明示的に反映する（そうしないと待機による時間経過分の疲労上昇が抜け落ちる）
+		if (AMyProject1Character* SkippedCharacter = Cast<AMyProject1Character>(ReservedTimeSkipCharacter.Get()))
+		{
+			SkippedCharacter->ApplyFatigueForSkippedMinutes(ReservedTimeSkipMinutes, ReservedTimeSkipIsSleep);
+		}
+
+		ReservedTimeSkipMinutes = 0;
+		ReservedTimeSkipCharacter.Reset();
+		ReservedTimeSkipIsSleep = false;
+		return;
 	}
 
 	// ワープの予約より先に、フラグ付与だけの予約がないか確認する（RequestFadeThenGrantFlag経由の場合はこちらで完結させる）

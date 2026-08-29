@@ -1,4 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+ï»¿// Fill out your copyright notice in the Description page of Project Settings.
 
 #pragma once
 
@@ -24,36 +24,36 @@ public:
 	virtual void Tick(float DeltaTime) override;
 
 	
-	// ƒLƒƒƒ‰ƒNƒ^[‚Ì–¼‘O
+	// ã‚­ãƒ£ãƒ©ã‚¯ã‚¿ãƒ¼ã®åå‰
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RPG Status")
 	FString CharacterName = "Senshi";
 
-	// Å‘åHP
+	// æœ€å¤§HP
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RPG Status")
 	int32 MaxHP = 200;
 
-	// Œ»İ‚ÌHP
+	// ç¾åœ¨ã®HP
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RPG Status")
 	int32 CurrentHP = 200;
 
-	// UŒ‚—Í
+	// æ”»æ’ƒåŠ›
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RPG Status")
 	int32 AttackPower = 50;
 
-	// –hŒä—Í
+	// é˜²å¾¡åŠ›
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RPG Status")
 	int32 DefensePower = 10;
 
-	// ƒ_ƒ[ƒW‚ğó‚¯‚éŠÖ”
-	// BlueprintCallable: ƒuƒ‹[ƒvƒŠƒ“ƒg‚©‚çuƒ_ƒ[ƒWó‚¯‚ëIv‚Æ–½—ß‚Å‚«‚é
+	// ãƒ€ãƒ¡ãƒ¼ã‚¸ã‚’å—ã‘ã‚‹é–¢æ•°
+	// BlueprintCallable: ãƒ–ãƒ«ãƒ¼ãƒ—ãƒªãƒ³ãƒˆã‹ã‚‰ã€Œãƒ€ãƒ¡ãƒ¼ã‚¸å—ã‘ã‚ï¼ã€ã¨å‘½ä»¤ã§ãã‚‹
 	UFUNCTION(BlueprintCallable, Category = "RPG Combat")
 	void ReceiveDamage(int32 DamageAmount);
 
-	// –½’†EƒNƒŠƒeƒBƒJƒ‹‚ÉŠÖ‚í‚é
+	// å‘½ä¸­ãƒ»ã‚¯ãƒªãƒ†ã‚£ã‚«ãƒ«ã«é–¢ã‚ã‚‹
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RPG Status")
 	int32 DEX = 20;
 
-	// ‰ñ”ğE–hŒä‚ÉŠÖ‚í‚é
+	// å›é¿ãƒ»é˜²å¾¡ã«é–¢ã‚ã‚‹
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RPG Status")
 	int32 AGI = 20;
 

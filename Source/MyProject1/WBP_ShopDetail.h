@@ -1,4 +1,4 @@
-#pragma once
+ï»¿#pragma once
 
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
@@ -11,14 +11,14 @@ class MYPROJECT1_API UWBP_ShopDetail : public UUserWidget
 	GENERATED_BODY()
 
 protected:
-	// Widget‚ª¶¬‚³‚ê‚½‚ÉŒÄ‚Î‚ê‚éiBP‚ÌConstruct‘Š“–j
+	// WidgetãŒç”Ÿæˆã•ã‚ŒãŸæ™‚ã«å‘¼ã°ã‚Œã‚‹ï¼ˆBPã®Constructç›¸å½“ï¼‰
 	virtual void NativeConstruct() override;
 
-	// •ú‘—iƒfƒŠƒQ[ƒgj‚ğó‚¯æ‚Á‚½‚ÉÀs‚·‚éŠÖ”
+	// æ”¾é€ï¼ˆãƒ‡ãƒªã‚²ãƒ¼ãƒˆï¼‰ã‚’å—ã‘å–ã£ãŸæ™‚ã«å®Ÿè¡Œã™ã‚‹é–¢æ•°
 	UFUNCTION()
 	void HandleHoverChanged(FName NewItemID);
 
-	// šƒƒWƒbƒN‚ÍC++AŒ©‚½–ÚiƒeƒLƒXƒg‚ÌƒZƒbƒg‚È‚Çj‚ÍBP‚Å‚â‚é‚½‚ß‚ÌƒCƒxƒ“ƒg
+	// â˜…ãƒ­ã‚¸ãƒƒã‚¯ã¯C++ã€è¦‹ãŸç›®ï¼ˆãƒ†ã‚­ã‚¹ãƒˆã®ã‚»ãƒƒãƒˆãªã©ï¼‰ã¯BPã§ã‚„ã‚‹ãŸã‚ã®ã‚¤ãƒ™ãƒ³ãƒˆ
 	UFUNCTION(BlueprintImplementableEvent, Category = "Inventory|UI")
 	void OnUpdateDetailDisplay(const FItemData& ItemData, bool bIsVisible);
 };

@@ -1,10 +1,10 @@
-#include "UAnimNotify_Footstep.h" 
+ï»¿#include "UAnimNotify_Footstep.h" 
 #include "MyProject1Character.h"
 
-// ŠÖ”–¼‚ğ Notify ‚É•ÏX‚µAconst ‚ğŠO‚µ‚Ü‚·
+// é–¢æ•°åã‚’ Notify ã«å¤‰æ›´ã—ã€const ã‚’å¤–ã—ã¾ã™
 void UAnimNotify_Footstep::Notify(USkeletalMeshComponent* MeshComp, UAnimSequenceBase* Animation, const FAnimNotifyEventReference& EventReference)
 {
-	Super::Notify(MeshComp, Animation, EventReference); // Super ‚à Notify ‚É•ÏX
+	Super::Notify(MeshComp, Animation, EventReference); // Super ã‚‚ Notify ã«å¤‰æ›´
 
 	if (!MeshComp) return;
 

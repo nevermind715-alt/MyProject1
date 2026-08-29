@@ -1,4 +1,4 @@
-#include "RpgDamageCalculator.h"
+ï»¿#include "RpgDamageCalculator.h"
 
 FDamageResult URpgDamageCalculator::CalculateDamage(const FCharacterStats& AttackerStats, const FCharacterStats& DefenderStats, float SkillDamageMultiplier, float SkillCriticalBonus, float AbilityDValue)
 
@@ -6,15 +6,15 @@ FDamageResult URpgDamageCalculator::CalculateDamage(const FCharacterStats& Attac
 	FDamageResult Result;
 	float LevelDiff = (float)DefenderStats.Level - (float)AttackerStats.Level;
 
-	// --- 1. –½’†”»’è (Accuracy vs Evasion) ---
-	// Šî–{–½’†—¦‚ğ 75% ‚Æ‚µA–½’†‚Æ‰ñ”ğ‚Ì·•ª‚ğ‚»‚Ì‚Ü‚Ü‰ÁZiFF11•—‚ÌŒvZj
-	// —áF–½’†102 vs ‰ñ”ğ100 ‚È‚ç 77% ‚É‚È‚é
+	// --- 1. å‘½ä¸­åˆ¤å®š (Accuracy vs Evasion) ---
+	// åŸºæœ¬å‘½ä¸­ç‡ã‚’ 75% ã¨ã—ã€å‘½ä¸­ã¨å›é¿ã®å·®åˆ†ã‚’ãã®ã¾ã¾åŠ ç®—ï¼ˆFF11é¢¨ã®è¨ˆç®—ï¼‰
+	// ä¾‹ï¼šå‘½ä¸­102 vs å›é¿100 ãªã‚‰ 77% ã«ãªã‚‹
 	float HitChance = 75.0f + (AttackerStats.Accuracy - DefenderStats.Evasion);
 
 	float DamageMultiplier = 1.0f;
 
-	// --- O’iŠK‚Ìâ–]ƒ‚ƒfƒ‹iƒŒƒxƒ‹·•â³j ---
-	// ‚±‚±‚ÍŠù‘¶‚ÌƒƒWƒbƒN‚ğˆÛ‚µAƒŒƒxƒ‹·‚ª‚ ‚éê‡‚Í–½’†—¦‚ğ‚³‚ç‚Éí‚è‚Ü‚·
+	// --- ä¸‰æ®µéšã®çµ¶æœ›ãƒ¢ãƒ‡ãƒ«ï¼ˆãƒ¬ãƒ™ãƒ«å·®è£œæ­£ï¼‰ ---
+	// ã“ã“ã¯æ—¢å­˜ã®ãƒ­ã‚¸ãƒƒã‚¯ã‚’ç¶­æŒã—ã€ãƒ¬ãƒ™ãƒ«å·®ãŒã‚ã‚‹å ´åˆã¯å‘½ä¸­ç‡ã‚’ã•ã‚‰ã«å‰Šã‚Šã¾ã™
 	if (LevelDiff > 0)
 	{
 		if (LevelDiff <= 3.0f)
@@ -28,15 +28,15 @@ FDamageResult URpgDamageCalculator::CalculateDamage(const FCharacterStats& Attac
 		}
 		else
 		{
-			// 7ƒŒƒxƒ‹·ˆÈãFâ–]
-			HitChance = 20.0f; // –½’†ƒLƒƒƒbƒv‚ğ‚³‚ç‚ÉŒµ‚µ‚­
+			// 7ãƒ¬ãƒ™ãƒ«å·®ä»¥ä¸Šï¼šçµ¶æœ›
+			HitChance = 20.0f; // å‘½ä¸­ã‚­ãƒ£ãƒƒãƒ—ã‚’ã•ã‚‰ã«å³ã—ã
 			DamageMultiplier = 0.1f;
 		}
 	}
 
-	// ƒŒƒxƒ‹·‚Ìƒyƒiƒ‹ƒeƒB”{—¦‚ÉA“Áê‹Z‚Ì”{—¦‚ğŠ|‚¯‡‚í‚¹‚é
+	// ãƒ¬ãƒ™ãƒ«å·®ã®ãƒšãƒŠãƒ«ãƒ†ã‚£å€ç‡ã«ã€ç‰¹æ®ŠæŠ€ã®å€ç‡ã‚’æ›ã‘åˆã‚ã›ã‚‹
 	DamageMultiplier *= SkillDamageMultiplier;
-	// –½’†—¦‚ğ 5% ` 95% ‚ÌŠÔ‚É§ŒÀi‚Ç‚ñ‚È‚É–½’†‚ª‚‚­‚Ä‚à 5% ‚Íƒ~ƒX‚·‚éj
+	// å‘½ä¸­ç‡ã‚’ 5% ã€œ 95% ã®é–“ã«åˆ¶é™ï¼ˆã©ã‚“ãªã«å‘½ä¸­ãŒé«˜ãã¦ã‚‚ 5% ã¯ãƒŸã‚¹ã™ã‚‹ï¼‰
 	HitChance = FMath::Clamp(HitChance, 5.0f, 95.0f);
 
 	if (FMath::RandRange(0.0f, 100.0f) > HitChance)
@@ -46,16 +46,16 @@ FDamageResult URpgDamageCalculator::CalculateDamage(const FCharacterStats& Attac
 	}
 	Result.bIsHit = true;
 
-	// --- 2. ƒ_ƒ[ƒWŒvZ ---
-	// UŒ‚—Í‚Æ–hŒä—Í‚ÌŠî–{ŒvZ
+	// --- 2. ãƒ€ãƒ¡ãƒ¼ã‚¸è¨ˆç®— ---
+	// æ”»æ’ƒåŠ›ã¨é˜²å¾¡åŠ›ã®åŸºæœ¬è¨ˆç®—
 	float BaseDamage = ((AttackerStats.AttackPower + AbilityDValue) - (DefenderStats.DefensePower / 2.0f)) * DamageMultiplier;
 	if (BaseDamage < 1.0f) BaseDamage = 1.0f;
 
-	// --- 3. ƒNƒŠƒeƒBƒJƒ‹”»’è ---
-	// DEX‚ÆAGI‚Ì·‚à‰B‚µ–¡‚Æ‚µ‚Äc‚·‚ÆuƒXƒe[ƒ^ƒX‚ÌˆÓ–¡v‚ª‚æ‚è[‚Ü‚è‚Ü‚·
+	// --- 3. ã‚¯ãƒªãƒ†ã‚£ã‚«ãƒ«åˆ¤å®š ---
+	// DEXã¨AGIã®å·®ã‚‚éš ã—å‘³ã¨ã—ã¦æ®‹ã™ã¨ã€Œã‚¹ãƒ†ãƒ¼ã‚¿ã‚¹ã®æ„å‘³ã€ãŒã‚ˆã‚Šæ·±ã¾ã‚Šã¾ã™
 	float FinalCritChance = 5.0f + (AttackerStats.DEX - DefenderStats.AGI) * 0.2f;
 
-	// ƒŒƒxƒ‹·‚É‚æ‚éƒNƒŠƒeƒBƒJƒ‹•â³
+	// ãƒ¬ãƒ™ãƒ«å·®ã«ã‚ˆã‚‹ã‚¯ãƒªãƒ†ã‚£ã‚«ãƒ«è£œæ­£
 	if (LevelDiff > 0)
 	{
 		FinalCritChance -= LevelDiff * 2.0f;
@@ -72,12 +72,12 @@ FDamageResult URpgDamageCalculator::CalculateDamage(const FCharacterStats& Attac
 	if (FMath::RandRange(0.0f, 100.0f) < FinalCritChance)
 	{
 		Result.bIsCritical = true;
-		Result.DamageAmount = FMath::FloorToFloat(BaseDamage * 1.5f); // ƒNƒŠƒeƒBƒJƒ‹‚Í1.5”{
+		Result.DamageAmount = FMath::FloorToFloat(BaseDamage * 1.5f); // ã‚¯ãƒªãƒ†ã‚£ã‚«ãƒ«ã¯1.5å€
 	}
 	else
 	{
 		Result.bIsCritical = false;
-		// ’Êíƒ_ƒ[ƒW‚Ìƒoƒ‰‚Â‚«
+		// é€šå¸¸ãƒ€ãƒ¡ãƒ¼ã‚¸ã®ãƒãƒ©ã¤ã
 		Result.DamageAmount = FMath::FloorToFloat(BaseDamage * FMath::RandRange(0.9f, 1.1f));
 	}
 

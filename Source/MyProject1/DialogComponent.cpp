@@ -177,7 +177,8 @@ void UDialogComponent::ExecuteActionCore(EDialogActionType ActionType, const FSt
 		break;
 
 	case EDialogActionType::RequestRankUp:
-		RpgInterface->TryRankUp();
+		// ActionPayloadに設定先の等級（EAdventurerRankの行名。例："Rank4"）を入れて使う
+		RpgInterface->SetAdventurerRank(FName(*ActionPayload));
 		break;
 
 	case EDialogActionType::Close:

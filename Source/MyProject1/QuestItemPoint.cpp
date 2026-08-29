@@ -1,5 +1,8 @@
 #include "QuestItemPoint.h"
 #include "Components/StaticMeshComponent.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "Components/DecalComponent.h"
+#include "Components/SphereComponent.h"
 #include "MyProject1Character.h"
 #include "InventoryComponent.h"
 #include "QuestComponent.h"
@@ -14,6 +17,27 @@ AQuestItemPoint::AQuestItemPoint()
 
 	Mesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Mesh"));
 	RootComponent = Mesh;
+
+	// 将来アニメ付きモデルを使う時用。見た目専用なので、当たり判定はMesh側だけに任せる
+	SkeletalMesh = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("SkeletalMesh"));
+	SkeletalMesh->SetupAttachment(RootComponent);
+	SkeletalMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+	// 落書き消しクエスト等、平面のデカールだけを見た目として使いたい時用
+	Decal = CreateDefaultSubobject<UDecalComponent>(TEXT("Decal"));
+	Decal->SetupAttachment(RootComponent);
+	Decal->DecalSize = FVector(64.f, 128.f, 128.f);
+
+	// プレイヤー接近を検知してApproachSoundを鳴らすための専用コリジョン（インタラクト当たり判定とは別）
+	ApproachTrigger = CreateDefaultSubobject<USphereComponent>(TEXT("ApproachTrigger"));
+	ApproachTrigger->SetupAttachment(RootComponent);
+	ApproachTrigger->InitSphereRadius(300.f);
+	// WallWarpLinkのCollisionBoxと同じ理由（プロジェクト独自のコリジョンチャンネルも確実に拾うため全チャンネルOverlap）
+	ApproachTrigger->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+	ApproachTrigger->SetCollisionObjectType(ECC_WorldDynamic);
+	ApproachTrigger->SetCollisionResponseToAllChannels(ECR_Overlap);
+	ApproachTrigger->SetGenerateOverlapEvents(true);
+	ApproachTrigger->OnComponentBeginOverlap.AddDynamic(this, &AQuestItemPoint::OnApproachTriggerBeginOverlap);
 
 	// TargetNearestEnemy()のターゲット判定はActorのTag（"Enemy"か"NPC"）を見ているだけなので、
 	// これを付けておくだけでNPCと同じ射程判定(InteractRange)に自動的に乗る
@@ -150,5 +174,20 @@ void AQuestItemPoint::TryInteract(AMyProject1Character* Interactor)
 		bUsed = true;
 		Mesh->SetVisibility(false);
 		Mesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		SkeletalMesh->SetVisibility(false);
+		Decal->SetVisibility(false);
 	}
+}
+
+void AQuestItemPoint::OnApproachTriggerBeginOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
+{
+	if (!ApproachSound) return;
+
+	// 徘徊中のNPCなどが触れても誤発火しないよう、「Player」タグを持つアクターだけを対象にする（WallWarpLinkと同じ判定方式）
+	if (!OtherActor || !OtherActor->ActorHasTag(TEXT("Player"))) return;
+
+	if (bApproachSoundOnce && bApproachSoundPlayed) return;
+
+	UGameplayStatics::PlaySound2D(GetWorld(), ApproachSound);
+	bApproachSoundPlayed = true;
 }

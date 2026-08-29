@@ -113,26 +113,6 @@ struct FShopItemOverride
 	bool bCanSell = true;
 };
 
-USTRUCT(BlueprintType)
-struct FCyclePhaseSettings
-{
-	GENERATED_BODY()
-
-	/** どの状態にするか（状態A、状態B、状態C） */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cycle")
-	ECycleState TargetState = ECycleState::StateA;
-
-	/** 開始日（例：1） */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cycle", meta = (ClampMin = "1"))
-	int32 MinDay = 1;
-
-	/** 終了日（例：10） */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cycle", meta = (ClampMin = "1"))
-	int32 MaxDay = 10;
-
-	// 💡将来の拡張：ここに「この状態の時の攻撃力補正倍率」などを足すことも可能です！
-};
-
 // --- 特殊効果の設定構造体 ---
 USTRUCT(BlueprintType)
 struct FSpecialEffectInfo
@@ -279,10 +259,11 @@ public:
 };
 
 
-// --- 冒険者クラスの等級（数値が大きいほど上位。五等が最下位、番外が最上位） ---
+// --- 冒険者クラスの等級（数値が大きいほど上位。未登録が最下位、番外が最上位） ---
 UENUM(BlueprintType)
 enum class EAdventurerRank : uint8
 {
+	None     UMETA(DisplayName = "未登録"),
 	Rank5    UMETA(DisplayName = "五等"),
 	Rank4    UMETA(DisplayName = "四等"),
 	Rank3    UMETA(DisplayName = "三等"),
@@ -327,6 +308,14 @@ struct FCharacterStats
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats")
 	float DefensePower = 15.0f;
 
+	/** 疲労デバフを適用する前の「素の攻撃力」（STR・装備・バフ等はここに積み上げる。AttackPowerはこれに疲労補正を掛けた表示・実戦闘用の値） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats")
+	float BaseAttackPower = 20.0f;
+
+	/** 疲労デバフを適用する前の「素の防御力」（VIT・装備・バフ等はここに積み上げる。DefensePowerはこれに疲労補正を掛けた表示・実戦闘用の値） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats")
+	float BaseDefensePower = 15.0f;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats")
 	float Stamina = 100.0f;
 
@@ -365,7 +354,7 @@ struct FCharacterStats
 	float MentalBonus = 0.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats")
-	float Energy = 1.0f;
+	float Energy = 0.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats")
 	float MaxEnergy = 100.0f; // 疲労度の限界値
@@ -380,8 +369,9 @@ struct FCharacterStats
 
 
 	// --- 冒険者クラスの等級（ギルドNPCへの申請で昇格） ---
+	// 初期値は「未登録」。冒険者登録ダイアログでRequestRankUpを実行すると五等になる
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats")
-	EAdventurerRank AdventurerRank = EAdventurerRank::Rank5;
+	EAdventurerRank AdventurerRank = EAdventurerRank::None;
 
 	// --- レベル・経験値の追加 ---
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats")
@@ -601,6 +591,7 @@ struct FAbilityData : public FTableRowBase
 
 	// アビリティの名前
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+
 	FString AbilityName;
 
 	// 説明文
@@ -801,7 +792,8 @@ enum class EDialogActionType : uint8
 	Close           UMETA(DisplayName = "会話を終了する"),
 	AddSkinOverlay     UMETA(DisplayName = "タトゥー/傷跡を強制追加"),
 	RemoveSkinOverlay  UMETA(DisplayName = "タトゥー/傷跡を強制削除"),
-	RequestRankUp      UMETA(DisplayName = "冒険者等級の昇格を申請する")
+	// ActionPayloadに設定先のEAdventurerRank行名（例："Rank4"）を入れる。条件判定はせず直接その等級に設定する
+	RequestRankUp      UMETA(DisplayName = "冒険者等級を設定する（ActionPayload=等級名）")
 };
 
 // --- 選択肢1つ分のデータ ---
@@ -1063,6 +1055,12 @@ struct FQuestData : public FTableRowBase
 	// 空欄なら何もしない。文字が入っていればクリア時にフラグを付与
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Reward")
 	FName RewardFlag;
+
+	// --- 受注時に付与するフラグ ---
+	// 空欄なら何もしない。文字が入っていれば受注した瞬間にフラグを付与する
+	// （例：収集クエストを受注した瞬間にAQuestItemPointのRequiredFlagを解放して表示させる、等）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Condition")
+	FName AcceptFlag;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Audio")
 	class USoundBase* AcceptSound = nullptr; // 受注時の音
@@ -1332,6 +1330,35 @@ struct FEquipmentStatModifier
 	/** 増減値（プラスなら上昇、マイナスなら低下） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment|Stats")
 	float Amount = 0.0f;
+};
+
+// --- 月齢サイクルの各フェーズ設定（BP_MyGameInstanceのCyclePhaseRulesで使用） ---
+USTRUCT(BlueprintType)
+struct FCyclePhaseSettings
+{
+	GENERATED_BODY()
+
+	/** どの状態にするか（状態A、状態B、状態C） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cycle")
+	ECycleState TargetState = ECycleState::StateA;
+
+	/** 開始日（例：1） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cycle", meta = (ClampMin = "1"))
+	int32 MinDay = 1;
+
+	/** 終了日（例：10） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cycle", meta = (ClampMin = "1"))
+	int32 MaxDay = 10;
+
+	/** この状態に切り替わった時にログへ表示するメッセージ（エディタで自由に変更可） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cycle", meta = (MultiLine = "true"))
+	FText PhaseChangeMessage;
+
+	/** このフェーズの間だけ有効なステータス補正（装備と同じ仕組みで、フェーズが変わると自動的に元に戻る） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cycle")
+	TArray<FEquipmentStatModifier> StatModifiers;
+
+	// 💡将来の拡張：ここに「この状態の時の攻撃力補正倍率」などを足すことも可能です！
 };
 
 // --- 装備品データの構造体 ---

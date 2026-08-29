@@ -1,6 +1,6 @@
-#include "WBP_ShopDetail.h"
+﻿#include "WBP_ShopDetail.h"
 #include "InventoryComponent.h"
-#include "GameFramework/Pawn.h" // �ǉ�
+#include "GameFramework/Pawn.h" // 追加
 
 void UWBP_ShopDetail::HandleHoverChanged(FName NewItemID)
 {

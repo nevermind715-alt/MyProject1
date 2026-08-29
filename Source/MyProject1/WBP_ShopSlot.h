@@ -1,28 +1,28 @@
-// WBP_ShopSlot.h
+ï»¿// WBP_ShopSlot.h
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Blueprint/UserWidget.h" // ‚±‚ê‚ª•K—v
+#include "Blueprint/UserWidget.h" // ã“ã‚ŒãŒå¿…è¦
 #include "WBP_ShopSlot.generated.h"
 
 UCLASS()
-class MYPROJECT1_API UWBP_ShopSlot : public UUserWidget // UUserWidget‚ğŒp³
+class MYPROJECT1_API UWBP_ShopSlot : public UUserWidget // UUserWidgetã‚’ç¶™æ‰¿
 {
 	GENERATED_BODY()
 
 public:
-	// ƒXƒƒbƒg‚ª•Û‚·‚éƒAƒCƒeƒ€IDiBP‘¤‚ÅƒAƒCƒeƒ€¶¬‚ÉƒZƒbƒg‚·‚éj
+	// ã‚¹ãƒ­ãƒƒãƒˆãŒä¿æŒã™ã‚‹ã‚¢ã‚¤ãƒ†ãƒ IDï¼ˆBPå´ã§ã‚¢ã‚¤ãƒ†ãƒ ç”Ÿæˆæ™‚ã«ã‚»ãƒƒãƒˆã™ã‚‹ï¼‰
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory", meta = (ExposeOnSpawn))
 	FName ItemID;
 
 protected:
-	// ƒ}ƒEƒX‚ª“ü‚Á‚½‚ÌŒŸ’micpp‚ÅÀ‘•Ï‚İj
+	// ãƒã‚¦ã‚¹ãŒå…¥ã£ãŸæ™‚ã®æ¤œçŸ¥ï¼ˆcppã§å®Ÿè£…æ¸ˆã¿ï¼‰
 	virtual void NativeOnMouseEnter(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
 
-	// ƒ}ƒEƒX‚ª—£‚ê‚½‚ÌŒŸ’micpp‚ÅÀ‘•Ï‚İj
+	// ãƒã‚¦ã‚¹ãŒé›¢ã‚ŒãŸæ™‚ã®æ¤œçŸ¥ï¼ˆcppã§å®Ÿè£…æ¸ˆã¿ï¼‰
 	virtual void NativeOnMouseLeave(const FPointerEvent& InMouseEvent) override;
 
-	// ƒGƒfƒBƒ^‚ÅƒJ[ƒ\ƒ‹‰¹‚ğ‘I‘ğ‚Å‚«‚é‚æ‚¤‚É‚·‚é
+	// ã‚¨ãƒ‡ã‚£ã‚¿ã§ã‚«ãƒ¼ã‚½ãƒ«éŸ³ã‚’é¸æŠã§ãã‚‹ã‚ˆã†ã«ã™ã‚‹
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sound")
 	class USoundBase* HoverSound;
 

@@ -413,11 +413,37 @@ bool UInventoryComponent::UseItem(FName ItemID)
 		case ETargetStat::AGI:
 		case ETargetStat::Accuracy:
 		case ETargetStat::Evasion:
+			if (Effect.EffectDuration > 0.0f)
+			{
+				TimedEffects.Add(Effect);
+			}
+			bAnyEffectApplied = true;
+			break;
+
+			// 攻撃力・防御力は永続効果ならBaseAttackPower/BaseDefensePowerに積み、疲労補正込みの表示値を再計算する
+			// （時限効果は他と同じくApplyItemBuff経由でBase側に積まれる：TimedEffects参照）
 		case ETargetStat::AttackPower:
+			if (Effect.EffectDuration > 0.0f)
+			{
+				TimedEffects.Add(Effect);
+			}
+			else
+			{
+				OwnerChar->MyStats.BaseAttackPower += ClampAmountToCap(OwnerChar->MyStats.BaseAttackPower, Effect.EffectAmount, Effect.CapValue);
+				OwnerChar->RecalculateFatigueAdjustedCombatStats();
+			}
+			bAnyEffectApplied = true;
+			break;
+
 		case ETargetStat::DefensePower:
 			if (Effect.EffectDuration > 0.0f)
 			{
 				TimedEffects.Add(Effect);
+			}
+			else
+			{
+				OwnerChar->MyStats.BaseDefensePower += ClampAmountToCap(OwnerChar->MyStats.BaseDefensePower, Effect.EffectAmount, Effect.CapValue);
+				OwnerChar->RecalculateFatigueAdjustedCombatStats();
 			}
 			bAnyEffectApplied = true;
 			break;

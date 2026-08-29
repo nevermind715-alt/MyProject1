@@ -1,17 +1,15 @@
-// WBP_ShopSlot.cpp
+﻿// WBP_ShopSlot.cpp
 #include "WBP_ShopSlot.h"
 #include "Kismet/GameplayStatics.h"
 #include "InventoryComponent.h"
-#include "GameFramework/Pawn.h" // �ǉ��FAPawn�̊�{�@�\���g������
+#include "GameFramework/Pawn.h"
 
 void UWBP_ShopSlot::NativeOnMouseEnter(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent)
 {
     Super::NativeOnMouseEnter(InGeometry, InMouseEvent);
 
-    // ������̃L�����N�^�[���𖼎w�������A�����́u���쒆��Pawn�v�Ƃ��Ĉ���
     if (APawn* PlayerPawn = GetOwningPlayerPawn())
     {
-        // ���肪�N�ł���AInventoryComponent�������Ă��邩�T��
         if (UInventoryComponent* Inv = PlayerPawn->FindComponentByClass<UInventoryComponent>())
         {
             if (Inv->bIsItemActionMenuOpen)

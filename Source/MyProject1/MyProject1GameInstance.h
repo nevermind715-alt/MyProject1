@@ -52,6 +52,12 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Time|Calendar")
 	ECycleState CurrentCycleState;
 
+	/** 待機/睡眠などで時間を一気に進める。日をまたぐ場合は日数分だけAdvanceDayを個別に呼ぶので、
+	 *  日付ベースの仕組み（月齢/CurrentCycleStateやOnDayChangedDelegate依存のクエスト等）も正しく動く。
+	 *  UI更新の通知（OnInGameTimeChanged）は進めた後に1回だけ行う。 */
+	UFUNCTION(BlueprintCallable, Category = "Time")
+	void AdvanceTimeBy(int32 MinutesToAdd);
+
 	// ゲーム開始時に呼ばれる関数（ここでタイマーを動かします）
 	virtual void Init() override;
 
@@ -93,6 +99,12 @@ public:
 	 *  そちらに相乗りして二重に暗転させず、フラグの消去だけをExecuteWarpProcess側で一緒に反映する */
 	UFUNCTION(BlueprintCallable, Category = "Warp")
 	void RequestFadeThenRemoveFlag(FName FlagName, class AMyProject1Character* TargetCharacter);
+
+	/** 待機/睡眠による時間スキップの前に暗転を挟む要求。エリアChangeと全く同じOnWarpFadeOutRequestedを
+	 *  使うので、画面が真っ暗になった瞬間にExecuteWarpProcess側でAdvanceTimeByが実行される。
+	 *  bIsSleepがtrueの場合、疲労度は増える代わりに睡眠時間に応じて回復する */
+	UFUNCTION(BlueprintCallable, Category = "Time")
+	void RequestFadeThenAdvanceTime(int32 MinutesToAdd, class ACharacter* TargetCharacter, bool bIsSleep = false);
 
 	/** AWallWarpLinkからの要求。同一レベル内の軽量ワープにも、エリアChangeと同じ暗転演出を挟む。
 	 *  暗転が終わった瞬間にSourceLink->ExecuteWarpNow()を呼び、実際のテレポートを行う */
@@ -193,6 +205,11 @@ private:
 	// 暗転が終わるまで待機している「消去予定のフラグ」と「消去対象」の記憶（RequestFadeThenRemoveFlag用）
 	FName ReservedFlagToRemove;
 	TWeakObjectPtr<class AMyProject1Character> ReservedFlagRemoveTarget;
+
+	// 暗転が終わるまで待機している「進める分数」と「対象」の記憶（RequestFadeThenAdvanceTime用）
+	int32 ReservedTimeSkipMinutes = 0;
+	TWeakObjectPtr<class ACharacter> ReservedTimeSkipCharacter;
+	bool ReservedTimeSkipIsSleep = false;
 
 	// 暗転が終わるまで待機している「ワープ元のWallWarpLink」と「対象キャラクター」の記憶（RequestFadeThenWallWarp用）
 	TWeakObjectPtr<class AWallWarpLink> ReservedWallWarpLink;

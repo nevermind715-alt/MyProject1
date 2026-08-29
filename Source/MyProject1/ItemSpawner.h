@@ -1,10 +1,10 @@
-#pragma once
+ï»¿#pragma once
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
 #include "Components/SphereComponent.h"
-#include "Engine/DataTable.h" // ƒf[ƒ^ƒe[ƒuƒ‹‚ğg‚¤‚½‚ß‚É’Ç‰Á
-#include "MyProject1Types.h"  // FItemData ‚ğg‚¤‚½‚ß‚É’Ç‰Á
+#include "Engine/DataTable.h" // ãƒ‡ãƒ¼ã‚¿ãƒ†ãƒ¼ãƒ–ãƒ«ã‚’ä½¿ã†ãŸã‚ã«è¿½åŠ 
+#include "MyProject1Types.h"  // FItemData ã‚’ä½¿ã†ãŸã‚ã«è¿½åŠ 
 #include "ItemSpawner.generated.h"
 
 UCLASS()
@@ -25,7 +25,7 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
 	class USphereComponent* CollisionComp;
 
-	// --- ƒXƒ|ƒi[‚Ìİ’è ---
+	// --- ã‚¹ãƒãƒŠãƒ¼ã®è¨­å®š ---
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Settings")
 	FName ItemIDToSpawn;
@@ -42,26 +42,26 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Settings")
 	TSoftObjectPtr<USoundBase> PickupSound;
 
-	// ƒAƒCƒeƒ€‚Ì–¼‘O‚ğæ“¾‚·‚é‚½‚ß‚ÉAƒf[ƒ^ƒe[ƒuƒ‹‚ğƒZƒbƒg‚·‚é˜g‚ğ’Ç‰Á
+	// ã‚¢ã‚¤ãƒ†ãƒ ã®åå‰ã‚’å–å¾—ã™ã‚‹ãŸã‚ã«ã€ãƒ‡ãƒ¼ã‚¿ãƒ†ãƒ¼ãƒ–ãƒ«ã‚’ã‚»ãƒƒãƒˆã™ã‚‹æ ã‚’è¿½åŠ 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Settings")
 	UDataTable* ItemDataTable;
 
-	// --- ”»’èƒCƒxƒ“ƒg ---
+	// --- åˆ¤å®šã‚¤ãƒ™ãƒ³ãƒˆ ---
 	UFUNCTION()
 	void OnOverlapBegin(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
 
-	// —£‚ê‚½‚ÌƒCƒxƒ“ƒg‚ğ’Ç‰Á
+	// é›¢ã‚ŒãŸæ™‚ã®ã‚¤ãƒ™ãƒ³ãƒˆã‚’è¿½åŠ 
 	UFUNCTION()
 	void OnOverlapEnd(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex);
 
-	// --- ƒAƒNƒVƒ‡ƒ“ ---
-	// ƒvƒŒƒCƒ„[‚ªuEƒL[v‚ğ‰Ÿ‚µ‚½‚ÉŒÄ‚Ño‚·ŠÖ”
+	// --- ã‚¢ã‚¯ã‚·ãƒ§ãƒ³ ---
+	// ãƒ—ãƒ¬ã‚¤ãƒ¤ãƒ¼ãŒã€ŒEã‚­ãƒ¼ã€ã‚’æŠ¼ã—ãŸæ™‚ã«å‘¼ã³å‡ºã™é–¢æ•°
 	UFUNCTION(BlueprintCallable, Category = "Spawner")
 	void Interact(class AMyProject1Character* InteractingPlayer);
 
-	// --- UI˜AŒg ---
-	// BP‘¤‚ÉuUI‚ğ•\¦/”ñ•\¦‚É‚µ‚ÄIv‚Æ‚¨Šè‚¢‚·‚éƒCƒxƒ“ƒg
-	// ˆø”‚ÅƒAƒCƒeƒ€–¼‚ÆŒÂ”‚ğ“n‚¹‚é‚Ì‚ÅABP‘¤‚Å•¶š‚Ì‘‚«Š·‚¦‚ªŠÈ’P‚É‚Å‚«‚Ü‚·
+	// --- UIé€£æº ---
+	// BPå´ã«ã€ŒUIã‚’è¡¨ç¤º/éè¡¨ç¤ºã«ã—ã¦ï¼ã€ã¨ãŠé¡˜ã„ã™ã‚‹ã‚¤ãƒ™ãƒ³ãƒˆ
+	// å¼•æ•°ã§ã‚¢ã‚¤ãƒ†ãƒ åã¨å€‹æ•°ã‚’æ¸¡ã›ã‚‹ã®ã§ã€BPå´ã§æ–‡å­—ã®æ›¸ãæ›ãˆãŒç°¡å˜ã«ã§ãã¾ã™
 	UFUNCTION(BlueprintImplementableEvent, Category = "Spawner|UI")
 	void OnToggleInteractUI(bool bShow, const FString& ItemName, int32 Amount);
 

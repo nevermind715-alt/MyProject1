@@ -1,4 +1,4 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+ï»¿// Copyright Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -49,15 +49,15 @@ protected:
 	/** Returns true if the player should use UMG touch controls */
 	bool ShouldUseTouchControls() const;
 
-	/** •\¦‚·‚éƒRƒ}ƒ“ƒhƒƒjƒ…[‚ÌƒNƒ‰ƒXiBP‘¤‚ÅƒZƒbƒgj */
+	/** è¡¨ç¤ºã™ã‚‹ã‚³ãƒãƒ³ãƒ‰ãƒ¡ãƒ‹ãƒ¥ãƒ¼ã®ã‚¯ãƒ©ã‚¹ï¼ˆBPå´ã§ã‚»ãƒƒãƒˆï¼‰ */
 	UPROPERTY(EditAnywhere, Category = "UI")
 	TSubclassOf<UUserWidget> CommandMenuWidgetClass;
 
-	/** ¶¬‚³‚ê‚½ƒƒjƒ…[‚ÌƒCƒ“ƒXƒ^ƒ“ƒX */
+	/** ç”Ÿæˆã•ã‚ŒãŸãƒ¡ãƒ‹ãƒ¥ãƒ¼ã®ã‚¤ãƒ³ã‚¹ã‚¿ãƒ³ã‚¹ */
 	UPROPERTY()
 	UUserWidget* CommandMenuInstance;
 
-	/** ƒƒjƒ…[‚ğŠJ‚­ŠÖ” */
+	/** ãƒ¡ãƒ‹ãƒ¥ãƒ¼ã‚’é–‹ãé–¢æ•° */
 	void OpenCommandMenu();
 
 };

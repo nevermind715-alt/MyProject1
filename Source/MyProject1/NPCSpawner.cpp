@@ -1,4 +1,4 @@
-// NPCSpawner.cpp
+ï»¿// NPCSpawner.cpp
 
 #include "NPCSpawner.h"
 #include "Components/BillboardComponent.h"
@@ -9,7 +9,6 @@ ANPCSpawner::ANPCSpawner()
 {
 	PrimaryActorTick.bCanEverTick = false;
 
-	// ƒGƒfƒBƒ^‚Å‚ÌŒ©‚½–Úİ’èiƒrƒ‹ƒ{[ƒh‚Æ–îˆój
 #if WITH_EDITORONLY_DATA
 	SpriteComponent = CreateDefaultSubobject<UBillboardComponent>(TEXT("Sprite"));
 	RootComponent = SpriteComponent;
@@ -23,15 +22,12 @@ void ANPCSpawner::BeginPlay()
 {
 	Super::BeginPlay();
 
-	// ‘¦À‚ÉƒXƒ|[ƒ“‚·‚é‚Ì‚Å‚Í‚È‚­Aƒ^ƒCƒ}[‚Å‘Ò‹@‚·‚é
 	if (InitialSpawnDelay > 0.0f)
 	{
-		// InitialSpawnDelay •bŒã‚É SpawnEnemy ‚ğÀs‚·‚é
 		GetWorldTimerManager().SetTimer(RespawnTimerHandle, this, &ANPCSpawner::SpawnEnemy, InitialSpawnDelay, false);
 	}
 	else
 	{
-		// ‘Ò‹@ŠÔ‚ª0‚È‚çA¡‚Ü‚Å’Ê‚è‚·‚®‚ÉƒXƒ|[ƒ“‚³‚¹‚é
 		SpawnEnemy();
 	}
 }
@@ -43,12 +39,10 @@ void ANPCSpawner::SpawnEnemy()
 	UWorld* World = GetWorld();
 	if (!World) return;
 
-	// 1. ƒXƒ|[ƒ“ˆÊ’u‚Æ‰ñ“]‚ğŒˆ’è‚µATransform‚É‚Ü‚Æ‚ß‚é
 	FVector Location = GetActorLocation();
 	FRotator Rotation = GetActorRotation();
 	FTransform SpawnTransform(Rotation, Location);
 
-	// 2. ƒXƒ|[ƒ“ˆ—‚ğu•Û—¯iDeferredjvó‘Ô‚ÅŠJn‚·‚é
 	SpawnedEnemy = World->SpawnActorDeferred<AMyProject1Character>(
 		EnemyClass,
 		SpawnTransform,
@@ -59,16 +53,13 @@ void ANPCSpawner::SpawnEnemy()
 
 	if (SpawnedEnemy)
 	{
-		// 3. AI‚ªœßˆË‚·‚é‘OA‚©‚Â BeginPlay ‚Ìu‘Ov‚Éİ’è‚ğã‘‚«‚·‚é
 
-		// --- NM’Š‘Iˆ— ---
 		FDataTableRowHandle FinalJobRow = this->SpawnerJobRow;
 		FString FinalNPCName = this->SpawnerNPCName;
 		FVector FinalScale = FVector(1.0f, 1.0f, 1.0f);
 
 		if (bEnableRareSpawn)
 		{
-			// 0.0 ` 100.0 ‚ÌŠÔ‚Åƒ‰ƒ“ƒ_ƒ€‚È”’l‚ğo‚µAŠm—¦ˆÈ‰º‚È‚çNM“–‘II
 			if (FMath::RandRange(0.0f, 100.0f) <= RareSpawnChance)
 			{
 				FinalJobRow = this->RareJobRow;
@@ -77,12 +68,11 @@ void ANPCSpawner::SpawnEnemy()
 			}
 		}
 
-		SpawnedEnemy->JobRow = FinalJobRow;           // ’Š‘IŒ‹‰Ê‚ÌƒWƒ‡ƒu‚ğƒZƒbƒg
-		SpawnedEnemy->MyStats.NPCName = FinalNPCName; // ’Š‘IŒ‹‰Ê‚Ì–¼‘O‚ğƒZƒbƒg
-		SpawnedEnemy->MyStats.Level = this->SpawnerLevel; // ƒŒƒxƒ‹‚Í‚»‚Ì‚Ü‚Ü“n‚·
+		SpawnedEnemy->JobRow = FinalJobRow;
+		SpawnedEnemy->MyStats.NPCName = FinalNPCName;
+		SpawnedEnemy->MyStats.Level = this->SpawnerLevel;
 		SpawnedEnemy->SetActorScale3D(FinalScale);
 
-		// AIİ’è‚Æ’mŠoİ’è‚Ìã‘‚«
 		if (bOverridePatrolSettings)
 		{
 			SpawnedEnemy->PatrolRadius = this->SpawnerPatrolRadius;
@@ -90,7 +80,6 @@ void ANPCSpawner::SpawnEnemy()
 			SpawnedEnemy->bIsActiveEnemy = this->bSpawnerIsActiveEnemy;
 			SpawnedEnemy->bCanLink = this->bSpawnerCanLink;
 
-			//AI‚Ì‹Šo‚Æ’®Šo‚ğ‚·‚×‚ÄƒXƒ|[ƒi[‘¤‚Ì’l‚Åã‘‚«‚·‚éI
 			SpawnedEnemy->AISightRadius = this->SpawnerSightRadius;
 			SpawnedEnemy->AILoseSightRadius = this->SpawnerLoseSightRadius;
 			SpawnedEnemy->AIVisionAngle = this->SpawnerVisionAngle;
@@ -98,41 +87,32 @@ void ANPCSpawner::SpawnEnemy()
 			SpawnedEnemy->AIHearingRange = this->SpawnerHearingRange;
 		}
 
-		// “G‚ª€‚ñ‚¾‚Ì’Ê’m‚ğó‚¯æ‚éİ’è
 		SpawnedEnemy->OnDeathDelegate.AddDynamic(this, &ANPCSpawner::OnEnemyDeath);
 
 		// ---------------------------------------------------------
-		// 4.•Û—¯‚µ‚Ä‚¢‚½ƒXƒ|[ƒ“ˆ—‚ğ‚±‚±‚ÅŠ®—¹‚³‚¹‚éI
-		// III‚±‚Ì FinishSpawning ‚Ì’†‚Å“G‚Ì BeginPlay ‚ªÀs‚³‚êA
-		//     ƒuƒ‹[ƒvƒŠƒ“ƒg‘¤‚Å HP_Bar ‚È‚Ç‚ÌUI‚ªì¬E€”õ‚³‚ê‚Ü‚· III
 		// ---------------------------------------------------------
 		SpawnedEnemy->FinishSpawning(SpawnTransform);
 
 		// ---------------------------------------------------------
-		// 5.UI‚Ì€”õ‚ªŠ®—¹‚µ‚½uŒãv‚ÉƒXƒe[ƒ^ƒX‚ğŒvZ‚·‚é
 		// ---------------------------------------------------------
 		SpawnedEnemy->ApplyJobData();
 
 		
-		// ƒhƒƒbƒvƒe[ƒuƒ‹‚Ì‡¬Eã‘‚«
 		
 		if (bOverrideBaseLoot)
 		{
-			// ƒf[ƒ^ƒe[ƒuƒ‹‚ğ–³‹‚µ‚ÄAƒXƒ|[ƒi[‚Ìİ’è‚ÅŠ®‘S‚Éã‘‚«‚·‚é
 			SpawnedEnemy->PersonalLootTable = this->SpawnerLootTable;
 		}
 		else
 		{
-			// ƒSƒuƒŠƒ“–{—ˆ‚ÌƒhƒƒbƒvƒŠƒXƒg‚ÉAƒXƒ|[ƒi[ŒÀ’è‚Ìƒhƒƒbƒv‚ğu’Ç‰Áv‚·‚é
 			SpawnedEnemy->PersonalLootTable.Append(this->SpawnerLootTable);
 		}
 
 		// =========================================================
-		// 6.ƒf[ƒ^ƒe[ƒuƒ‹‚Ì©“®ŒvZ‚ªI‚í‚Á‚½’¼Œã‚ÉAƒ{[ƒiƒX’l‚ğ‘«‚µZ‚·‚éI
 		// =========================================================
 		SpawnedEnemy->MyStats.MaxHP += SpawnerStatBonus.MaxHP;
-		SpawnedEnemy->MyStats.AttackPower += SpawnerStatBonus.AttackPower;
-		SpawnedEnemy->MyStats.DefensePower += SpawnerStatBonus.DefensePower;
+		SpawnedEnemy->MyStats.BaseAttackPower += SpawnerStatBonus.AttackPower;
+		SpawnedEnemy->MyStats.BaseDefensePower += SpawnerStatBonus.DefensePower;
 		SpawnedEnemy->MyStats.STR += SpawnerStatBonus.STR;
 		SpawnedEnemy->MyStats.VIT += SpawnerStatBonus.VIT;
 		SpawnedEnemy->MyStats.DEX += SpawnerStatBonus.DEX;
@@ -140,20 +120,18 @@ void ANPCSpawner::SpawnEnemy()
 		SpawnedEnemy->MyStats.Accuracy += SpawnerStatBonus.Accuracy;
 		SpawnedEnemy->MyStats.Evasion += SpawnerStatBonus.Evasion;
 
-		// ƒ{[ƒiƒXiMaxHP‚È‚Çj‚ğ‰Á–¡‚µ‚½ã‚ÅAŒ»İ‚ÌHP‚ğ–ƒ^ƒ“‚É‚µ‚Ä‚¨‚­
+		SpawnedEnemy->RecalculateFatigueAdjustedCombatStats();
+
 		SpawnedEnemy->MyStats.HP = SpawnedEnemy->MyStats.MaxHP;
 	}
 } 
 
 void ANPCSpawner::OnEnemyDeath(AActor* DeadActor)
 {
-	// ”O‚Ì‚½‚ßA€‚ñ‚¾‚Ì‚ªŠÇ—‚µ‚Ä‚¢‚é“G‚©ƒ`ƒFƒbƒN
 	if (DeadActor == SpawnedEnemy)
 	{
 		SpawnedEnemy = nullptr;
 
-		// ƒŠƒXƒ|[ƒ“ƒ^ƒCƒ}[‚ğƒZƒbƒg
-		// RespawnTime•bŒã‚É SpawnEnemy ‚ğÀs‚·‚é
 		GetWorldTimerManager().SetTimer(RespawnTimerHandle, this, &ANPCSpawner::SpawnEnemy, RespawnTime, false);
 	}
 }

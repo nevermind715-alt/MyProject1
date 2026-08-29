@@ -1,11 +1,11 @@
-#pragma once
+﻿#pragma once
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
-#include "MyProject1Types.h" // ��قǒǉ������\���̂��g�����߂ɃC���N���[�h
+#include "MyProject1Types.h" // 後ほど追加した構造体を使うためにインクルード
 #include "QuestComponent.generated.h"
 
-// UI�X�V�p�̃f���Q�[�g�i�N�G�X�g���i�񂾂�B����������UI�ɒm�点��p�j
+// UI更新用のデリゲート（クエストが進んだ・完了したことをUIに知らせる用）
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnQuestUpdated, FName, QuestID);
 
 class AMyProject1HUD;
@@ -19,17 +19,17 @@ class MYPROJECT1_API UQuestComponent : public UActorComponent
 public:
 	UQuestComponent();
 
-	// --- �ݒ荀�� ---
-	/** �N�G�X�g�̐݌v�}�������ꂽ�f�[�^�e�[�u�� */
+	// --- 設定項目 ---
+	/** クエストの設計図が入れられたデータテーブル */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest")
 	UDataTable* QuestDataTable;
 
-	// --- �v���C�f�[�^�i�Z�[�u�Ώہj ---
-	/** ���ݐi�s���̃N�G�X�g�ꗗ */
+	// --- プレイデータ（セーブ対象） ---
+	/** 現在進行中のクエスト一覧 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Quest")
 	TArray<FQuestProgress> ActiveQuests;
 
-	/** ���łɃN���A�����N�G�X�g��ID�����i��d�󒍂�h�����߁j */
+	/** すでにクリアしたクエストのIDたち（二重受注を防ぐため） */
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Quest")
 	TArray<FCompletedQuestInfo> CompletedQuests;
 
@@ -37,17 +37,17 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Quest")
 	TArray<FName> EverCompletedQuestIDs;
 
-	// --- �C�x���g ---
-	/** �N�G�X�g�̐i�s�x���ς�������ɌĂ΂��C�x���g */
+	// --- イベント ---
+	/** クエストの進行度が変わった時に呼ばれるイベント */
 	UPROPERTY(BlueprintAssignable, Category = "Quest|UI")
 	FOnQuestUpdated OnQuestUpdated;
 
-	// --- ��v�ȋ@�\ ---
-	/** �N�G�X�g���󒍂��� */
+	// --- 主要な機能 ---
+	/** クエストを受注する */
 	UFUNCTION(BlueprintCallable, Category = "Quest")
 	bool AcceptQuest(FName QuestID);
 
-	/** �N�G�X�g��񍐂��ĕ�V���󂯎�� */
+	/** クエストを報告して報酬を受け取る */
 	UFUNCTION(BlueprintCallable, Category = "Quest")
 	bool ReportQuest(FName QuestID);
 
@@ -59,7 +59,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Quest|Debug")
 	bool Debug_ForceCompleteQuest(FName QuestID);
 
-	/** �G��|�������ɌĂяo���A�����N�G�X�g�̃J�E���g��i�߂� */
+	/** 敵を倒した時に呼び出され、討伐クエストのカウントを進める */
 	UFUNCTION(BlueprintCallable, Category = "Quest")
 	void UpdateKillObjective(FName EnemyID);
 
@@ -71,12 +71,12 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Quest")
 	bool IsExpectedTalkTarget(FName QuestID, AActor* NPC);
 
-	// --- �֗��֐� ---
-	/** �N�G�X�g�̏�Ԃ��m�F����i���󒍂��A�i�s�����A�N���A�ς��j */
+	// --- 便利関数 ---
+	/** クエストの状態を確認する（未受注・進行中・クリア済み） */
 	UFUNCTION(BlueprintPure, Category = "Quest")
 	EQuestStatus GetQuestStatus(FName QuestID);
 
-	/** �f�[�^�e�[�u������N�G�X�g�����擾���� */
+	/** データテーブルからクエスト情報を取得する */
 	UFUNCTION(BlueprintPure, Category = "Quest")
 	bool GetQuestData(FName QuestID, FQuestData& OutData);
 
@@ -91,11 +91,11 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Quest")
 	FName GetNextOfferableQuest(const TArray<FName>& CandidateQuestIDs);
 
-	// �ǉ�: �A�C�e������肵�����ɃJ�E���g��i�߂�֐�
+	// 追加: アイテムを入手した時にカウントを進める関数
 	UFUNCTION(BlueprintCallable, Category = "Quest")
 	void UpdateGatherObjective(FName ItemID, int32 AmountAdded);
 
-	// �ǉ�: �󒍎��ɁA���łɏ������Ă���A�C�e�����J�E���g����֐�
+	// 追加: 受注時に、すでに所持しているアイテムをカウントする関数
 	void CheckInitialGatherProgress(FName QuestID);
 
 	/** 前提クエストが1つクリアされるたびに呼ばれ、進行中の実績クエストの達成状況を更新する */

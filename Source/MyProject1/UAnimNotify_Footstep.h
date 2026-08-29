@@ -1,4 +1,4 @@
-#pragma once
+ï»¿#pragma once
 
 #include "CoreMinimal.h"
 #include "Animation/AnimNotifies/AnimNotify.h"
@@ -10,6 +10,6 @@ class MYPROJECT1_API UAnimNotify_Footstep : public UAnimNotify
 	GENERATED_BODY()
 
 public:
-	// Received_Notify ‚Å‚Í‚È‚­ Notify ‚ğg—p‚µA––”ö‚Ì const ‚àŠO‚µ‚Ü‚·
+	// Received_Notify ã§ã¯ãªã Notify ã‚’ä½¿ç”¨ã—ã€æœ«å°¾ã® const ã‚‚å¤–ã—ã¾ã™
 	virtual void Notify(USkeletalMeshComponent* MeshComp, UAnimSequenceBase* Animation, const FAnimNotifyEventReference& EventReference) override;
 };

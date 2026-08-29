@@ -1,8 +1,8 @@
-#pragma once
+ï»¿#pragma once
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
-#include "MyProject1Types.h" // ƒf[ƒ^ƒe[ƒuƒ‹‚Ì\‘¢‘Ì‚ğg‚¤‚½‚ß‚É’Ç‰Á
+#include "MyProject1Types.h" // ãƒ‡ãƒ¼ã‚¿ãƒ†ãƒ¼ãƒ–ãƒ«ã®æ§‹é€ ä½“ã‚’ä½¿ã†ãŸã‚ã«è¿½åŠ 
 #include "AbilityComponent.generated.h"
 
 UCLASS(ClassGroup = (Custom), meta = (BlueprintSpawnableComponent))
@@ -19,51 +19,51 @@ protected:
 public:
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
-	// --- ƒf[ƒ^ƒe[ƒuƒ‹ ---
+	// --- ãƒ‡ãƒ¼ã‚¿ãƒ†ãƒ¼ãƒ–ãƒ« ---
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ability")
 	class UDataTable* AbilityDataTable;
 
-	// --- ƒAƒrƒŠƒeƒB‚ÌK“¾‚ÆŠÇ— ---
-	// ƒLƒƒƒ‰ƒNƒ^[‚ªŒ»İŠo‚¦‚Ä‚¢‚éƒAƒrƒŠƒeƒB‚ÌIDƒŠƒXƒg
+	// --- ã‚¢ãƒ“ãƒªãƒ†ã‚£ã®ç¿’å¾—ã¨ç®¡ç† ---
+	// ã‚­ãƒ£ãƒ©ã‚¯ã‚¿ãƒ¼ãŒç¾åœ¨è¦šãˆã¦ã„ã‚‹ã‚¢ãƒ“ãƒªãƒ†ã‚£IDãƒªã‚¹ãƒˆ
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Ability")
 	TArray<FName> LearnedAbilities;
 
-	// ƒŠƒLƒƒƒXƒgiƒN[ƒ‹ƒ_ƒEƒ“j’†‚ÌƒAƒrƒŠƒeƒBƒŠƒXƒgiID -> c‚è•b”j
+	// ãƒªã‚­ãƒ£ã‚¹ãƒˆï¼ˆã‚¯ãƒ¼ãƒ«ãƒ€ã‚¦ãƒ³ï¼‰ä¸­ã®ã‚¢ãƒ“ãƒªãƒ†ã‚£ãƒªã‚¹ãƒˆï¼ˆID -> æ®‹ã‚Šç§’æ•°ï¼‰
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ability")
 	TMap<FName, float> RecastTimers;
 
-	// V‚µ‚¢ƒAƒrƒŠƒeƒB‚ğŠo‚¦‚éŠÖ”
+	// æ–°ã—ã„ã‚¢ãƒ“ãƒªãƒ†ã‚£ã‚’è¦šãˆã‚‹é–¢æ•°
 	UFUNCTION(BlueprintCallable, Category = "Ability")
 	void LearnAbility(FName AbilityID);
 
-	// --- ‰r¥iƒLƒƒƒXƒgj‚ÌŠÇ— ---
-	// Œ»İ‰r¥’†‚©‚Ç‚¤‚©
+	// --- è© å”±ï¼ˆã‚­ãƒ£ã‚¹ãƒˆï¼‰ã®ç®¡ç† ---
+	// ç¾åœ¨è© å”±ä¸­ã‹ã©ã†ã‹
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ability|Casting")
 	bool bIsCasting;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ability|Casting")
 	class UNiagaraComponent* ActiveCastEffectComponent = nullptr;
 
-	// Œ»İ‰r¥‚µ‚Ä‚¢‚éƒAƒrƒŠƒeƒB‚ÌID
+	// ç¾åœ¨è© å”±ã—ã¦ã„ã‚‹ã‚¢ãƒ“ãƒªãƒ†ã‚£ã®ID
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ability|Casting")
 	FName CurrentCastingAbilityID;
 
-	// –‚–@‚Ì”­“®‘ÎÛiƒ^[ƒQƒbƒgj
+	// é­”æ³•ã®ç™ºå‹•å¯¾è±¡ï¼ˆã‚¿ãƒ¼ã‚²ãƒƒãƒˆï¼‰
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ability|Casting")
 	AActor* CurrentTarget;
 
-	// ƒAƒrƒŠƒeƒB‚ğg‚¨‚¤‚Æ‚İ‚éŠÖ”iTP/MP•s‘«‚âƒŠƒLƒƒƒXƒg’†‚È‚ç’e‚­j
+	// ã‚¢ãƒ“ãƒªãƒ†ã‚£ã‚’ä½¿ãŠã†ã¨è©¦ã¿ã‚‹é–¢æ•°ï¼ˆTP/MPä¸è¶³ã‚„ãƒªã‚­ãƒ£ã‚¹ãƒˆä¸­ãªã‚‰å¤±æ•—ã™ã‚‹ï¼‰
 	UFUNCTION(BlueprintCallable, Category = "Ability")
 	bool TryCastAbility(FName AbilityID, AActor* TargetActor);
 
-	// ‰r¥‚ğ’†’f‚·‚éŠÖ”iƒ_ƒ[ƒW‚ğó‚¯‚½‚â“®‚¢‚½‚È‚Ç‚ÉŒÄ‚Ôj
+	// è© å”±ã‚’ä¸­æ–­ã™ã‚‹é–¢æ•°ï¼ˆãƒ€ãƒ¡ãƒ¼ã‚¸ã‚’å—ã‘ãŸæ™‚ã‚„å‹•ã„ãŸæ™‚ãªã©ã«å‘¼ã¶ï¼‰
 	UFUNCTION(BlueprintCallable, Category = "Ability")
 	void CancelCasting();
 
 private:
-	// ‰r¥ƒ^ƒCƒ}[‚ÌŠÇ——p
+	// è© å”±ã‚¿ã‚¤ãƒãƒ¼ã®ç®¡ç†ç”¨
 	FTimerHandle CastTimerHandle;
 
-	// ‰r¥Š®—¹Œã‚ÉÀÛ‚ÉŒø‰Ê‚ğ”­“®‚·‚é“à•”ŠÖ”
+	// è© å”±å®Œäº†æ™‚ã«å®Ÿéš›ã«åŠ¹æœã‚’ç™ºå‹•ã•ã›ã‚‹é–¢æ•°
 	void ExecuteAbility();
 };

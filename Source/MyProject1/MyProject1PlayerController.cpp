@@ -1,4 +1,4 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+﻿// Copyright Epic Games, Inc. All Rights Reserved.
 
 
 #include "MyProject1PlayerController.h"
@@ -66,10 +66,10 @@ bool AMyProject1PlayerController::ShouldUseTouchControls() const
 	return SVirtualJoystick::ShouldDisplayTouchInterface() || bForceTouchControls;
 }
 
-// SetupInputComponent ���Ƀo�C���h��ǉ��iSpace�L�[�̃A�N�V���������O�ɍ쐬���Ă����K�v������܂��j
+// SetupInputComponent 内にバインドを追加（Spaceキーのアクションを事前に作成しておく必要があります）
 void AMyProject1PlayerController::OpenCommandMenu()
 {
-	// ���łɊJ���Ă����牽�����Ȃ�
+	// すでに開いていたら何もしない
 	if (CommandMenuInstance) return;
 
 	if (CommandMenuWidgetClass)
@@ -79,7 +79,7 @@ void AMyProject1PlayerController::OpenCommandMenu()
 		{
 			CommandMenuInstance->AddToViewport();
 
-			// FF11�̂悤�Ƀ��j���[���쒆�̓}�E�X�J�[�\�����o���ݒ�
+			// FF11のようにメニュー操作中はマウスカーソルを出す設定
 			SetInputMode(FInputModeGameAndUI());
 			bShowMouseCursor = true;
 		}

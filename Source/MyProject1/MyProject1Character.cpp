@@ -37,6 +37,7 @@
 #include "SkinOverlayComponent.h"
 #include "WallWarpLink.h"
 #include "QuestItemPoint.h"
+#include "SleepPoint.h"
 
 
 
@@ -367,6 +368,12 @@ void AMyProject1Character::SetupPlayerInputComponent(UInputComponent* PlayerInpu
 			EnhancedInputComponent->BindAction(ToggleMenuAction, ETriggerEvent::Started, this, &AMyProject1Character::OnToggleMenuPressed);
 		}
 
+		// G/H等(WaitAction)：その場で時間を進める「待機」メニューを開く
+		if (WaitAction)
+		{
+			EnhancedInputComponent->BindAction(WaitAction, ETriggerEvent::Started, this, &AMyProject1Character::OnWaitKeyPressed);
+		}
+
 	}
 
 
@@ -416,6 +423,13 @@ void AMyProject1Character::OnActionKeyPressed()
 		return;
 	}
 
+	// ベッド/布団の睡眠ポイントなら睡眠メニューを開く
+	if (ASleepPoint* SleepPoint = Cast<ASleepPoint>(CurrentTarget))
+	{
+		SleepPoint->TryInteract(this);
+		return;
+	}
+
 	// Enemyタグなら攻撃開始/解除をトグル
 	if (CurrentTarget->ActorHasTag(FName("Enemy")))
 	{
@@ -435,6 +449,30 @@ void AMyProject1Character::OnActionKeyPressed()
 	}
 
 	BP_TryInteractWithTarget(CurrentTarget);
+}
+
+void AMyProject1Character::OnWaitKeyPressed()
+{
+	TryOpenTimeSkipMenu(false);
+}
+
+bool AMyProject1Character::TryOpenTimeSkipMenu(bool bIsSleepMode)
+{
+	// 会話中・カットシーン中・戦闘中（オートアタック中）は時間を進めさせない
+	if (bIsInputLocked || bIsInCutscene || bIsAutoAttacking)
+	{
+		return false;
+	}
+
+	APlayerController* PC = Cast<APlayerController>(GetController());
+	AMyProject1HUD* HUD = PC ? Cast<AMyProject1HUD>(PC->GetHUD()) : nullptr;
+	if (!HUD)
+	{
+		return false;
+	}
+
+	HUD->OpenTimeSkipMenu(bIsSleepMode);
+	return true;
 }
 
 void AMyProject1Character::OnToggleMenuPressed()
@@ -636,6 +674,9 @@ void AMyProject1Character::TargetNearestEnemy()
 		// 自分自身はターゲットしない
 		if (Actor == this || !Actor) continue;
 
+		// 非表示中のアクター（AQuestItemPointのRequiredFlag未達時など）はタグを持っていても対象にしない
+		if (Actor->IsHidden()) continue;
+
 		// キャストする前に、Actor自体が対象のタグを持っているかチェックする！
 		if (!Actor->ActorHasTag(FName("Enemy")) && !Actor->ActorHasTag(FName("NPC"))) continue;
 
@@ -703,6 +744,9 @@ void AMyProject1Character::CycleTarget()
 	for (AActor* Actor : FoundActors)
 	{
 		if (Actor == this || !Actor) continue;
+
+		// 非表示中のアクター（AQuestItemPointのRequiredFlag未達時など）はタグを持っていても対象にしない
+		if (Actor->IsHidden()) continue;
 
 		// 自分が戦闘モードの時は、NPCを除外し、Enemyだけを対象にする
 		if (bIsInCombatMode)
@@ -1320,9 +1364,8 @@ void AMyProject1Character::OnAttackHit()
 	AMyProject1Character* EnemyChar = Cast<AMyProject1Character>(CurrentTarget);
 	if (!EnemyChar) return;
 
-	// 疲労度を加味した攻撃力で一時的に上書きする
-	float OriginalAP = this->MyStats.AttackPower;
-	this->MyStats.AttackPower = GetModifiedAttackPower();
+	// MyStats.AttackPower/DefensePowerは常に疲労デバフ込みの値が入っているので、そのまま使えばよい
+	// （以前はここで一時的に差し替え→戻す処理をしていたが、RecalculateFatigueAdjustedCombatStatsにより不要になった）
 
 	// 特殊技の倍率・ボーナスをセットする変数を準備
 	float SkillMultiplier = 1.0f;
@@ -1341,9 +1384,6 @@ void AMyProject1Character::OnAttackHit()
 		SkillMultiplier,
 		SkillCritBonus
 	);
-
-	// 一時的に変えた攻撃力を元に戻す！（これが消えていました）
-	this->MyStats.AttackPower = OriginalAP;
 
 	// 2. 判定に基づいてSEを選択
 	USoundBase* SoundToPlay = nullptr;
@@ -1789,8 +1829,10 @@ void AMyProject1Character::ApplyJobData()
 		MyStats.DEX = JobData->BaseDEX + ((MyStats.Level - 1) * 2.0f);
 		MyStats.AGI = JobData->BaseAGI + ((MyStats.Level - 1) * 2.0f);
 
-		MyStats.AttackPower = MyStats.STR * 2.0f;
-		MyStats.DefensePower = MyStats.VIT * 2.0f;
+		// ※AttackPower/DefensePowerはこの直後のRefreshEquipmentStats()がBaseAttackPower/BaseDefensePowerから
+		//   疲労補正込みで確定させるため、ここではBase側だけ更新しておく
+		MyStats.BaseAttackPower = MyStats.STR * 2.0f;
+		MyStats.BaseDefensePower = MyStats.VIT * 2.0f;
 		MyStats.Accuracy = MyStats.DEX * 1.5f;
 		MyStats.Evasion = MyStats.AGI * 1.5f;
 
@@ -1837,106 +1879,69 @@ void AMyProject1Character::ApplyJobData()
 }
 
 // --- 冒険者クラスの等級：ギルドNPCへの申請による昇格判定 ---
-bool AMyProject1Character::TryRankUp()
+bool AMyProject1Character::SetAdventurerRank(FName TargetRankRowName)
 {
-	if (!AdventurerRankDataTable)
-	{
-		OnReceiveLogMessage(TEXT("等級テーブルが設定されていません。"), ELogMessageType::System);
-		return false;
-	}
-
-	// 既に最上位（番外）なら昇格の余地なし
-	if (MyStats.AdventurerRank == EAdventurerRank::Extra)
-	{
-		OnReceiveLogMessage(TEXT("既に最高位の等級です。"), ELogMessageType::System);
-		return false;
-	}
-
-	// 次の等級（現在値+1）に対応するテーブル行を、enum名（"Rank4"など）で引く
-	const EAdventurerRank NextRank = static_cast<EAdventurerRank>(static_cast<uint8>(MyStats.AdventurerRank) + 1);
+	// 昇格条件はここでは判定しない（呼び出し側＝昇格QuestのRequiredStats/RequiredFlagで
+	// 「受注できるかどうか」を制御し、そのQuestの報告ダイアログからここが呼ばれる想定のため）
 	const UEnum* RankEnum = StaticEnum<EAdventurerRank>();
-	const FName NextRankRowName = RankEnum->GetNameByValue(static_cast<int64>(NextRank));
-
-	FAdventurerRankData* RankData = AdventurerRankDataTable->FindRow<FAdventurerRankData>(NextRankRowName, TEXT("TryRankUp"));
-	if (!RankData)
+	const int64 RankValue = RankEnum->GetValueByName(TargetRankRowName);
+	if (RankValue == INDEX_NONE)
 	{
-		OnReceiveLogMessage(TEXT("次の等級の昇格条件データが見つかりません。"), ELogMessageType::System);
+		OnReceiveLogMessage(FString::Printf(TEXT("冒険者等級「%s」は存在しません。"), *TargetRankRowName.ToString()), ELogMessageType::System);
 		return false;
 	}
 
-	// --- 昇格条件のチェック（不足しているものをまとめてログに出す） ---
-	TArray<FString> MissingConditions;
+	MyStats.AdventurerRank = static_cast<EAdventurerRank>(RankValue);
 
-	if (MyStats.Level < RankData->RequiredLevel)
+	// ボーナスは任意：AdventurerRankDataTableに同名の行があれば加算する（無ければ等級だけ変わる）
+	if (AdventurerRankDataTable)
 	{
-		MissingConditions.Add(FString::Printf(TEXT("レベル%d以上"), RankData->RequiredLevel));
-	}
-
-	const int32 CompletedQuestCount = QuestComp ? QuestComp->CompletedQuests.Num() : 0;
-	if (CompletedQuestCount < RankData->RequiredCompletedQuests)
-	{
-		MissingConditions.Add(FString::Printf(TEXT("クエスト累計クリア数%d回以上"), RankData->RequiredCompletedQuests));
-	}
-
-	if (MyStats.Fame < RankData->RequiredFame)
-	{
-		MissingConditions.Add(FString::Printf(TEXT("名声%.0f以上"), RankData->RequiredFame));
-	}
-
-	if (!RankData->RequiredFlag.IsNone() && !HasFlag(RankData->RequiredFlag))
-	{
-		MissingConditions.Add(TEXT("昇格試験の達成"));
-	}
-
-	if (MissingConditions.Num() > 0)
-	{
-		FString JoinedConditions = FString::Join(MissingConditions, TEXT("、"));
-		OnReceiveLogMessage(FString::Printf(TEXT("昇格条件を満たしていません（不足：%s）"), *JoinedConditions), ELogMessageType::System);
-		return false;
-	}
-
-	// --- 条件達成：昇格を確定し、ボーナスを加算 ---
-	MyStats.AdventurerRank = NextRank;
-
-	for (const FEquipmentStatModifier& Bonus : RankData->RankUpBonuses)
-	{
-		if (Bonus.TargetStat == ETargetStat::CustomExtraStat)
+		if (FAdventurerRankData* RankData = AdventurerRankDataTable->FindRow<FAdventurerRankData>(TargetRankRowName, TEXT("SetAdventurerRank")))
 		{
-			if (!Bonus.ExtraStatName.IsNone())
+			for (const FEquipmentStatModifier& Bonus : RankData->RankUpBonuses)
 			{
-				MyStats.ExtraStats.FindOrAdd(Bonus.ExtraStatName) += Bonus.Amount;
-			}
-			continue;
-		}
+				if (Bonus.TargetStat == ETargetStat::CustomExtraStat)
+				{
+					if (!Bonus.ExtraStatName.IsNone())
+					{
+						MyStats.ExtraStats.FindOrAdd(Bonus.ExtraStatName) += Bonus.Amount;
+					}
+					continue;
+				}
 
-		switch (Bonus.TargetStat)
-		{
-		case ETargetStat::STR:          MyStats.STR += Bonus.Amount;          break;
-		case ETargetStat::DEX:          MyStats.DEX += Bonus.Amount;          break;
-		case ETargetStat::VIT:          MyStats.VIT += Bonus.Amount;          break;
-		case ETargetStat::AGI:          MyStats.AGI += Bonus.Amount;          break;
-		case ETargetStat::Accuracy:     MyStats.Accuracy += Bonus.Amount;     break;
-		case ETargetStat::Evasion:      MyStats.Evasion += Bonus.Amount;      break;
-		case ETargetStat::AttackPower:  MyStats.AttackPower += Bonus.Amount;  break;
-		case ETargetStat::DefensePower: MyStats.DefensePower += Bonus.Amount; break;
-		case ETargetStat::Stamina:      MyStats.Stamina += Bonus.Amount;      break;
-		case ETargetStat::HP:           MyStats.MaxHP += Bonus.Amount;        break;
-		case ETargetStat::Favor:        MyStats.Favor += Bonus.Amount;        break;
-		case ETargetStat::Fame:         MyStats.Fame += Bonus.Amount;         break;
-		case ETargetStat::Charm:        MyStats.Charm += Bonus.Amount;        break;
-		case ETargetStat::Alcohol:      MyStats.Alcohol += Bonus.Amount;      break;
-		case ETargetStat::Mental:       MyStats.MentalBonus += Bonus.Amount;  break;
-		default: break;
+				switch (Bonus.TargetStat)
+				{
+				case ETargetStat::STR:          MyStats.STR += Bonus.Amount;          break;
+				case ETargetStat::DEX:          MyStats.DEX += Bonus.Amount;          break;
+				case ETargetStat::VIT:          MyStats.VIT += Bonus.Amount;          break;
+				case ETargetStat::AGI:          MyStats.AGI += Bonus.Amount;          break;
+				case ETargetStat::Accuracy:     MyStats.Accuracy += Bonus.Amount;     break;
+				case ETargetStat::Evasion:      MyStats.Evasion += Bonus.Amount;      break;
+				case ETargetStat::AttackPower:  MyStats.BaseAttackPower += Bonus.Amount;  break;
+				case ETargetStat::DefensePower: MyStats.BaseDefensePower += Bonus.Amount; break;
+				case ETargetStat::Stamina:      MyStats.Stamina += Bonus.Amount;      break;
+				case ETargetStat::HP:           MyStats.MaxHP += Bonus.Amount;        break;
+				case ETargetStat::Favor:        MyStats.Favor += Bonus.Amount;        break;
+				case ETargetStat::Fame:         MyStats.Fame += Bonus.Amount;         break;
+				case ETargetStat::Charm:        MyStats.Charm += Bonus.Amount;        break;
+				case ETargetStat::Alcohol:      MyStats.Alcohol += Bonus.Amount;      break;
+				case ETargetStat::Mental:       MyStats.MentalBonus += Bonus.Amount;  break;
+				default: break;
+				}
+			}
 		}
 	}
 
 	FString SpeakerName = MyStats.NPCName.IsEmpty() ? CharacterName : MyStats.NPCName;
-	OnReceiveLogMessage(FString::Printf(TEXT("%sは冒険者等級「%s」に昇格した！"), *SpeakerName, *GetAdventurerRankDisplayName().ToString()), ELogMessageType::System);
+	OnReceiveLogMessage(FString::Printf(TEXT("%sは冒険者等級「%s」になった！"), *SpeakerName, *GetAdventurerRankDisplayName().ToString()), ELogMessageType::System);
 
 	if (OnAdventurerRankChangedDelegate.IsBound())
 	{
 		OnAdventurerRankChangedDelegate.Broadcast();
 	}
+
+	// BaseAttackPower/BaseDefensePowerが変わった可能性があるので、疲労補正込みの表示値を再計算する
+	RecalculateFatigueAdjustedCombatStats();
 	NotifyStatsChanged();
 
 	return true;
@@ -2166,8 +2171,8 @@ void AMyProject1Character::ApplyItemBuff(FString ItemName, UTexture2D* Icon, con
 		case ETargetStat::VIT:         MyStats.VIT += Effect.EffectAmount;         break;
 		case ETargetStat::AGI:         MyStats.AGI += Effect.EffectAmount;         break;
 		case ETargetStat::Evasion:     MyStats.Evasion += Effect.EffectAmount;     break;
-		case ETargetStat::AttackPower: MyStats.AttackPower += Effect.EffectAmount; break;
-		case ETargetStat::DefensePower: MyStats.DefensePower += Effect.EffectAmount; break;
+		case ETargetStat::AttackPower: MyStats.BaseAttackPower += Effect.EffectAmount; break;
+		case ETargetStat::DefensePower: MyStats.BaseDefensePower += Effect.EffectAmount; break;
 		case ETargetStat::Stamina:     MyStats.Stamina += Effect.EffectAmount;     break;
 		case ETargetStat::Alcohol:     MyStats.Alcohol += Effect.EffectAmount;     break;
 		case ETargetStat::Fame:        MyStats.Fame += Effect.EffectAmount;        break;
@@ -2206,6 +2211,9 @@ void AMyProject1Character::ApplyItemBuff(FString ItemName, UTexture2D* Icon, con
 		ActiveBuffs.Add(NewBuff);
 	}
 
+	// BaseAttackPower/BaseDefensePowerが変わった可能性があるので、疲労補正込みの表示値を再計算する
+	RecalculateFatigueAdjustedCombatStats();
+
 	// 2. タイマーを1つだけセットする
 	FTimerHandle TimerHandle;
 	FTimerDelegate Delegate;
@@ -2231,8 +2239,8 @@ void AMyProject1Character::ExpireItemBuff(FString ItemName, TArray<FItemEffect> 
 		case ETargetStat::VIT:         MyStats.VIT -= Effect.EffectAmount;         break;
 		case ETargetStat::AGI:         MyStats.AGI -= Effect.EffectAmount;         break;
 		case ETargetStat::Evasion:     MyStats.Evasion -= Effect.EffectAmount;     break;
-		case ETargetStat::AttackPower: MyStats.AttackPower -= Effect.EffectAmount; break;
-		case ETargetStat::DefensePower: MyStats.DefensePower -= Effect.EffectAmount; break;
+		case ETargetStat::AttackPower: MyStats.BaseAttackPower -= Effect.EffectAmount; break;
+		case ETargetStat::DefensePower: MyStats.BaseDefensePower -= Effect.EffectAmount; break;
 		case ETargetStat::Stamina:     MyStats.Stamina -= Effect.EffectAmount;     break;
 		case ETargetStat::Alcohol:     MyStats.Alcohol -= Effect.EffectAmount;     break;
 		case ETargetStat::Fame:        MyStats.Fame -= Effect.EffectAmount;        break;
@@ -2242,6 +2250,9 @@ void AMyProject1Character::ExpireItemBuff(FString ItemName, TArray<FItemEffect> 
 		default: break;
 		}
 	}
+
+	// BaseAttackPower/BaseDefensePowerが変わった可能性があるので、疲労補正込みの表示値を再計算する
+	RecalculateFatigueAdjustedCombatStats();
 
 	// --- 追加：バフリストから削除してUIに通知 ---
 	// ★ポイント：1つのアイテムから複数のバフアイコンが出ている可能性がある上、
@@ -2358,9 +2369,10 @@ void AMyProject1Character::UpdateEnergy(float Amount)
 	// Energyは「BaseEnergy(蓄積値)」から「MaxEnergy(100)」の範囲に制限する
 	MyStats.Energy = FMath::Clamp(MyStats.Energy + Amount, MyStats.BaseEnergy, MyStats.MaxEnergy);
 
-	// もし値が変動していたらUIに合図を送る
+	// もし値が変動していたら、疲労段階（AttackPower/DefensePower）も再計算してUIに合図を送る
 	if (MyStats.Energy != OldEnergy)
 	{
+		RecalculateFatigueAdjustedCombatStats();
 		NotifyStatsChanged();
 	}
 }
@@ -2413,35 +2425,51 @@ void AMyProject1Character::HandleFatigueTick()
 		}
 	}
 
-	// 今回の1秒間で値が少しでも変わっていたら、UIを1回だけ更新する
+	// 今回の1秒間で値が少しでも変わっていたら、疲労段階（AttackPower/DefensePower）も再計算してUIを更新する
 	if (MyStats.Energy != OldEnergy)
 	{
+		RecalculateFatigueAdjustedCombatStats();
 		NotifyStatsChanged();
 	}
 }
 
-// --- 疲労度を加味した攻撃力の計算 ---
-float AMyProject1Character::GetModifiedAttackPower() const
+// --- 待機/睡眠による時間スキップ分の蓄積疲労度を進める（睡眠時は逆に回復させる） ---
+void AMyProject1Character::ApplyFatigueForSkippedMinutes(int32 MinutesSkipped, bool bIsSleep)
 {
-	float BaseAP = MyStats.AttackPower;
+	if (MinutesSkipped <= 0 || IsDead() || !IsPlayerControlled()) return;
 
-	if (!IsPlayerControlled()) return BaseAP;
+	float OldEnergy = MyStats.Energy;
 
-	// ① まず一番重いペナルティ（90以上）をチェック
-	if (MyStats.Energy >= FatigueThreshold2)
+	if (bIsSleep)
 	{
-		// デバフ②：攻撃力10%ダウン
-		return BaseAP * (1.0f - FatigueAttackPenalty2);
+		// 睡眠：1時間あたりMaxEnergyのFatigueDecreasePercentPerSleepHour(%)分だけ蓄積疲労度を下げる
+		float HoursSlept = MinutesSkipped / 60.0f;
+		float DecreaseAmount = (FatigueDecreasePercentPerSleepHour / 100.0f) * MyStats.MaxEnergy * HoursSlept;
+
+		MyStats.BaseEnergy = FMath::Clamp(MyStats.BaseEnergy - DecreaseAmount, 0.0f, MyStats.MaxEnergy);
+
+		// EnergyもBaseEnergyと同じ分だけ下げる（BaseEnergyを下回らない範囲で）
+		MyStats.Energy = FMath::Clamp(FMath::Max(MyStats.Energy - DecreaseAmount, MyStats.BaseEnergy), 0.0f, MyStats.MaxEnergy);
 	}
-	// ② 次に中間のペナルティ（50以上〜90未満）をチェック
-	else if (MyStats.Energy >= FatigueThreshold1)
+	else
 	{
-		// デバフ①：攻撃力5%ダウン
-		return BaseAP * (1.0f - FatigueAttackPenalty1);
+		// HandleFatigueTickと同じ「1日あたりの増加量 × 進んだ日数」の計算を、スキップした分だけまとめて適用する
+		float InGameDaysPassed = MinutesSkipped / 1440.0f;
+		float BaseIncreaseRate = FatigueIncreasePerInGameDay * InGameDaysPassed;
+		MyStats.BaseEnergy = FMath::Clamp(MyStats.BaseEnergy + BaseIncreaseRate, 0.0f, MyStats.MaxEnergy);
+
+		// Energyが蓄積値を下回らないように強制的に押し上げる
+		if (MyStats.Energy < MyStats.BaseEnergy)
+		{
+			MyStats.Energy = MyStats.BaseEnergy;
+		}
 	}
 
-	// 50未満ならそのままの攻撃力を返す
-	return BaseAP;
+	if (MyStats.Energy != OldEnergy)
+	{
+		RecalculateFatigueAdjustedCombatStats();
+		NotifyStatsChanged();
+	}
 }
 
 // --- 疲労度を加味した攻撃速度（間隔）の計算 ---
@@ -2460,6 +2488,90 @@ float AMyProject1Character::GetModifiedAttackSpeed() const
 
 	// 90未満なら速度ペナルティ無し
 	return BaseSpeed;
+}
+
+// --- 疲労度に応じて、MyStats.AttackPower/DefensePowerをBase側から直接再計算する ---
+// （ステータス画面はAttackPower/DefensePowerを直接表示しているだけなので、これで表示にも自動的に反映される）
+void AMyProject1Character::RecalculateFatigueAdjustedCombatStats()
+{
+	float AttackFactor = 1.0f;
+	float DefenseFactor = 1.0f;
+
+	// 現在の疲労段階に応じて画面上部に出すバフのBuffID（段階に該当しなければNAME_None＝非表示）
+	FName TargetFatigueBuffID = NAME_None;
+
+	// NPC/敵には疲労デバフを適用しない（プレイヤーのみ）
+	if (IsPlayerControlled())
+	{
+		if (MyStats.Energy >= FatigueThreshold2)
+		{
+			// デバフ③（重度）：90以上
+			AttackFactor = 1.0f - FatigueAttackPenalty2;
+			DefenseFactor = 1.0f - FatigueDefensePenalty2;
+			TargetFatigueBuffID = FatigueBuffID2;
+		}
+		else if (MyStats.Energy >= FatigueThresholdMid)
+		{
+			// デバフ②（中度）：75以上
+			AttackFactor = 1.0f - FatigueAttackPenaltyMid;
+			DefenseFactor = 1.0f - FatigueDefensePenaltyMid;
+			TargetFatigueBuffID = FatigueBuffIDMid;
+		}
+		else if (MyStats.Energy >= FatigueThreshold1)
+		{
+			// デバフ①（軽度）：50以上
+			AttackFactor = 1.0f - FatigueAttackPenalty1;
+			DefenseFactor = 1.0f - FatigueDefensePenalty1;
+			TargetFatigueBuffID = FatigueBuffID1;
+		}
+	}
+
+	float NewAttackPower = MyStats.BaseAttackPower * AttackFactor;
+	float NewDefensePower = MyStats.BaseDefensePower * DefenseFactor;
+
+	bool bChanged = (MyStats.AttackPower != NewAttackPower) || (MyStats.DefensePower != NewDefensePower);
+
+	MyStats.AttackPower = NewAttackPower;
+	MyStats.DefensePower = NewDefensePower;
+
+	if (bChanged)
+	{
+		NotifyStatsChanged();
+	}
+
+	// --- 疲労段階が変わった時だけ、ActiveBuffsのバフアイコンを差し替える ---
+	if (TargetFatigueBuffID != CurrentFatigueBuffID)
+	{
+		// 古い疲労バフアイコンを取り除く（予約済みStackID = FatigueBuffStackIDのものだけ）
+		for (int32 i = ActiveBuffs.Num() - 1; i >= 0; --i)
+		{
+			if (ActiveBuffs[i].StackID == FatigueBuffStackID)
+			{
+				ActiveBuffs.RemoveAt(i);
+			}
+		}
+
+		// 新しい段階に該当するバフがあれば、DT_Buffsから引いて追加する
+		if (!TargetFatigueBuffID.IsNone() && BuffDataTable)
+		{
+			if (FBuffData* BuffRow = BuffDataTable->FindRow<FBuffData>(TargetFatigueBuffID, TEXT("FatigueBuffLookup")))
+			{
+				FActiveBuff NewBuff;
+				NewBuff.BuffName = BuffRow->BuffName;
+				NewBuff.BuffIcon = BuffRow->BuffIcon;
+				NewBuff.ExpirationTime = -1.0f; // 期限なし（疲労度が下がるまで常時表示）の目印
+				NewBuff.StackID = FatigueBuffStackID;
+				ActiveBuffs.Add(NewBuff);
+			}
+		}
+
+		CurrentFatigueBuffID = TargetFatigueBuffID;
+
+		if (OnBuffListChangedDelegate.IsBound())
+		{
+			OnBuffListChangedDelegate.Broadcast();
+		}
+	}
 }
 
 void AMyProject1Character::AddFlag(FName FlagName)
@@ -3241,6 +3353,36 @@ void AMyProject1Character::RefreshEquipmentStats()
 		}
 	}
 
+	// 2-c. 月齢サイクルの現在フェーズのボーナスも同じ仕組みで合算する（フェーズが変わって再計算されると自動的に元に戻る）
+	TMap<FName, float> NewCyclePhaseExtraStatBonuses;
+	if (ShouldApplyEquipmentStatBonuses())
+	{
+		if (UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetGameInstance()))
+		{
+			for (const FCyclePhaseSettings& Rule : GameInst->CyclePhaseRules)
+			{
+				if (CurrentCycleDay >= Rule.MinDay && CurrentCycleDay <= Rule.MaxDay)
+				{
+					for (const FEquipmentStatModifier& Modifier : Rule.StatModifiers)
+					{
+						if (Modifier.TargetStat == ETargetStat::CustomExtraStat)
+						{
+							if (!Modifier.ExtraStatName.IsNone())
+							{
+								NewCyclePhaseExtraStatBonuses.FindOrAdd(Modifier.ExtraStatName) += Modifier.Amount;
+							}
+						}
+						else
+						{
+							StatBonuses.FindOrAdd(Modifier.TargetStat) += Modifier.Amount;
+						}
+					}
+					break; // 一致するルールが見つかったのでループを抜ける（UpdateCycleStateの判定と同じ規則）
+				}
+			}
+		}
+	}
+
 	auto GetBonus = [&StatBonuses](ETargetStat Stat) -> float
 	{
 		const float* Found = StatBonuses.Find(Stat);
@@ -3286,6 +3428,25 @@ void AMyProject1Character::RefreshEquipmentStats()
 	}
 	SkinOverlayExtraStatBonuses = NewSkinOverlayExtraStatBonuses;
 
+	// 2-e. 月齢サイクルのフェーズ分のExtraStatsも、他の記録とは別に差分だけを反映する
+	for (const auto& NewPair : NewCyclePhaseExtraStatBonuses)
+	{
+		const float OldBonus = CyclePhaseExtraStatBonuses.FindRef(NewPair.Key);
+		const float Delta = NewPair.Value - OldBonus;
+		if (Delta != 0.0f)
+		{
+			MyStats.ExtraStats.FindOrAdd(NewPair.Key) += Delta;
+		}
+	}
+	for (const auto& OldPair : CyclePhaseExtraStatBonuses)
+	{
+		if (!NewCyclePhaseExtraStatBonuses.Contains(OldPair.Key))
+		{
+			MyStats.ExtraStats.FindOrAdd(OldPair.Key) -= OldPair.Value;
+		}
+	}
+	CyclePhaseExtraStatBonuses = NewCyclePhaseExtraStatBonuses;
+
 	// 3. 現在HPの変化前状態を記憶
 	bool bWasFullHP = (MyStats.HP >= MyStats.MaxHP);
 
@@ -3299,8 +3460,10 @@ void AMyProject1Character::RefreshEquipmentStats()
 	MyStats.Mental = 1.0f + MyStats.MentalBonus + GetBonus(ETargetStat::Mental); // 初期値1.0 + 恒久加算分 + 装備ボーナス
 
 	// 5. STRやVITから派生する戦闘力（攻撃力・防御力）を計算
-	MyStats.AttackPower = MyStats.STR * 2.0f + GetBonus(ETargetStat::AttackPower);
-	MyStats.DefensePower = (MyStats.VIT * 2.0f) + GetBonus(ETargetStat::DefensePower); // 装備のDEFはここに直接足す
+	// ※AttackPower/DefensePower自体はRecalculateFatigueAdjustedCombatStats()が疲労補正込みで確定させるので、
+	//   ここではBase側（疲労補正前の素の値）だけを更新する
+	MyStats.BaseAttackPower = MyStats.STR * 2.0f + GetBonus(ETargetStat::AttackPower);
+	MyStats.BaseDefensePower = (MyStats.VIT * 2.0f) + GetBonus(ETargetStat::DefensePower); // 装備のDEFはここに直接足す
 	MyStats.Accuracy = MyStats.DEX * 1.5f + GetBonus(ETargetStat::Accuracy);
 	MyStats.Evasion = MyStats.AGI * 1.5f + GetBonus(ETargetStat::Evasion);
 
@@ -3313,6 +3476,9 @@ void AMyProject1Character::RefreshEquipmentStats()
 	{
 		MyStats.HP = MyStats.MaxHP;
 	}
+
+	// 6.5. Base側（STR/VIT+装備ボーナス）が確定したので、疲労補正込みのAttackPower/DefensePowerを計算する
+	RecalculateFatigueAdjustedCombatStats();
 
 	// 7. UIへ通知（ステータス画面やHPバーの更新）
 	if (OnHPChangedDelegate.IsBound())
@@ -3415,6 +3581,7 @@ void AMyProject1Character::UpdateCycleState()
 
 	// 2.エディタで設定したルールを上から順にチェックする！
 	bool bFoundMatchingState = false;
+	FText NewPhaseMessage;
 
 	for (const FCyclePhaseSettings& Rule : GameInst->CyclePhaseRules)
 	{
@@ -3423,6 +3590,7 @@ void AMyProject1Character::UpdateCycleState()
 		{
 			CurrentCycleState = Rule.TargetState;
 			GameInst->CurrentCycleState = Rule.TargetState;
+			NewPhaseMessage = Rule.PhaseChangeMessage;
 			bFoundMatchingState = true;
 			break; // 一致するものが見つかったのでループを抜ける
 		}
@@ -3435,16 +3603,15 @@ void AMyProject1Character::UpdateCycleState()
 		GameInst->CurrentCycleState = ECycleState::StateA;
 	}
 
-	// 3. もし状態が切り替わったらログでお知らせ
+	// 3. もし状態が切り替わったら、ステータス補正を再計算してログでお知らせ（メッセージ・補正はエディタのCyclePhaseRulesで設定）
 	if (OldState != CurrentCycleState)
 	{
-		FString StateName;
-		if (CurrentCycleState == ECycleState::StateA) StateName = TEXT("状態A");
-		else if (CurrentCycleState == ECycleState::StateB) StateName = TEXT("状態B");
-		else StateName = TEXT("状態C");
+		RefreshEquipmentStats();
 
-		FString Msg = FString::Printf(TEXT("月の満ち欠けが変化した。現在は【%s】の影響下にある…"), *StateName);
-		OnReceiveLogMessage(Msg, ELogMessageType::System);
+		if (!NewPhaseMessage.IsEmpty())
+		{
+			OnReceiveLogMessage(NewPhaseMessage.ToString(), ELogMessageType::System);
+		}
 	}
 }
 

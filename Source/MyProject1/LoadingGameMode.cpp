@@ -1,15 +1,15 @@
-#include "LoadingGameMode.h"
+ï»¿#include "LoadingGameMode.h"
 #include "Engine/World.h"
 #include "Engine/Engine.h"
 #include "GameFramework/PlayerController.h"
-#include "MyProject1GameInstance.h" // š’Ç‰ÁFGameInstance‚Ì‹@”\‚ğg‚¤‚½‚ß
+#include "MyProject1GameInstance.h" // â˜…è¿½åŠ ï¼šGameInstanceã®æ©Ÿèƒ½ã‚’ä½¿ã†ãŸã‚
 
-// “ú–{Œê•¶š‰»‚¯‘Îô
+// æ—¥æœ¬èªæ–‡å­—åŒ–ã‘å¯¾ç­–
 #pragma execution_character_set("utf-8")
 
 ALoadingGameMode::ALoadingGameMode()
 {
-	// ƒQ[ƒ€ŠJn‚ğ•Û—¯‚É‚·‚é
+	// ã‚²ãƒ¼ãƒ é–‹å§‹ã‚’ä¿ç•™ã«ã™ã‚‹
 	bDelayedStart = true;
 	WaitTime = 0.0f;
 }
@@ -21,11 +21,11 @@ bool ALoadingGameMode::ReadyToStartMatch_Implementation()
 	WaitTime += GetWorld()->GetDeltaSeconds();
 	if (WaitTime < 1.0f) return false;
 
-	// ƒ[ƒ‹ƒh‚Ì“Ç‚İ‚İŠ®—¹ƒ`ƒFƒbƒN
+	// ãƒ¯ãƒ¼ãƒ«ãƒ‰ã®èª­ã¿è¾¼ã¿å®Œäº†ãƒã‚§ãƒƒã‚¯
 	if (GetWorld()->AreAlwaysLoadedLevelsLoaded())
 	{
 		GEngine->BlockTillLevelStreamingCompleted(GetWorld());
-		return true; // €”õŠ®—¹I‚±‚ê‚Å StartMatch() ‚ª”­“®‚µ‚Ü‚·
+		return true; // æº–å‚™å®Œäº†ï¼ã“ã‚Œã§ StartMatch() ãŒç™ºå‹•ã—ã¾ã™
 	}
 
 	return false;
@@ -33,10 +33,10 @@ bool ALoadingGameMode::ReadyToStartMatch_Implementation()
 
 void ALoadingGameMode::StartMatch()
 {
-	// ‚Ü‚¸‚ÍƒGƒ“ƒWƒ“–{—ˆ‚ÌŠJnˆ—
+	// ã¾ãšã¯ã‚¨ãƒ³ã‚¸ãƒ³æœ¬æ¥ã®é–‹å§‹å‡¦ç†
 	Super::StartMatch();
 
-	// GameInstance‚©‚çƒ[ƒvæ‚Ì‹L‰¯‚ğˆø‚Á’£‚Á‚Ä‚­‚é
+	// GameInstanceã‹ã‚‰ãƒ¯ãƒ¼ãƒ—å…ˆã®è¨˜æ†¶ã‚’å¼•ã£å¼µã£ã¦ãã‚‹
 	UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetGameInstance());
 
 	for (FConstPlayerControllerIterator Iterator = GetWorld()->GetPlayerControllerIterator(); Iterator; ++Iterator)
@@ -44,33 +44,33 @@ void ALoadingGameMode::StartMatch()
 		APlayerController* PC = Iterator->Get();
 		if (PC)
 		{
-			// 1. ‘Ò‹@’†‚É”í‚ç‚³‚ê‚Ä‚¢‚½u—H—ìƒJƒƒ‰iSpectatorPawnjv‚ğ‹­§“I‚ÉÁ‚µ‹‚é
+			// 1. å¾…æ©Ÿä¸­ã«è¢«ã‚‰ã•ã‚Œã¦ã„ãŸã€Œå¹½éœŠã‚«ãƒ¡ãƒ©ï¼ˆSpectatorPawnï¼‰ã€ã‚’å¼·åˆ¶çš„ã«æ¶ˆã—å»ã‚‹
 			if (PC->GetPawn() != nullptr)
 			{
 				PC->GetPawn()->Destroy();
 			}
 
-			// 2. š’´d—vš ƒRƒ“ƒgƒ[ƒ‰[‚Ìó‘Ô‚ğuŠÏív‚©‚çuƒvƒŒƒC’†v‚É‹­§‚ÅØ‚è‘Ö‚¦‚é
+			// 2. â˜…è¶…é‡è¦â˜… ã‚³ãƒ³ãƒˆãƒ­ãƒ¼ãƒ©ãƒ¼ã®çŠ¶æ…‹ã‚’ã€Œè¦³æˆ¦ã€ã‹ã‚‰ã€Œãƒ—ãƒ¬ã‚¤ä¸­ã€ã«å¼·åˆ¶ã§åˆ‡ã‚Šæ›¿ãˆã‚‹
 			PC->bPlayerIsWaiting = false;
 			PC->ChangeState(NAME_Playing);
 
-			// 3. ƒ[ƒv—\’è‚ª‚ ‚éê‡APlayerStart‚ğ–³‹‚µ‚Äu’¼Ú‚»‚Ìê‚Év“÷‘Ì‚ğƒXƒ|[ƒ“‚³‚¹‚éI
+			// 3. ãƒ¯ãƒ¼ãƒ—äºˆå®šãŒã‚ã‚‹å ´åˆã€PlayerStartã‚’ç„¡è¦–ã—ã¦ã€Œç›´æ¥ãã®å ´ã«ã€è‚‰ä½“ã‚’ã‚¹ãƒãƒ¼ãƒ³ã•ã›ã‚‹ï¼
 			if (GameInst && GameInst->bHasPendingWarp && DefaultPawnClass != nullptr)
 			{
 				FActorSpawnParameters SpawnParams;
 				SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
 
-				// ’¼Ú“÷‘Ì‚ğì‚é
+				// ç›´æ¥è‚‰ä½“ã‚’ä½œã‚‹
 				APawn* NewPawn = GetWorld()->SpawnActor<APawn>(DefaultPawnClass, GameInst->PendingWarpTransform, SpawnParams);
 				if (NewPawn)
 				{
-					// °‚ğæ‚èˆÚ‚ç‚¹‚é
+					// é­‚ã‚’ä¹—ã‚Šç§»ã‚‰ã›ã‚‹
 					PC->Possess(NewPawn);
 				}
 			}
 			else
 			{
-				// ƒ[ƒv‚¶‚á‚È‚¢ê‡i•’Ê‚ÉƒQ[ƒ€ŠJn‚µ‚½ê‡j‚Í‚¢‚Â‚à‚ÌƒXƒ|[ƒ“
+				// ãƒ¯ãƒ¼ãƒ—ã˜ã‚ƒãªã„å ´åˆï¼ˆæ™®é€šã«ã‚²ãƒ¼ãƒ é–‹å§‹ã—ãŸå ´åˆï¼‰ã¯ã„ã¤ã‚‚ã®ã‚¹ãƒãƒ¼ãƒ³
 				RestartPlayer(PC);
 			}
 		}

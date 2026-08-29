@@ -1,11 +1,11 @@
-#pragma once
+﻿#pragma once
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
-#include "MyProject1Types.h" // ��قǍ�����\���̂��g������
+#include "MyProject1Types.h" // FDialogDataなどの構造体を使うため
 #include "DialogComponent.generated.h"
 
-// UI�ɒʒm���邽�߂̃f���Q�[�g�i�Z���t�f�[�^�ƁA�����Ă���NPC�̏��𑗂�j
+// UIに通知するためのデリゲート（セリフデータと、話しているNPCの情報を送る）
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnDialogUpdated, const FDialogData&, DialogData, AActor*, NPC);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnDialogClosed);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnHideChoices);
@@ -18,27 +18,27 @@ class MYPROJECT1_API UDialogComponent : public UActorComponent
 public:
 	UDialogComponent();
 
-	// ��b���J�n����֐��i�f�[�^�e�[�u���̍s�����w��j
+	// 会話を開始する関数（データテーブルの行名を指定）
 	UFUNCTION(BlueprintCallable, Category = "Dialog")
 	void StartDialog(FName RowName, UDataTable* DialogTable, AActor* InNPC);
 
-	// �I�������I�΂ꂽ����UI����Ă΂��֐�
+	// 選択肢が選ばれた時にUIから呼ばれる関数
 	UFUNCTION(BlueprintCallable, Category = "Dialog")
 	void SelectChoice(int32 ChoiceIndex);
 
-	// --- ���̑I�����̏����i���_�l�E�t���O�j�𖞂����Ă��邩�`�F�b�N���� ---
+	// --- その選択肢の条件（数値・フラグ）を満たしているかチェックする ---
 	UFUNCTION(BlueprintPure, Category = "Dialog")
 	bool CanSelectChoice(const FDialogChoice& Choice) const;
 
-	// �I�������Ȃ���b�ŁA��ʂ��N���b�N���āu���֐i�ށv���ɌĂ΂��֐� ---
+	// 選択肢のない会話で、画面をクリックして「次へ進む」時に呼ばれる関数
 	UFUNCTION(BlueprintCallable, Category = "Dialog")
 	void AdvanceDialog();
 
-	// ��b�������I������
+	// 会話を終了させる
 	UFUNCTION(BlueprintCallable, Category = "Dialog")
 	void CloseDialog();
 
-	// UI���ł���ɃC�x���g���o�C���h����
+	// UI側でこれにイベントバインドする
 	UPROPERTY(BlueprintAssignable, Category = "Dialog")
 	FOnDialogUpdated OnDialogUpdated;
 
@@ -49,28 +49,28 @@ public:
 	FOnHideChoices OnHideChoices;
 
 private:
-	// ���ݎg�p���̃f�[�^�e�[�u����NPC
+	// 現在使用中のデータテーブルとNPC
 	UPROPERTY()
 	UDataTable* CurrentTable;
 
 	UPROPERTY()
 	AActor* CurrentNPC;
 
-	// ���݂̉�b�f�[�^
+	// 現在の会話データ
 	FDialogData CurrentDialogData;
 
 	// アクションの実行本体（Choice経由でもセリフ単体経由でも共通で使う）
 	void ExecuteActionCore(EDialogActionType ActionType, const FString& ActionPayload, FName GrantFlag, bool bFadeOnGrantFlag, FName FlagToRemove, bool bFadeOnRemoveFlag, ETargetStat StatToChange, EStatTargetActor StatTargetActor, FName ExtraStatName, float StatChangeAmount);
 
-	// --- ���s�����V�X�e���p�̕ϐ��Ɗ֐� ---
+	// --- 逐次表示システム用の変数と関数 ---
 
-	/** �������ꂽ�e�L�X�g��ێ�����z�� */
+	/** 分割されたテキストを保持する配列 */
 	UPROPERTY()
 	TArray<FString> CurrentDialogLines;
 
-	/** ���݉��s�ڂ�\�����Ă��邩�̃C���f�b�N�X */
+	/** 現在何行目を表示しているかのインデックス */
 	int32 CurrentLineIndex = 0;
 
-	/** ���݂̍s�̃e�L�X�g��UI�֑��M����֐� */
+	/** 現在の行のテキストをUIへ送信する関数 */
 	void ShowCurrentLine();
 };

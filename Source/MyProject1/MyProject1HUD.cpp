@@ -5,6 +5,7 @@
 #include "MyProject1Character.h"
 #include "Kismet/GameplayStatics.h"
 #include "ShopNPCBase.h"
+#include "WBP_TimeSkipMenu.h"
 
 namespace
 {
@@ -214,6 +215,43 @@ void AMyProject1HUD::ForceCloseCommandMenuForInteract()
     if (CommandMenuWidget && CommandMenuWidget->IsInViewport())
     {
         ToggleCommandMenu();
+    }
+}
+
+// --- 待機/睡眠メニュー ---
+void AMyProject1HUD::OpenTimeSkipMenu(bool bIsSleepMode)
+{
+    APlayerController* PC = GetOwningPlayerController();
+    if (!PC || !TimeSkipMenuClass) return;
+
+    // 既に開いていれば多重生成しない
+    if (TimeSkipMenuWidget && TimeSkipMenuWidget->IsInViewport()) return;
+
+    // 他のメニューが開いていたら全て閉じる（操作不能バグ防止）。
+    // 注意：ToggleCommandMenu()は「サブメニューが1つでも開いている間に呼ぶと、そのサブメニューだけ
+    // 閉じてコマンドメニュー自体は表示したままにする」設計（Tabキーの1段階戻る動作）なので、
+    // 先にコマンドメニューを閉じようとすると閉じきれない。必ず全サブメニューを閉じ切ってから、
+    // 最後にCommandMenuWidget自体を閉じること（ToggleItemShopMenuと同じ並び順）。
+    if (ActiveSubMenuWidget && ActiveSubMenuWidget->IsInViewport())
+    {
+        ActiveSubMenuWidget->RemoveFromParent();
+        ActiveSubMenuWidget = nullptr;
+    }
+    if (InventoryMenuWidget && InventoryMenuWidget->IsInViewport()) ToggleInventoryMenu();
+    if (EquipmentMenuWidget && EquipmentMenuWidget->IsInViewport()) ToggleEquipmentMenu();
+    if (StatusMenuWidget && StatusMenuWidget->IsInViewport()) ToggleStatusMenu();
+    if (QuestMenuWidget && QuestMenuWidget->IsInViewport()) ToggleQuestMenu();
+    if (ChestMenuWidget && ChestMenuWidget->IsInViewport()) ToggleChestMenu();
+    if (TreatmentMenuWidget && TreatmentMenuWidget->IsInViewport()) ToggleTreatmentMenu();
+    if (TattooMenuWidget && TattooMenuWidget->IsInViewport()) ToggleTattooMenu();
+    if (ItemShopMenuWidget && ItemShopMenuWidget->IsInViewport()) ToggleItemShopMenu();
+    if (CommandMenuWidget && CommandMenuWidget->IsInViewport()) ToggleCommandMenu();
+
+    TimeSkipMenuWidget = CreateWidget<UWBP_TimeSkipMenu>(PC, TimeSkipMenuClass);
+    if (TimeSkipMenuWidget)
+    {
+        TimeSkipMenuWidget->bIsSleepMode = bIsSleepMode;
+        TimeSkipMenuWidget->AddToViewport();
     }
 }
 

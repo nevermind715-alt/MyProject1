@@ -1,4 +1,4 @@
-#pragma once
+ï»¿#pragma once
 
 #include "CoreMinimal.h"
 #include "UObject/Interface.h"
@@ -16,33 +16,23 @@ class MYPROJECT1_API IRpgCharacterInterface
 	GENERATED_BODY()
 
 public:
-	// --- ‹¤’Ê‚Ì‘‹ŒûiƒCƒ“ƒ^[ƒtƒF[ƒXj‚Ì’è‹` ---
 
-	// 1. ƒVƒXƒeƒ€ƒƒO‚âƒ_ƒ[ƒWƒƒO‚ğó‚¯æ‚é‘‹Œû
 	virtual void OnReceiveLogMessage(const FString& Message, ELogMessageType MessageType) = 0;
 
-	// 2. “Á’è‚Ìƒtƒ‰ƒO‚ğ‚Á‚Ä‚¢‚é‚©Šm”F‚·‚é‘‹Œû
 	virtual bool HasFlag(FName FlagName) const = 0;
 
-	// 3. Œ»İ‚Ìƒ^[ƒQƒbƒgó‘Ô‚ğƒLƒƒƒ“ƒZƒ‹‚·‚é‘‹Œû
 	virtual void CancelTarget() = 0;
 
-	// 4. ƒXƒe[ƒ^ƒXiMyStatsj‚Ì•Ï‰»‚ğUI‚È‚Ç‚É’Ê’m‚·‚é‘‹Œû
 	virtual void NotifyStatsChanged() = 0;
 
-	// 5. ƒtƒ‰ƒO‚ğ’Ç‰ÁEíœ‚·‚é‘‹Œû
 	virtual void AddFlag(FName FlagName) = 0;
 	virtual void RemoveFlag(FName FlagName) = 0;
 
-	// 6. ƒXƒe[ƒ^ƒXiMyStatsj‚ğ’¼Ú“Ç‚İ‘‚«‚·‚é‚½‚ß‚Ì‘‹Œû
 	virtual struct FCharacterStats& GetCharacterStats() = 0;
 
-	// 7. ƒNƒGƒXƒgƒRƒ“ƒ|[ƒlƒ“ƒg‚Ö‚Ì‘‹Œû
 	virtual class UQuestComponent* GetQuestComponent() const = 0;
 
-	// 8. ‰ï˜b’†‚È‚Ç‚ÉƒvƒŒƒCƒ„[‚Ì‘€ì‚ğƒƒbƒN‚·‚é‘‹Œû
 	virtual void SetInputLocked(bool bLocked) = 0;
 
-	// 9. ƒMƒ‹ƒhNPC‚Ö‚Ì\¿‚É‚æ‚èA–`Œ¯Ò“™‹‰‚Ì¸Ši‚ğ‚İ‚é‘‹Œû
-	virtual bool TryRankUp() = 0;
+	virtual bool SetAdventurerRank(FName TargetRankRowName) = 0;
 };

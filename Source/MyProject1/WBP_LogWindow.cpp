@@ -1,4 +1,4 @@
-#include "WBP_LogWindow.h"
+﻿#include "WBP_LogWindow.h"
 #include "TimerManager.h"
 
 void UWBP_LogWindow::NativeConstruct()

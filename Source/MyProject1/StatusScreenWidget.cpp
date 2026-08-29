@@ -26,6 +26,7 @@ void UStatusScreenWidget::UpdateAllStatus(AMyProject1Character* PlayerCharacter)
 
     if (Txt_MaxHP)          Txt_MaxHP->SetText(FText::AsNumber(FMath::RoundToInt(Stats.MaxHP)));
     if (Txt_MaxStamina)     Txt_MaxStamina->SetText(FText::AsNumber(FMath::RoundToInt(Stats.MaxStamina)));
+    // AttackPower/DefensePowerはRecalculateFatigueAdjustedCombatStats()により常に疲労デバフ込みの値なので、そのまま表示する
     if (Txt_AttackPower)    Txt_AttackPower->SetText(FText::AsNumber(FMath::RoundToInt(Stats.AttackPower)));
     if (Txt_DefensePower)   Txt_DefensePower->SetText(FText::AsNumber(FMath::RoundToInt(Stats.DefensePower)));
 

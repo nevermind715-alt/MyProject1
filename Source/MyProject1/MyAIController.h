@@ -1,16 +1,16 @@
-#pragma once
+ï»¿#pragma once
 
 #include "CoreMinimal.h"
 #include "AIController.h"
-#include "Perception/AIPerceptionTypes.h" // š’Ç‰ÁF’mŠoî•ñ‚ÌŒ^
+#include "Perception/AIPerceptionTypes.h" // â˜…è¿½åŠ ï¼šçŸ¥è¦šæƒ…å ±ã®å‹
 #include "MyAIController.generated.h"
 
-// ‘O•ûéŒ¾iƒNƒ‰ƒX‚ª‚ ‚é‚±‚Æ‚¾‚¯“`‚¦‚éj
+// å‰æ–¹å®£è¨€ï¼ˆã‚¯ãƒ©ã‚¹ãŒã‚ã‚‹ã“ã¨ã ã‘ä¼ãˆã‚‹ï¼‰
 class UBehaviorTree;
 class UBlackboardComponent;
 class UAIPerceptionComponent;
 class UAISenseConfig_Sight;
-class UAISenseConfig_Hearing; // ’®Šo—pi€”õj
+class UAISenseConfig_Hearing; // è´è¦šç”¨ï¼ˆæº–å‚™ï¼‰
 
 UCLASS()
 class MYPROJECT1_API AMyAIController : public AAIController
@@ -18,41 +18,41 @@ class MYPROJECT1_API AMyAIController : public AAIController
 	GENERATED_BODY()
 
 public:
-	// ƒRƒ“ƒXƒgƒ‰ƒNƒ^‚ÌéŒ¾i‚±‚ê‚ª”²‚¯‚Ä‚¢‚½‰Â”\«‚ª‚ ‚è‚Ü‚·j
+	// ã‚³ãƒ³ã‚¹ãƒˆãƒ©ã‚¯ã‚¿ã®å®£è¨€ï¼ˆã“ã‚ŒãŒæŠœã‘ã¦ã„ãŸå¯èƒ½æ€§ãŒã‚ã‚Šã¾ã™ï¼‰
 	AMyAIController();
 
 protected:
-	// PossessiœßˆËj‚Ìˆ—‚ÌéŒ¾i‚±‚ê‚à”²‚¯‚Ä‚¢‚½‰Â”\«‚ª‚ ‚è‚Ü‚·j
+	// Possessï¼ˆæ†‘ä¾ï¼‰æ™‚ã®å‡¦ç†ã®å®£è¨€ï¼ˆã“ã‚Œã‚‚æŠœã‘ã¦ã„ãŸå¯èƒ½æ€§ãŒã‚ã‚Šã¾ã™ï¼‰
 	virtual void OnPossess(APawn* InPawn) override;
 
-	// ƒrƒwƒCƒrƒAƒcƒŠ[‚ÌƒAƒZƒbƒg
+	// ãƒ“ãƒ˜ã‚¤ãƒ“ã‚¢ãƒ„ãƒªãƒ¼ã®ã‚¢ã‚»ãƒƒãƒˆ
 	UPROPERTY(EditDefaultsOnly, Category = "AI")
 	UBehaviorTree* BehaviorTreeAsset;
 
-    // --- ’mŠoƒRƒ“ƒ|[ƒlƒ“ƒg ---
+    // --- çŸ¥è¦šã‚³ãƒ³ãƒãƒ¼ãƒãƒ³ãƒˆ ---
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AI")
     UAIPerceptionComponent* PerceptionComp;
 
-    // ‹Šo‚Ìİ’è
+    // è¦–è¦šã®è¨­å®š
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AI")
     UAISenseConfig_Sight* SightConfig;
 
-    // ’®Šo‚Ìİ’èi¡‰ñ‚Í€”õ‚¾‚¯j
+    // è´è¦šã®è¨­å®šï¼ˆä»Šå›ã¯æº–å‚™ã ã‘ï¼‰
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AI")
     UAISenseConfig_Hearing* HearingConfig;
 
-    /** ‰½‚©‚ğŒ©‚½‚è•·‚¢‚½‚è‚µ‚½‚ÉŒÄ‚Î‚ê‚éŠÖ” */
+    /** ä½•ã‹ã‚’è¦‹ãŸã‚Šèã„ãŸã‚Šã—ãŸæ™‚ã«å‘¼ã°ã‚Œã‚‹é–¢æ•° */
     UFUNCTION()
     void OnTargetDetected(AActor* Actor, FAIStimulus Stimulus);
 
 public:
    
-    //–ˆƒtƒŒ[ƒ€Às‚·‚éŠÖ”i¶‘¶Šm”F—pj
+    //æ¯ãƒ•ãƒ¬ãƒ¼ãƒ å®Ÿè¡Œã™ã‚‹é–¢æ•°ï¼ˆç”Ÿå­˜ç¢ºèªç”¨ï¼‰
     virtual void Tick(float DeltaTime) override;
 
-    //’x‰„‚³‚¹‚Ä‹ŠEİ’è‚ğ“K—p‚·‚é‚½‚ß‚ÌŠÖ”
+    //é…å»¶ã•ã›ã¦è¦–ç•Œè¨­å®šã‚’é©ç”¨ã™ã‚‹ãŸã‚ã®é–¢æ•°
     UFUNCTION()
     void ApplyPerceptionSettings();
 
-    // ... (OnPossess ‚È‚Ç‘¼‚ÌŠÖ”) ...
+    // ... (OnPossess ãªã©ä»–ã®é–¢æ•°) ...
 };

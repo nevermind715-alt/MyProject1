@@ -5,6 +5,7 @@
 #include "MyProject1HUD.generated.h"
 
 class UChestComponent;
+class UWBP_TimeSkipMenu;
 
 UCLASS()
 class MYPROJECT1_API AMyProject1HUD : public AHUD
@@ -123,6 +124,17 @@ public:
 	// --- ステータスメニューの開閉関数 ---
 	UFUNCTION(BlueprintCallable, Category = "UI")
 	void ToggleStatusMenu();
+
+	// --- 待機/睡眠メニュー用の変数と関数 ---
+	UPROPERTY(EditAnywhere, Category = "UI")
+	TSubclassOf<UWBP_TimeSkipMenu> TimeSkipMenuClass;
+
+	UPROPERTY(BlueprintReadOnly, Category = "UI")
+	UWBP_TimeSkipMenu* TimeSkipMenuWidget;
+
+	// 待機/睡眠メニューを開く（bIsSleepModeでウィジェット側の表示を出し分ける）
+	UFUNCTION(BlueprintCallable, Category = "UI")
+	void OpenTimeSkipMenu(bool bIsSleepMode);
 
 	// メニューの表示・非表示を切り替える関数
 	UFUNCTION(BlueprintCallable, Category = "UI")

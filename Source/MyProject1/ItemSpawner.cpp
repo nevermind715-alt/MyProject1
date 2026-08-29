@@ -1,4 +1,4 @@
-#include "ItemSpawner.h"
+ï»¿#include "ItemSpawner.h"
 #include "MyProject1Character.h"
 #include "InventoryComponent.h"
 #include "Kismet/GameplayStatics.h"
@@ -15,7 +15,7 @@ AItemSpawner::AItemSpawner()
 
 	CollisionComp = CreateDefaultSubobject<USphereComponent>(TEXT("CollisionComp"));
 	CollisionComp->SetupAttachment(RootComponent);
-	CollisionComp->SetSphereRadius(150.0f); // UI‚ªo‚é‹——£i­‚µL‚ß‚Éİ’èj
+	CollisionComp->SetSphereRadius(150.0f); // UIãŒå‡ºã‚‹è·é›¢ï¼ˆå°‘ã—åºƒã‚ã«è¨­å®šï¼‰
 	CollisionComp->SetCollisionProfileName(TEXT("Trigger"));
 }
 
@@ -25,7 +25,7 @@ void AItemSpawner::BeginPlay()
 
 	CollisionComp->OnComponentBeginOverlap.AddDynamic(this, &AItemSpawner::OnOverlapBegin);
 
-	// —£‚ê‚½‚ÌƒCƒxƒ“ƒg‚à“o˜^
+	// é›¢ã‚ŒãŸæ™‚ã®ã‚¤ãƒ™ãƒ³ãƒˆã‚‚ç™»éŒ²
 	CollisionComp->OnComponentEndOverlap.AddDynamic(this, &AItemSpawner::OnOverlapEnd);
 }
 
@@ -36,8 +36,8 @@ void AItemSpawner::OnOverlapBegin(UPrimitiveComponent* OverlappedComp, AActor* O
 	AMyProject1Character* PlayerChar = Cast<AMyProject1Character>(OtherActor);
 	if (PlayerChar && PlayerChar->IsPlayerControlled())
 	{
-		// ƒAƒCƒeƒ€–¼‚ğƒf[ƒ^ƒe[ƒuƒ‹‚©‚ç’T‚·
-		FString DisplayName = TEXT("•s–¾‚ÈƒAƒCƒeƒ€");
+		// ã‚¢ã‚¤ãƒ†ãƒ åã‚’ãƒ‡ãƒ¼ã‚¿ãƒ†ãƒ¼ãƒ–ãƒ«ã‹ã‚‰æ¢ã™
+		FString DisplayName = TEXT("ä¸æ˜ãªã‚¢ã‚¤ãƒ†ãƒ ");
 		if (ItemDataTable)
 		{
 			FItemData* ItemInfo = ItemDataTable->FindRow<FItemData>(ItemIDToSpawn, TEXT("SpawnerContext"));
@@ -47,7 +47,7 @@ void AItemSpawner::OnOverlapBegin(UPrimitiveComponent* OverlappedComp, AActor* O
 			}
 		}
 
-		// BP‚Åì‚Á‚½UI‚ğ•\¦‚·‚éƒCƒxƒ“ƒg‚ğŒÄ‚ÔiTruej
+		// BPã§ä½œã£ãŸUIã‚’è¡¨ç¤ºã™ã‚‹ã‚¤ãƒ™ãƒ³ãƒˆã‚’å‘¼ã¶ï¼ˆTrueï¼‰
 		OnToggleInteractUI(true, DisplayName, SpawnAmount);
 	}
 }
@@ -57,7 +57,7 @@ void AItemSpawner::OnOverlapEnd(UPrimitiveComponent* OverlappedComp, AActor* Oth
 	AMyProject1Character* PlayerChar = Cast<AMyProject1Character>(OtherActor);
 	if (PlayerChar && PlayerChar->IsPlayerControlled())
 	{
-		// ”ÍˆÍ‚©‚ço‚½‚çUI‚ğÁ‚·iFalsej
+		// ç¯„å›²ã‹ã‚‰å‡ºãŸã‚‰UIã‚’æ¶ˆã™ï¼ˆFalseï¼‰
 		OnToggleInteractUI(false, TEXT(""), 0);
 	}
 }
@@ -78,7 +78,7 @@ void AItemSpawner::Interact(AMyProject1Character* InteractingPlayer)
 				UGameplayStatics::PlaySoundAtLocation(this, LoadedSound, GetActorLocation());
 			}
 
-			// æ“¾‚µ‚½‚Ì‚ÅUI‚ğÁ‚·
+			// å–å¾—ã—ãŸã®ã§UIã‚’æ¶ˆã™
 			OnToggleInteractUI(false, TEXT(""), 0);
 
 			MeshComp->SetVisibility(false);
@@ -95,7 +95,7 @@ void AItemSpawner::Interact(AMyProject1Character* InteractingPlayer)
 		}
 		else
 		{
-			InteractingPlayer->OnReceiveLogMessage(TEXT("ƒJƒoƒ“‚ª‚¢‚Á‚Ï‚¢‚ÅE‚¦‚È‚¢B"), ELogMessageType::System);
+			InteractingPlayer->OnReceiveLogMessage(TEXT("ã‚«ãƒãƒ³ãŒã„ã£ã±ã„ã§æ‹¾ãˆãªã„ã€‚"), ELogMessageType::System);
 		}
 	}
 }

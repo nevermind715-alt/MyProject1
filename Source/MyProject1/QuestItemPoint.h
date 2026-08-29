@@ -43,6 +43,19 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
 	class UStaticMeshComponent* Mesh;
 
+	/** 将来、アニメ付き（スケルタル）モデルを使いたい場合用。Meshと同時に存在するが、
+	    実際に使うのは基本どちらか片方だけで、使わない方はメッシュ未設定のまま空にしておけばよい */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+	class USkeletalMeshComponent* SkeletalMesh;
+
+	/** 落書きを壁に貼り付ける等、平面の見た目だけを表示したい時に使う（例：落書き消しクエスト） */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+	class UDecalComponent* Decal;
+
+	/** プレイヤーの接近を検知するための当たり判定（インタラクト用のMesh側コリジョンとは別。ApproachSound専用） */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+	class USphereComponent* ApproachTrigger;
+
 	// --- 表示名 ---
 	/** このポイントの名前（WBP_NPCNameに渡して表示する用）。空欄なら名前表示をしない想定 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item Interact|Display")
@@ -102,6 +115,15 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item Interact|Audio")
 	class USoundBase* InteractSound = nullptr;
 
+	// --- 接近音 ---
+	/** 空欄でなければ、プレイヤーがApproachTrigger（当たり判定の球）に入った時にこの音を鳴らす */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item Interact|Approach Sound")
+	class USoundBase* ApproachSound = nullptr;
+
+	/** trueなら最初の1回だけ鳴らし、以後同じプレイができるまで鳴らさない。falseなら範囲に入るたびに毎回鳴らす */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item Interact|Approach Sound")
+	bool bApproachSoundOnce = true;
+
 	/** プレイヤーがインタラクトした時に呼ぶ */
 	UFUNCTION(BlueprintCallable, Category = "Item Interact")
 	void TryInteract(class AMyProject1Character* Interactor);
@@ -113,4 +135,11 @@ private:
 	/** プレイヤーがフラグを獲得した時に呼ばれる（OnFlagAddedの購読先）。RequiredFlag一致時のみ表示を更新する */
 	UFUNCTION()
 	void OnPlayerFlagAdded(FName FlagName);
+
+	/** ApproachTriggerにプレイヤーが入った時に呼ばれる。ApproachSoundを鳴らす */
+	UFUNCTION()
+	void OnApproachTriggerBeginOverlap(class UPrimitiveComponent* OverlappedComp, class AActor* OtherActor, class UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
+
+	/** ApproachSoundを既に鳴らしたか（bApproachSoundOnce用） */
+	bool bApproachSoundPlayed = false;
 };

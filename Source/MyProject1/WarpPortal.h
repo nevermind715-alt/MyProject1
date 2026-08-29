@@ -1,8 +1,8 @@
-#pragma once
+ï»¿#pragma once
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
-#include "MyProject1Types.h" // EWarpPortalType‚È‚Ç‚ğg‚¤‚½‚ß
+#include "MyProject1Types.h" // EWarpPortalTypeãªã©ã‚’ä½¿ã†ãŸã‚
 #include "WarpPortal.generated.h"
 
 UCLASS()
@@ -17,34 +17,34 @@ protected:
 	virtual void BeginPlay() override;
 
 public:
-	// --- ƒRƒ“ƒ|[ƒlƒ“ƒg ---
-	/** “–‚½‚è”»’èiG‚ê‚½‚±‚Æ‚ğŒŸ’m‚·‚éƒ{ƒbƒNƒXj */
+	// --- ã‚³ãƒ³ãƒãƒ¼ãƒãƒ³ãƒˆ ---
+	/** å½“ãŸã‚Šåˆ¤å®šï¼ˆè§¦ã‚ŒãŸã“ã¨ã‚’æ¤œçŸ¥ã™ã‚‹ãƒœãƒƒã‚¯ã‚¹ï¼‰ */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
 	class UBoxComponent* CollisionBox;
 
-	// --- ƒ[ƒvİ’èiƒGƒfƒBƒ^‚Å©—R‚Éİ’è‰Â”\j ---
-	/** ”ò‚Ôæ‚ÌWarpIDiDT_WarpDestinations ‚É“o˜^‚µ‚½s–¼j */
+	// --- ãƒ¯ãƒ¼ãƒ—è¨­å®šï¼ˆã‚¨ãƒ‡ã‚£ã‚¿ã§è‡ªç”±ã«è¨­å®šå¯èƒ½ï¼‰ ---
+	/** é£›ã¶å…ˆã®WarpIDï¼ˆDT_WarpDestinations ã«ç™»éŒ²ã—ãŸè¡Œåï¼‰ */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Warp Settings")
 	FName TargetWarpID;
 
-	/** ƒ[ƒv‚Ì‹N“®•û–@iG‚ê‚é‚©A’²‚×‚é‚©j */
+	/** ãƒ¯ãƒ¼ãƒ—ã®èµ·å‹•æ–¹æ³•ï¼ˆè§¦ã‚Œã‚‹ã‹ã€èª¿ã¹ã‚‹ã‹ï¼‰ */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Warp Settings")
 	EWarpPortalType PortalType = EWarpPortalType::TouchToWarp;
 
-	// Šm”F‚ÉŒÄ‚Ño‚·‰ï˜bƒf[ƒ^iDT_Dialogsj‚Ìs–¼
+	// ç¢ºèªæ™‚ã«å‘¼ã³å‡ºã™ä¼šè©±ãƒ‡ãƒ¼ã‚¿ï¼ˆDT_Dialogsï¼‰ã®è¡Œå
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Warp Settings")
 	FName ConfirmDialogID;
 
-	// --- ˆ—ŠÖ” ---
-	/** ƒvƒŒƒCƒ„[‚ªG‚ê‚½‚ÉŒÄ‚Î‚ê‚éŠÖ” */
+	// --- å‡¦ç†é–¢æ•° ---
+	/** ãƒ—ãƒ¬ã‚¤ãƒ¤ãƒ¼ãŒè§¦ã‚ŒãŸæ™‚ã«å‘¼ã°ã‚Œã‚‹é–¢æ•° */
 	UFUNCTION()
 	void OnOverlapBegin(class UPrimitiveComponent* OverlappedComp, class AActor* OtherActor, class UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
 
-	/** ƒvƒŒƒCƒ„[‚ªEƒL[‚È‚Ç‚Åu’²‚×‚½v‚ÉŒÄ‚Î‚ê‚éŠÖ”iBP‚©‚çŒÄ‚Ôj */
+	/** ãƒ—ãƒ¬ã‚¤ãƒ¤ãƒ¼ãŒEã‚­ãƒ¼ãªã©ã§ã€Œèª¿ã¹ãŸã€æ™‚ã«å‘¼ã°ã‚Œã‚‹é–¢æ•°ï¼ˆBPã‹ã‚‰å‘¼ã¶ï¼‰ */
 	UFUNCTION(BlueprintCallable, Category = "Warp")
 	void InteractWithPortal(class ACharacter* Interactor);
 
 private:
-	/** ÀÛ‚Ìƒ[ƒvˆ—iGameInstance‚ğŒÄ‚Ôj */
+	/** å®Ÿéš›ã®ãƒ¯ãƒ¼ãƒ—å‡¦ç†ï¼ˆGameInstanceã‚’å‘¼ã¶ï¼‰ */
 	void ExecuteWarp(class ACharacter* TargetCharacter);
 };

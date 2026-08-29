@@ -91,6 +91,10 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Input")
 	class UInputAction* ZoomAction;
 
+	/** 待機（その場で時間を進める）用の入力アクション（Enhanced Input用） */
+	UPROPERTY(EditAnywhere, Category = "Input")
+	class UInputAction* WaitAction;
+
 	/** 非戦闘時のHP自動回復の間隔（秒） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Regeneration")
 	float AutoRecoveryInterval = 5.0f;
@@ -219,6 +223,9 @@ public:
 	// 重複可のバフを連続使用した際に、使用ごとへ振る通し番号（次に使う値）
 	int32 NextBuffStackID = 1;
 
+	// 疲労段階バフ専用に予約したStackID（NextBuffStackIDは1から増える一方なので、負の値なら衝突しない）
+	static constexpr int32 FatigueBuffStackID = -1;
+
 	// バフが増減した時にUIへ知らせる合図
 	UPROPERTY(BlueprintAssignable, Category = "Combat|UI")
 	FOnBuffListChangedSignature OnBuffListChangedDelegate;
@@ -261,8 +268,9 @@ public:
 	virtual FCharacterStats& GetCharacterStats() override { return MyStats; }
 	virtual UQuestComponent* GetQuestComponent() const override { return QuestComp; }
 
-	// ギルドNPCへの申請により、冒険者等級の昇格を試みる（IRpgCharacterInterface実装）
-	virtual bool TryRankUp() override;
+	// ギルドNPCへの申請等で、指定した等級（EAdventurerRankの行名。例："Rank4"）に直接設定する（IRpgCharacterInterface実装）。
+	// 条件判定はしない（呼び出し側＝Questの受注条件などで既に制御されている前提）
+	virtual bool SetAdventurerRank(FName TargetRankRowName) override;
 
 	// --- 疲労度（Energy）設定 ---
 
@@ -286,13 +294,27 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Combat|Fatigue")
 	void UpdateEnergy(float Amount);
 
-	// --- 疲労度によるペナルティ設定 ---
+	/** 待機/睡眠などで一気に進めたゲーム内時間（分）に応じて、蓄積疲労度(BaseEnergy)を進める。
+	 *  HandleFatigueTickの「ゲーム内1日単位」の計算をAdvanceTimeByによる時間スキップ分にもそのまま適用するためのもの。
+	 *  bIsSleepがtrueの場合は疲労が増える代わりに、睡眠時間に応じて疲労度を回復させる */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Fatigue")
+	void ApplyFatigueForSkippedMinutes(int32 MinutesSkipped, bool bIsSleep = false);
 
-	/** 軽度の疲労（デバフ①）が始まる数値 */
+	/** 睡眠1時間あたりに蓄積疲労度(BaseEnergy)を回復させる割合（MaxEnergyに対する%） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Fatigue")
+	float FatigueDecreasePercentPerSleepHour = 20.0f;
+
+	// --- 疲労度によるペナルティ設定（3段階：軽度50超／中度75以上／重度90以上） ---
+
+	/** 軽度の疲労（デバフ①）が始まる数値（この値以上で発動） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Fatigue Penalty")
 	float FatigueThreshold1 = 50.0f;
 
-	/** 重度の疲労（デバフ②）が始まる数値 */
+	/** 中度の疲労（デバフ②）が始まる数値 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Fatigue Penalty")
+	float FatigueThresholdMid = 75.0f;
+
+	/** 重度の疲労（デバフ③）が始まる数値 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Fatigue Penalty")
 	float FatigueThreshold2 = 90.0f;
 
@@ -300,21 +322,56 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Fatigue Penalty")
 	float FatigueAttackPenalty1 = 0.05f;
 
-	/** 重度疲労時の攻撃力ダウン率（0.10 = 10%ダウン） */
+	/** 中度疲労時の攻撃力ダウン率（0.15 = 15%ダウン） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Fatigue Penalty")
-	float FatigueAttackPenalty2 = 0.10f;
+	float FatigueAttackPenaltyMid = 0.15f;
+
+	/** 重度疲労時の攻撃力ダウン率（0.30 = 30%ダウン） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Fatigue Penalty")
+	float FatigueAttackPenalty2 = 0.30f;
 
 	/** 重度疲労時の攻撃速度ダウン率（0.05 = 間隔が5%延長されて遅くなる） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Fatigue Penalty")
 	float FatigueSpeedPenalty2 = 0.05f;
 
-	/** 現在の疲労度を加味した最終的な【攻撃力】を返す関数 */
-	UFUNCTION(BlueprintPure, Category = "Combat|Fatigue Penalty")
-	float GetModifiedAttackPower() const;
+	/** 軽度疲労時の防御力ダウン率（0.05 = 5%ダウン） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Fatigue Penalty")
+	float FatigueDefensePenalty1 = 0.05f;
 
-	/** 現在の疲労度を加味した最終的な【攻撃間隔】を返す関数 */
+	/** 中度疲労時の防御力ダウン率（0.15 = 15%ダウン） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Fatigue Penalty")
+	float FatigueDefensePenaltyMid = 0.15f;
+
+	/** 重度疲労時の防御力ダウン率（0.30 = 30%ダウン） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Fatigue Penalty")
+	float FatigueDefensePenalty2 = 0.30f;
+
+	// --- 疲労段階に応じて自動でON/OFFするバフアイコン（DT_Buffsの行名を指定） ---
+
+	/** 軽度疲労（デバフ①）中に表示するバフのBuffID（DT_Buffsの行名） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Fatigue Penalty")
+	FName FatigueBuffID1 = "6";
+
+	/** 中度疲労（デバフ②）中に表示するバフのBuffID（DT_Buffsの行名） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Fatigue Penalty")
+	FName FatigueBuffIDMid = "7";
+
+	/** 重度疲労（デバフ③）中に表示するバフのBuffID（DT_Buffsの行名） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Fatigue Penalty")
+	FName FatigueBuffID2 = "8";
+
+	/** 現在ActiveBuffsに出している疲労バフのBuffID（段階が変わっていないかの判定用。NAME_Noneなら非表示中） */
+	FName CurrentFatigueBuffID = NAME_None;
+
+	/** 現在の疲労度を加味した最終的な【攻撃間隔】を返す関数（AttackSpeedはMyStatsに保持しない値のため、こちらは今まで通り都度計算） */
 	UFUNCTION(BlueprintPure, Category = "Combat|Fatigue Penalty")
 	float GetModifiedAttackSpeed() const;
+
+	/** MyStats.BaseAttackPower/BaseDefensePowerに現在の疲労度による倍率を掛け、MyStats.AttackPower/DefensePowerへ直接反映する。
+	 *  ステータス画面はAttackPower/DefensePowerを直接表示しているだけなので、これを呼べば表示にもそのまま反映される。
+	 *  HandleFatigueTick（疲労度が変わった時）とRefreshEquipmentStats等（Base側が変わった時）の両方から呼ばれる */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Fatigue Penalty")
+	void RecalculateFatigueAdjustedCombatStats();
 
 	/** 特殊技（ウェポンスキル等）を実行する関数 */
 	UFUNCTION(BlueprintCallable, Category = "Combat|Special")
@@ -504,6 +561,10 @@ public:
 	UPROPERTY()
 	TMap<FName, float> SkinOverlayExtraStatBonuses;
 
+	// 直近でRefreshEquipmentStatsが月齢サイクルのフェーズから加算したExtraStats量（装備・肌の記録とは別に必要。同じ理由で二重加算防止のため）
+	UPROPERTY()
+	TMap<FName, float> CyclePhaseExtraStatBonuses;
+
 	// アイテムIDと装備データの両方を受け取るようにします
 	UFUNCTION(BlueprintCallable, Category = "Equipment")
 	void EquipItem(FName ItemID, FEquipmentData EquipData);
@@ -647,6 +708,9 @@ protected:
 	/** Space(JumpAction)：ターゲット中の対象に応じて会話開始/ショップ開始/戦闘開始を振り分ける */
 	void OnActionKeyPressed();
 
+	/** G/H等(WaitAction)：その場で時間を進める「待機」メニューを開く */
+	void OnWaitKeyPressed();
+
 public:
 	/**
 	 * OnActionKeyPressedで、CurrentTargetがQuestNPC/ShopNPC/Enemyのどれでもなかった場合に呼ばれる。
@@ -655,6 +719,14 @@ public:
 	 */
 	UFUNCTION(BlueprintImplementableEvent, Category = "Input")
 	void BP_TryInteractWithTarget(AActor* Target);
+
+	/**
+	 * 待機/睡眠メニューを開く共通の入口。会話中・カットシーン中・戦闘中はfalseを返して弾く。
+	 * ベッドなどのInteractable(BP側のBPI_Interactable実装)からもこの関数を直接呼ぶ想定で、
+	 * 「待機」キーとベッドのInteractの両方が同じガード条件・同じメニュー(HUDのOpenTimeSkipMenu)を共有する。
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Time")
+	bool TryOpenTimeSkipMenu(bool bIsSleepMode);
 
 protected:
 	/** インプットのセットアップ */
@@ -1049,7 +1121,9 @@ public:
 
 	// --- 冒険者クラスの等級（ギルドNPCへの申請で昇格） ---
 
-	/** 等級ごとの昇格条件・昇格ボーナスを定義したデータテーブル（行名は昇格先のEAdventurerRank名と一致させる） */
+	/** 等級ごとの昇格ボーナスを定義したデータテーブル（行名は設定先のEAdventurerRank名と一致させる）。
+	    昇格条件はもうここでは見ない（Quest側のRequiredStats/RequiredFlagで受注可否を制御する方式に変更したため）。
+	    行が見つからなければボーナス無しで等級だけ変わる */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RPG Stats|Rank")
 	UDataTable* AdventurerRankDataTable;
 

@@ -285,6 +285,12 @@ bool UQuestComponent::AcceptQuest(FName QuestID)
 	{
 		FString LogMsg = FString::Printf(TEXT("クエスト「%s」を受注した。"), *Data.QuestName.ToString());
 		OwnerChar->OnReceiveLogMessage(LogMsg, ELogMessageType::System);
+
+		// 受注時フラグの付与（例：AQuestItemPointのRequiredFlagをこれに合わせておくと、受注と同時に表示される）
+		if (!Data.AcceptFlag.IsNone())
+		{
+			OwnerChar->AddFlag(Data.AcceptFlag);
+		}
 	}
 
 	if (USoundBase* Sound = ResolveQuestSound(Data.AcceptSound, &AMyProject1HUD::DefaultQuestAcceptSound))

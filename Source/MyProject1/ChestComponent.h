@@ -1,11 +1,11 @@
-#pragma once
+﻿#pragma once
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "MyProject1Types.h"
 #include "ChestComponent.generated.h"
 
-// UI���Łu�`�F�X�g�̒��g���ω������v���Ƃ����m���邽�߂̃f���Q�[�g
+// UIに「チェストの中身が変化した」ことを知らせるためのデリゲート
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnChestUpdated);
 
 // BP_Chest側に「今から蓋を開閉する」ことを知らせるためのデリゲート（実際の見た目はBP側のTimelineが担当）
@@ -20,7 +20,7 @@ class MYPROJECT1_API UChestComponent : public UActorComponent
 public:
 	UChestComponent();
 
-	// ���g���ω���������UI�ɒm�点�鍇�}
+	// 中身が変化した時にUIへ知らせる合図
 	UPROPERTY(BlueprintAssignable, Category = "Chest|UI")
 	FOnChestUpdated OnChestUpdated;
 
@@ -37,62 +37,62 @@ public:
 	FString ChestName = TEXT("宝箱");
 
 	// ==========================================
-	// �ݒ荀�� (�G�f�B�^�̃v���p�e�B�Őݒ�)
+	// 設定項目（エディタのプロパティで設定）
 	// ==========================================
 
-	/** True�Ȃ�f�[�^�e�[�u������S�A�C�e���������������Ċi�[����i�f�o�b�O�p�j */
+	/** Trueならデータテーブルから全アイテムを自動生成して格納する（デバッグ用） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chest|Settings")
 	bool bGenerateAllItems = false;
 
-	/** �f�o�b�O�����������ɁA�e�A�C�e�����������ɓ���邩 */
+	/** デバッグ自動生成時に、各アイテムを何個ずつ入れるか */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chest|Settings", meta = (EditCondition = "bGenerateAllItems"))
 	int32 DebugItemQuantity = 99;
 
-	/** True�Ȃ牽�x���o���Ă����g������Ȃ��i�������j */
+	/** Trueなら何度取り出しても中身が減らない（無限箱） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chest|Settings")
 	bool bIsInfinite = false;
 
-	/** True�Ȃ璆�g����ɂȂ������ɐeActor�i�`�F�X�g���́j�����[���h����폜���� */
+	/** Trueなら中身が空になった時に親Actor（チェスト本体）をワールドから削除する */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chest|Settings")
 	bool bDestroyWhenEmpty = false;
 
-	/** �ǂݍ��ރA�C�e�����X�g�̃f�[�^�e�[�u���iDT_Items�Ȃǂ��Z�b�g����j */
+	/** 読み込むアイテムリストのデータテーブル（DT_Itemsなどをセットする） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chest|Settings", meta = (EditCondition = "bGenerateAllItems"))
 	UDataTable* ItemDataTable;
 
 	// ==========================================
-	// �f�[�^ (���݂̒��g)
+	// データ（現在の中身）
 	// ==========================================
 
-	/** �`�F�X�g�̒��g�BbGenerateAllItems��False�̏ꍇ�́A�蓮�ŃA�C�e����ݒ肵�܂��B */
+	/** チェストの中身。bGenerateAllItemsがFalseの場合は、手動でアイテムを設定します。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chest|Content")
 	TArray<FInventorySlot> ChestContents;
 
 	// ==========================================
-	// �@�\
+	// 機能
 	// ==========================================
 
-	/** �v���C���[���`�F�X�g�������̃A�C�e�������o������ */
+	/** プレイヤーがチェストから指定のアイテムを取り出す */
 	UFUNCTION(BlueprintCallable, Category = "Chest")
 	bool TakeItem(FName ItemID, int32 RequestAmount, class AMyProject1Character* InteractingPlayer);
 
-	/** ���݂̃`�F�X�g�̒��g���擾����iUI�\���p�j */
+	/** 現在のチェストの中身を取得する（UI表示用） */
 	UFUNCTION(BlueprintPure, Category = "Chest")
 	TArray<FInventorySlot> GetChestContents() const { return ChestContents; }
 
 	// ==========================================
-	// �J���J�i�~�߁j��ԁ{E�L�[�C���^���N�g
+	// 開閉（蓋）状態＋Eキーインタラクト
 	// ==========================================
 
-	/** ���ɊJ���Ă��邩�i��d�A�j���[�V�����h�~�Ǝ��C���^���N�g���̕���Ɏg���j */
+	/** 現在開いているか（二重アニメーション防止と実インタラクト判定の両方に使う） */
 	UPROPERTY(BlueprintReadOnly, Category = "Chest|State")
 	bool bIsOpen = false;
 
-	/** BPI_Interactable��E�L�[�C�x���g����Ăяo���A�B��̓�����i�J��+HUD�\����ʊ��j */
+	/** BPI_InteractableのEキーイベントから呼ばれる、蓋の開閉処理（開く＋HUD表示の切替） */
 	UFUNCTION(BlueprintCallable, Category = "Chest")
 	void Interact(class AMyProject1Character* InteractingPlayer);
 
-	/** BPI_Targetable��bIsTargeted=false�i�J�[�\�������j����Ăяo���A�~�߂鏈�� */
+	/** BPI_TargetableのbIsTargeted=false（カーソルが外れた）時に呼ばれる、閉じる処理 */
 	UFUNCTION(BlueprintCallable, Category = "Chest")
 	void CloseChest();
 
