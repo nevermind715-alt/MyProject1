@@ -19,6 +19,12 @@ class MYPROJECT1_API UQuestComponent : public UActorComponent
 public:
 	UQuestComponent();
 
+protected:
+	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+
+public:
+
 	// --- 設定項目 ---
 	/** クエストの設計図が入れられたデータテーブル */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest")
@@ -104,8 +110,21 @@ public:
 	/** 実績クエストを受注した直後、すでにクリア済みの前提クエストがあれば即座に進捗へ反映する */
 	void CheckInitialAchievementProgress(FName QuestID);
 
+	/** 日付が変わるたびに呼ばれ、TimeLimitDaysを過ぎた進行中クエストを強制失敗させる（GameInstance::OnDayChangedDelegateにバインド） */
+	UFUNCTION()
+	void CheckQuestTimeLimits();
+
 private:
 	// Sound resolution helpers: DT_QuestData row overrides HUD default sound when set
 	AMyProject1HUD* GetOwnerHUD() const;
 	class USoundBase* ResolveQuestSound(class USoundBase* RowSound, class USoundBase* AMyProject1HUD::* DefaultField) const;
+
+	/** ObjectiveClearedFlag（対象出現トリガー用の一時フラグ）をプレイヤーから外す共通処理。
+	    受注・報告・放棄・（Delivery討伐パートの）討伐完了時に呼び、周回でのNPCSpawner再武装を
+	    ダイアログ／CompletionRemoveFlagの手動設定なしで成立させる */
+	void ClearObjectiveClearedFlag(const FQuestData& Data) const;
+
+	/** 強制失敗時のペナルティとして、プレイヤーのFCharacterStatsに指定ステータスの増減を適用する
+	    （DialogComponentのステータス変化と同じ加算方式。StatがCustomExtraStatの時はExtraStatNameのキーを増減。適用したらtrueを返す） */
+	bool ApplyFailurePenaltyStat(ETargetStat Stat, FName ExtraStatName, float Amount) const;
 };

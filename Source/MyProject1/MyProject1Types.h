@@ -1035,6 +1035,22 @@ struct FQuestData : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Objective", meta = (EditCondition = "QuestType == EQuestType::Delivery"))
 	bool bUnorderedTalk = false;
 
+	// Delivery専用（任意）：空欄なら純粋な会話クエスト。設定すると、RequiredTalkNPCIDs全員と話した後、
+	// この対象（敵のMyStats.NPCName＝スポナーのSpawnerNPCNameと一致させる）を討伐するまで目的達成にならない。
+	// 「情報収集で居場所を特定し、そのまま討伐して報告」を1クエストで表現するために使う。
+	// 会話完了時点でObjectiveClearedFlagは付与される（対象を出現させるトリガーにできる）が、Statusはまだ報告待ちにならない
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Objective", meta = (EditCondition = "QuestType == EQuestType::Delivery"))
+	FName DeliveryKillTargetID;
+
+	// Delivery専用：DeliveryKillTargetIDの討伐必要数（DeliveryKillTargetIDが空欄なら未使用）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Objective", meta = (EditCondition = "QuestType == EQuestType::Delivery", ClampMin = "1"))
+	int32 DeliveryKillAmount = 1;
+
+	// Delivery専用（任意）：会話（情報収集）パートが完了した時に流すログ文言。
+	// 空欄なら「クエスト「〇〇」：情報を集め終えた。」を表示。「敵のアジトへ向かえ！」等、クエストごとに自由設定
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Objective", meta = (EditCondition = "QuestType == EQuestType::Delivery"))
+	FText DeliveryTalkCompleteLog;
+
 	// Kill/Gatherでの目標数。AchievementとDeliveryでは使用しない（それぞれRequiredQuestIDs/RequiredTalkNPCIDsの数で判定するため）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Objective", meta = (EditCondition = "QuestType != EQuestType::Achievement && QuestType != EQuestType::Delivery"))
 	int32 RequiredAmount = 1;
@@ -1055,6 +1071,21 @@ struct FQuestData : public FTableRowBase
 	// 空欄なら何もしない。文字が入っていればクリア時にフラグを付与
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Reward")
 	FName RewardFlag;
+
+	// --- 目的達成時に付与するフラグ（対象出現トリガー用の一時フラグ） ---
+	// 空欄なら何もしない。文字が入っていれば、目的を達成した瞬間（＝報告待ちになった時）にフラグを付与する。
+	// 依頼主への報告を待たずにNPCSpawner等をその場で反応させたい時に使う（討伐・収集・会話クエストで動作。実績クエストは対象外）。
+	// このフラグは「目的達成〜報告／放棄／再受注」の間だけ立つ一時フラグとして、C++側（UQuestComponent）が
+	// 受注・報告・放棄・Delivery討伐パートの討伐完了時に自動で削除する。手動でのRemoveFlag設定は不要。
+	// 恒久的に残したい称号はRewardFlagを使うこと
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Reward")
+	FName ObjectiveClearedFlag;
+
+	// --- 報告完了時に削除するフラグ ---
+	// 空欄なら何もしない。文字が入っていれば、クエストを報告して完了した瞬間にそのフラグを削除する。
+	// 周回クエストで、前周に立てたフラグ（ObjectiveClearedFlag等）を毎周リセットしたい時に使う
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Reward")
+	FName CompletionRemoveFlag;
 
 	// --- 受注時に付与するフラグ ---
 	// 空欄なら何もしない。文字が入っていれば受注した瞬間にフラグを付与する
@@ -1088,6 +1119,25 @@ struct FQuestData : public FTableRowBase
 	// クリアしてから何日経過で再受注できるか（1なら翌日。0なら即時）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Repeat", meta = (EditCondition = "bIsRepeatable"))
 	int32 CooldownDays = 1;
+
+	// --- 制限時間（期限切れで強制失敗） ---
+	// 受注してからこの日数が経過すると、報告前でも強制的に失敗扱いになる。0なら期限なし（機能OFF）。
+	// 例：3にすると受注日から3日経過（睡眠・待機で進めた分も含む）で失敗する
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|TimeLimit", meta = (ClampMin = "0"))
+	int32 TimeLimitDays = 0;
+
+	// 強制失敗した時に変化させるプレイヤーのステータス（Noneなら変化なし）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|TimeLimit", meta = (EditCondition = "TimeLimitDays > 0"))
+	ETargetStat FailurePenaltyStat = ETargetStat::None;
+
+	// FailurePenaltyStatが「カスタムステータス (ExtraStats)」の時だけ使う、ExtraStats側のキー名。
+	// プレイヤーのMyStats.ExtraStatsに事前登録済みのキーのみ変更できる（会話アクションのExtraStatNameと同じ仕様）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|TimeLimit", meta = (EditCondition = "TimeLimitDays > 0 && FailurePenaltyStat == ETargetStat::CustomExtraStat"))
+	FName FailurePenaltyExtraStatName;
+
+	// 強制失敗した時の変化量。名声などを下げたい場合は -10 のように負の値を入れる（会話アクションの増減と同じ符号ルール）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|TimeLimit", meta = (EditCondition = "TimeLimitDays > 0 && FailurePenaltyStat != ETargetStat::None"))
+	float FailurePenaltyAmount = 0.0f;
 };
 
 // --- プレイヤーが保持するクエスト進行データ ---
@@ -1108,6 +1158,15 @@ struct FQuestProgress
 	// Delivery型でbUnorderedTalk=trueの時だけ使用：既にインタラクト/会話済みのRequiredTalkNPCIDsのTagを記録する（順不同判定用）
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Quest|Progress")
 	TArray<FName> CollectedTalkIDs;
+
+	// Delivery型でDeliveryKillTargetIDが設定されている時だけ使用：会話パート完了後の討伐数
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Quest|Progress")
+	int32 DeliveryKillCount = 0;
+
+	// 受注した時点のTotalElapsedDays（制限時間の判定起点）。-1は「未設定」で、
+	// TimeLimitDaysを後から設定した旧セーブの進行中クエストを即失敗させないための番兵として使う
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Quest|Progress")
+	int32 AcceptedTotalDays = -1;
 
 	FQuestProgress() {}
 
@@ -1161,6 +1220,35 @@ struct FQuestDialogSet
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC")
 	FName DialogRowName_Completed;
+};
+
+// --- 条件（フラグ／冒険者等級）に応じて出し分ける会話1件分（AQuestNPCBaseのConditionalDialogs配列の要素） ---
+// FirstMeetFlagが「1フラグ→1行・一度きり」なのに対し、これは「複数の状態を優先順位付きで、話しかけるたびに」出す用途。
+// 配列を先頭から評価し、設定された条件（フラグ所持・除外フラグ非所持・等級）を全て満たした最初の行を表示する。
+// 例：ギルド受付で「未登録→受付案内」「登録済み(五等)→五等向け」「四等→四等向け」…と現在の状態の台詞を出し分ける。
+// フラグの付与はDT_Dialogs側のGrantFlag、等級の変更はRequestRankUpアクションで行う想定（このエントリ自身は状態を変えない）
+USTRUCT(BlueprintType)
+struct FConditionalDialogEntry
+{
+	GENERATED_BODY()
+
+	// このエントリを選ぶ条件フラグ（プレイヤーが所持していれば該当）。空欄ならフラグ条件なし
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC")
+	FName RequiredFlag;
+
+	// このフラグを持っていたらこのエントリは飛ばす（上位の状態に上書きされた時用）。空欄なら除外条件なし
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC")
+	FName ExcludeFlag;
+
+	// この冒険者等級「以上」なら該当（None＝等級条件なし）。「登録済み」の判定にはRank5（五等）以上を指定する。
+	// EAdventurerRankは数値が大きいほど上位（None < Rank5 < Rank4 < ... < Extra）なので、
+	// 別々の台詞を出したい時は配列で上位等級のエントリを先に並べること
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC")
+	EAdventurerRank MinRank = EAdventurerRank::None;
+
+	// 表示する会話行（NPCのDialogTable内のRowName）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC")
+	FName DialogRowName;
 };
 
 

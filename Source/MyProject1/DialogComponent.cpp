@@ -17,9 +17,15 @@ UDialogComponent::UDialogComponent()
 
 void UDialogComponent::StartDialog(FName RowName, UDataTable* DialogTable, AActor* InNPC)
 {
-	if (!DialogTable) return;
+	// Blueprint互換のためvoidのまま。実処理と成否判定はTryStartDialogに委譲する
+	TryStartDialog(RowName, DialogTable, InNPC);
+}
 
-	
+bool UDialogComponent::TryStartDialog(FName RowName, UDataTable* DialogTable, AActor* InNPC)
+{
+	if (!DialogTable) return false;
+
+
 	if (IRpgCharacterInterface* RpgInterface = Cast<IRpgCharacterInterface>(GetOwner()))
 	{
 		RpgInterface->CancelTarget();
@@ -29,44 +35,51 @@ void UDialogComponent::StartDialog(FName RowName, UDataTable* DialogTable, AActo
 	CurrentNPC = InNPC;
 
 	FDialogData* Data = DialogTable->FindRow<FDialogData>(RowName, TEXT("DialogContext"));
-	if (Data)
+	if (!Data)
 	{
-		CurrentDialogData = *Data;
-
-		FString RawText = CurrentDialogData.DialogText.ToString();
-		CurrentDialogLines.Empty();
-
-		RawText = RawText.Replace(TEXT("\r"), TEXT(""));
-		RawText.ParseIntoArray(CurrentDialogLines, TEXT("\n"), true);
-
-		if (CurrentDialogLines.Num() == 0)
-		{
-			CurrentDialogLines.Add(TEXT(""));
-		}
-
-		CurrentLineIndex = 0;
-
-		if (CurrentDialogData.DialogSE)
-		{
-			UGameplayStatics::PlaySound2D(GetWorld(), CurrentDialogData.DialogSE);
-		}
-
-		if (CurrentDialogData.DialogVoice)
-		{
-			UGameplayStatics::PlaySound2D(GetWorld(), CurrentDialogData.DialogVoice);
-		}
-
-		if (CurrentDialogData.DialogEmote && CurrentNPC)
-		{
-			ACharacter* NPCCharacter = Cast<ACharacter>(CurrentNPC);
-			if (NPCCharacter)
-			{
-				NPCCharacter->PlayAnimMontage(CurrentDialogData.DialogEmote);
-			}
-		}
-
-		ShowCurrentLine();
+		// 行名の設定漏れ・タイプミス。ここでfalseを返し、呼び出し側が入力ロックしないようにすることで
+		// 「会話UIは出ないのに操作だけロックされる」ソフトロックを防ぐ
+		UE_LOG(LogTemp, Warning, TEXT("[Dialog] 行 '%s' が %s に見つかりません。会話を開始できませんでした。"),
+			*RowName.ToString(), *GetNameSafe(DialogTable));
+		return false;
 	}
+
+	CurrentDialogData = *Data;
+
+	FString RawText = CurrentDialogData.DialogText.ToString();
+	CurrentDialogLines.Empty();
+
+	RawText = RawText.Replace(TEXT("\r"), TEXT(""));
+	RawText.ParseIntoArray(CurrentDialogLines, TEXT("\n"), true);
+
+	if (CurrentDialogLines.Num() == 0)
+	{
+		CurrentDialogLines.Add(TEXT(""));
+	}
+
+	CurrentLineIndex = 0;
+
+	if (CurrentDialogData.DialogSE)
+	{
+		UGameplayStatics::PlaySound2D(GetWorld(), CurrentDialogData.DialogSE);
+	}
+
+	if (CurrentDialogData.DialogVoice)
+	{
+		UGameplayStatics::PlaySound2D(GetWorld(), CurrentDialogData.DialogVoice);
+	}
+
+	if (CurrentDialogData.DialogEmote && CurrentNPC)
+	{
+		ACharacter* NPCCharacter = Cast<ACharacter>(CurrentNPC);
+		if (NPCCharacter)
+		{
+			NPCCharacter->PlayAnimMontage(CurrentDialogData.DialogEmote);
+		}
+	}
+
+	ShowCurrentLine();
+	return true;
 }
 
 void UDialogComponent::SelectChoice(int32 ChoiceIndex)
@@ -84,7 +97,11 @@ void UDialogComponent::SelectChoice(int32 ChoiceIndex)
 
 	if (bHasNext)
 	{
-		StartDialog(SelectedChoice.NextDialogID, CurrentTable, CurrentNPC);
+		// 次の行が見つからない（NextDialogIDの設定ミス）場合は、宙ぶらりんにせず会話を閉じる
+		if (!TryStartDialog(SelectedChoice.NextDialogID, CurrentTable, CurrentNPC))
+		{
+			CloseDialog();
+		}
 	}
 	else
 	{
@@ -322,6 +339,14 @@ void UDialogComponent::AdvanceDialog()
 		return;
 	}
 
+	// 最終ページで選択肢が出ている場合、「クリック/スペースで進む」は無効にする。
+	// 選択肢の進行はSelectChoice経由のみ。ここを通すと、前面のWBP_DialogAdvanceへのクリック透過や
+	// キーフォーカス残りで、選択せずに会話が閉じてしまう（Questも受注されない）事故になる
+	if (CurrentDialogData.Choices.Num() > 0)
+	{
+		return;
+	}
+
 	if (CurrentDialogData.bEndDialog || CurrentDialogData.NextDialogID.IsNone())
 	{
 		FTimerHandle TimerHandle;
@@ -333,10 +358,20 @@ void UDialogComponent::AdvanceDialog()
 				}
 			}, 0.01f, false);
 	}
-	else
+	else if (!TryStartDialog(CurrentDialogData.NextDialogID, CurrentTable, CurrentNPC))
 	{
-		StartDialog(CurrentDialogData.NextDialogID, CurrentTable, CurrentNPC);
+		// 次の行が見つからない（NextDialogIDの設定ミス）場合は、宙ぶらりんにせず会話を閉じる
+		CloseDialog();
 	}
+}
+
+bool UDialogComponent::AreChoicesActive() const
+{
+	// ShowCurrentLineは「最終ページ以外」ではChoicesを空にして送るので、
+	// 最終ページ かつ Choicesが1件以上 の時だけ「選択肢の入力待ち」とみなす
+	return CurrentDialogData.Choices.Num() > 0
+		&& CurrentDialogLines.Num() > 0
+		&& CurrentLineIndex == CurrentDialogLines.Num() - 1;
 }
 
 bool UDialogComponent::CanSelectChoice(const FDialogChoice& Choice) const

@@ -15,6 +15,37 @@ UQuestComponent::UQuestComponent()
 	PrimaryComponentTick.bCanEverTick = false; // 毎フレーム処理は不要なので軽くする
 }
 
+void UQuestComponent::BeginPlay()
+{
+	Super::BeginPlay();
+
+	// 日付が変わるたびに制限時間切れのクエストが無いか確認する。
+	// AdvanceTimeBy（睡眠・待機）も日跨ぎ分だけAdvanceDayを呼ぶので、まとめて何日も進めても取りこぼさない
+	if (UWorld* World = GetWorld())
+	{
+		if (UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(World->GetGameInstance()))
+		{
+			if (!GameInst->OnDayChangedDelegate.IsAlreadyBound(this, &UQuestComponent::CheckQuestTimeLimits))
+			{
+				GameInst->OnDayChangedDelegate.AddDynamic(this, &UQuestComponent::CheckQuestTimeLimits);
+			}
+		}
+	}
+}
+
+void UQuestComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	if (UWorld* World = GetWorld())
+	{
+		if (UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(World->GetGameInstance()))
+		{
+			GameInst->OnDayChangedDelegate.RemoveDynamic(this, &UQuestComponent::CheckQuestTimeLimits);
+		}
+	}
+
+	Super::EndPlay(EndPlayReason);
+}
+
 AMyProject1HUD* UQuestComponent::GetOwnerHUD() const
 {
 	if (APawn* OwnerPawn = Cast<APawn>(GetOwner()))
@@ -39,6 +70,18 @@ USoundBase* UQuestComponent::ResolveQuestSound(USoundBase* RowSound, USoundBase*
 		return HUD->*DefaultField;
 	}
 	return nullptr;
+}
+
+void UQuestComponent::ClearObjectiveClearedFlag(const FQuestData& Data) const
+{
+	if (Data.ObjectiveClearedFlag.IsNone()) return;
+
+	// ObjectiveClearedFlagは「目的達成〜報告／放棄／再受注」の間だけ立てる一時トリガーとして扱う。
+	// 恒久的に残したい称号はRewardFlagを使うこと
+	if (AMyProject1Character* OwnerChar = Cast<AMyProject1Character>(GetOwner()))
+	{
+		OwnerChar->RemoveFlag(Data.ObjectiveClearedFlag);
+	}
 }
 
 bool UQuestComponent::GetQuestData(FName QuestID, FQuestData& OutData)
@@ -271,6 +314,13 @@ bool UQuestComponent::AcceptQuest(FName QuestID)
 
 	// 進行中リストに追加
 	FQuestProgress NewQuest(QuestID);
+
+	// 制限時間の判定起点として、受注時点の累計日数を記録する（TimeLimitDaysが未設定でも害はない）
+	if (UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetWorld()->GetGameInstance()))
+	{
+		NewQuest.AcceptedTotalDays = GameInst->TotalElapsedDays;
+	}
+
 	ActiveQuests.Add(NewQuest);
 
 	CheckInitialGatherProgress(QuestID);
@@ -292,6 +342,10 @@ bool UQuestComponent::AcceptQuest(FName QuestID)
 			OwnerChar->AddFlag(Data.AcceptFlag);
 		}
 	}
+
+	// 前周の名残でObjectiveClearedFlagが残っていても、受注した時点で必ずクリーンな状態から始める
+	// （周回クエストで対象NPCSpawnerを再武装させるため。手動でのフラグ削除設定を不要にする）
+	ClearObjectiveClearedFlag(Data);
 
 	if (USoundBase* Sound = ResolveQuestSound(Data.AcceptSound, &AMyProject1HUD::DefaultQuestAcceptSound))
 	{
@@ -321,6 +375,9 @@ bool UQuestComponent::CancelQuest(FName QuestID)
 			{
 				FString LogMsg = FString::Printf(TEXT("クエスト「%s」を放棄した。"), *Data.QuestName.ToString());
 				OwnerChar->OnReceiveLogMessage(LogMsg, ELogMessageType::System);
+
+				// 放棄した場合も対象出現トリガー(ObjectiveClearedFlag)は残さない（周回・別受注の妨げになるため）
+				ClearObjectiveClearedFlag(Data);
 			}
 		}
 
@@ -359,6 +416,12 @@ void UQuestComponent::UpdateKillObjective(FName EnemyID)
 					Progress.CurrentAmount = Data.RequiredAmount; // 上限で止める
 					Progress.Status = EQuestStatus::ObjectiveCleared; // 報告待ち状態へ
 
+					// 目的達成フラグの付与（報告を待たずにNPCSpawner等を反応させる用）
+					if (OwnerChar && !Data.ObjectiveClearedFlag.IsNone())
+					{
+						OwnerChar->AddFlag(Data.ObjectiveClearedFlag);
+					}
+
 					if (OwnerChar)
 					{
 						FString LogMsg = FString::Printf(TEXT("クエスト「%s」の目的を達成した！"), *Data.QuestName.ToString());
@@ -378,6 +441,50 @@ void UQuestComponent::UpdateKillObjective(FName EnemyID)
 						FString LogMsg = FString::Printf(TEXT("%sを倒した（%d / %d）"), *EnemyID.ToString(), Progress.CurrentAmount, Data.RequiredAmount);
 						OwnerChar->OnReceiveLogMessage(LogMsg, ELogMessageType::Default);
 					}
+				}
+			}
+
+			// Deliveryクエストの討伐パート（DeliveryKillTargetID設定時のみ。会話パート完了後だけカウントする）
+			if (Data.QuestType == EQuestType::Delivery
+				&& !Data.DeliveryKillTargetID.IsNone()
+				&& Data.DeliveryKillTargetID == EnemyID)
+			{
+				// まだ情報収集中なら討伐は数えない（先に対象を倒しても進めさせない）
+				if (Progress.CurrentAmount < Data.RequiredTalkNPCIDs.Num())
+				{
+					continue;
+				}
+
+				const int32 NeedKills = FMath::Max(1, Data.DeliveryKillAmount);
+				Progress.DeliveryKillCount++;
+				bUpdatedAny = true;
+
+				AMyProject1Character* OwnerChar = Cast<AMyProject1Character>(GetOwner());
+
+				if (Progress.DeliveryKillCount >= NeedKills)
+				{
+					Progress.DeliveryKillCount = NeedKills; // 上限で止める
+					Progress.Status = EQuestStatus::ObjectiveCleared; // ここで初めて報告待ちへ
+
+					// 対象を討伐した時点で出現トリガーは役目終了。ここで落とすことで、
+					// 報告前に別レベルへ出入りしても対象が重複POPしなくなる
+					ClearObjectiveClearedFlag(Data);
+
+					if (OwnerChar)
+					{
+						FString LogMsg = FString::Printf(TEXT("クエスト「%s」の目的を達成した！"), *Data.QuestName.ToString());
+						OwnerChar->OnReceiveLogMessage(LogMsg, ELogMessageType::System);
+					}
+
+					if (USoundBase* Sound = ResolveQuestSound(Data.ObjectiveClearedSound, &AMyProject1HUD::DefaultQuestObjectiveClearedSound))
+					{
+						UGameplayStatics::PlaySound2D(GetWorld(), Sound);
+					}
+				}
+				else if (OwnerChar)
+				{
+					FString LogMsg = FString::Printf(TEXT("%sを討伐した（%d / %d）"), *EnemyID.ToString(), Progress.DeliveryKillCount, NeedKills);
+					OwnerChar->OnReceiveLogMessage(LogMsg, ELogMessageType::Default);
 				}
 			}
 		}
@@ -480,6 +587,16 @@ bool UQuestComponent::ReportQuest(FName QuestID)
 					}
 				}
 
+				// 対象出現トリガー(ObjectiveClearedFlag)は報告完了で役目を終えるので必ず落とす。
+				// これで周回時のNPCSpawner再武装がダイアログ/CompletionRemoveFlagの手動設定なしで成立する
+				ClearObjectiveClearedFlag(Data);
+
+				// 周回用：報告完了時に、上記とは別の任意フラグも削除する（世界状態のリセット等の汎用用途）
+				if (OwnerChar && !Data.CompletionRemoveFlag.IsNone())
+				{
+					OwnerChar->RemoveFlag(Data.CompletionRemoveFlag);
+				}
+
 				// リストの移動（進行中から消して、完了履歴に追加）
 				ActiveQuests.RemoveAt(i);
 
@@ -548,6 +665,12 @@ void UQuestComponent::UpdateGatherObjective(FName ItemID, int32 AmountAdded)
 				{
 					Progress.CurrentAmount = Data.RequiredAmount; // 上限で止める
 					Progress.Status = EQuestStatus::ObjectiveCleared; // 報告待ち状態へ
+
+					// 目的達成フラグの付与（報告を待たずにNPCSpawner等を反応させる用）
+					if (OwnerChar && !Data.ObjectiveClearedFlag.IsNone())
+					{
+						OwnerChar->AddFlag(Data.ObjectiveClearedFlag);
+					}
 
 					if (OwnerChar) {
 						FString LogMsg = FString::Printf(TEXT("クエスト「%s」のアイテムが集まった！"), *Data.QuestName.ToString());
@@ -622,17 +745,39 @@ void UQuestComponent::UpdateTalkObjective(FName QuestID, AActor* TalkedToNPC)
 
 		if (Progress.CurrentAmount >= RequiredCount)
 		{
-			Progress.Status = EQuestStatus::ObjectiveCleared; // 依頼主への報告待ち状態へ
-
-			if (OwnerChar)
+			// 目的達成フラグの付与（報告を待たずにNPCSpawner等を反応させる用。討伐パートの有無に関わらず会話完了時点で出す）
+			if (OwnerChar && !Data.ObjectiveClearedFlag.IsNone())
 			{
-				FString LogMsg = FString::Printf(TEXT("クエスト「%s」の目的を達成した！"), *Data.QuestName.ToString());
-				OwnerChar->OnReceiveLogMessage(LogMsg, ELogMessageType::System);
+				OwnerChar->AddFlag(Data.ObjectiveClearedFlag);
 			}
 
-			if (USoundBase* Sound = ResolveQuestSound(Data.ObjectiveClearedSound, &AMyProject1HUD::DefaultQuestObjectiveClearedSound))
+			const bool bHasKillPart = !Data.DeliveryKillTargetID.IsNone();
+
+			if (bHasKillPart)
 			{
-				UGameplayStatics::PlaySound2D(GetWorld(), Sound);
+				// 会話（情報収集）パートは完了。討伐パートが残っているのでStatusはまだ報告待ちにしない
+				if (OwnerChar)
+				{
+					const FString Msg = Data.DeliveryTalkCompleteLog.IsEmpty()
+						? FString::Printf(TEXT("クエスト「%s」：情報を集め終えた。"), *Data.QuestName.ToString())
+						: Data.DeliveryTalkCompleteLog.ToString();
+					OwnerChar->OnReceiveLogMessage(Msg, ELogMessageType::System);
+				}
+			}
+			else
+			{
+				Progress.Status = EQuestStatus::ObjectiveCleared; // 依頼主への報告待ち状態へ
+
+				if (OwnerChar)
+				{
+					FString LogMsg = FString::Printf(TEXT("クエスト「%s」の目的を達成した！"), *Data.QuestName.ToString());
+					OwnerChar->OnReceiveLogMessage(LogMsg, ELogMessageType::System);
+				}
+
+				if (USoundBase* Sound = ResolveQuestSound(Data.ObjectiveClearedSound, &AMyProject1HUD::DefaultQuestObjectiveClearedSound))
+				{
+					UGameplayStatics::PlaySound2D(GetWorld(), Sound);
+				}
 			}
 		}
 		else if (OwnerChar)
@@ -800,4 +945,123 @@ void UQuestComponent::CheckInitialGatherProgress(FName QuestID)
 			}
 		}
 	}
+}
+
+void UQuestComponent::CheckQuestTimeLimits()
+{
+	UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetWorld()->GetGameInstance());
+	if (!GameInst) return;
+
+	const int32 Today = GameInst->TotalElapsedDays;
+	AMyProject1Character* OwnerChar = Cast<AMyProject1Character>(GetOwner());
+
+	bool bAnyFailed = false;
+
+	// 失敗したクエストをその場でActiveQuestsから抜くので、末尾から走査する
+	for (int32 i = ActiveQuests.Num() - 1; i >= 0; --i)
+	{
+		FQuestProgress& Progress = ActiveQuests[i];
+
+		// 「報告するまで」動作させる仕様なので、InProgressとObjectiveClearedの両方が対象
+		if (Progress.Status != EQuestStatus::InProgress && Progress.Status != EQuestStatus::ObjectiveCleared)
+		{
+			continue;
+		}
+
+		FQuestData Data;
+		if (!GetQuestData(Progress.QuestID, Data)) continue;
+
+		// 期限なし（機能OFF）
+		if (Data.TimeLimitDays <= 0) continue;
+
+		// 旧セーブ救済：受注日が未記録（番兵-1）なら、今日を起点に付け直して今回は失敗させない
+		if (Progress.AcceptedTotalDays < 0)
+		{
+			Progress.AcceptedTotalDays = Today;
+			continue;
+		}
+
+		const int32 DaysPassed = Today - Progress.AcceptedTotalDays;
+		if (DaysPassed < Data.TimeLimitDays) continue;
+
+		// --- 強制失敗処理（放棄=CancelQuestと同じ後始末。CompletedQuests/EverCompletedには積まない＝条件を満たせば再受注可） ---
+		const FName FailedID = Progress.QuestID;
+
+		// 対象出現トリガー(ObjectiveClearedFlag)を残さない
+		ClearObjectiveClearedFlag(Data);
+
+		ActiveQuests.RemoveAt(i);
+		bAnyFailed = true;
+
+		if (OwnerChar)
+		{
+			const FString LogMsg = FString::Printf(TEXT("クエスト「%s」は期限切れで失敗した。"), *Data.QuestName.ToString());
+			OwnerChar->OnReceiveLogMessage(LogMsg, ELogMessageType::System);
+		}
+
+		// 強制失敗のペナルティ（プレイヤーのステータス変化）
+		if (Data.FailurePenaltyStat != ETargetStat::None && Data.FailurePenaltyAmount != 0.0f)
+		{
+			ApplyFailurePenaltyStat(Data.FailurePenaltyStat, Data.FailurePenaltyExtraStatName, Data.FailurePenaltyAmount);
+		}
+	}
+
+	if (bAnyFailed)
+	{
+		OnQuestUpdated.Broadcast(NAME_None); // 全体更新
+	}
+}
+
+bool UQuestComponent::ApplyFailurePenaltyStat(ETargetStat Stat, FName ExtraStatName, float Amount) const
+{
+	AMyProject1Character* OwnerChar = Cast<AMyProject1Character>(GetOwner());
+	if (!OwnerChar) return false;
+
+	// 参照(&)で受け取り、ここへの加算がそのまま本体のステータスに反映される（DialogComponentと同じ方式）
+	FCharacterStats& Stats = OwnerChar->GetCharacterStats();
+	FString StatName;
+
+	switch (Stat)
+	{
+	case ETargetStat::Fame:      Stats.Fame += Amount;      StatName = TEXT("名声");   break;
+	case ETargetStat::Favor:     Stats.Favor += Amount;     StatName = TEXT("好感度"); break;
+	case ETargetStat::Hostility: Stats.Hostility += Amount; StatName = TEXT("敵対度"); break;
+	case ETargetStat::Charm:     Stats.Charm += Amount;     StatName = TEXT("魅力");   break;
+	case ETargetStat::Mental:    Stats.Mental += Amount;    StatName = TEXT("精神力"); break;
+	case ETargetStat::Alcohol:   Stats.Alcohol += Amount;   StatName = TEXT("酒量");   break;
+	case ETargetStat::STR:       Stats.STR += Amount;       StatName = TEXT("STR");    break;
+	case ETargetStat::VIT:       Stats.VIT += Amount;       StatName = TEXT("VIT");    break;
+	case ETargetStat::DEX:       Stats.DEX += Amount;       StatName = TEXT("DEX");    break;
+	case ETargetStat::AGI:       Stats.AGI += Amount;       StatName = TEXT("AGI");    break;
+	case ETargetStat::CustomExtraStat:
+	{
+		// 会話アクションのExtraStatと同じく、事前登録済みのキーしか変更しない（無ければ警告のみ）
+		if (ExtraStatName.IsNone())
+		{
+			UE_LOG(LogTemp, Warning, TEXT("【Quest】強制失敗ペナルティでCustomExtraStatが指定されていますが、FailurePenaltyExtraStatNameが空です。"));
+			return false;
+		}
+		float* CurrentVal = Stats.ExtraStats.Find(ExtraStatName);
+		if (!CurrentVal)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("【Quest】強制失敗ペナルティのExtraStat '%s' がプレイヤーに登録されていません。"), *ExtraStatName.ToString());
+			return false;
+		}
+		*CurrentVal += Amount;
+		StatName = ExtraStatName.ToString();
+		break;
+	}
+	default:
+		// AttackPower/DefensePower等の自動再計算されるステータスや未対応の値が指定された場合は
+		// 黙って書き換えず、設定ミスとして警告だけ出す
+		UE_LOG(LogTemp, Warning, TEXT("【Quest】強制失敗ペナルティに未対応のステータス指定 (%d) があります。名声・好感度・敵対度・魅力・精神力・酒量・STR/VIT/DEX/AGI・カスタムステータス のいずれかを指定してください。"), (int32)Stat);
+		return false;
+	}
+
+	const FString Sign = (Amount > 0) ? TEXT("上がった") : TEXT("下がった");
+	const FString LogMsg = FString::Printf(TEXT("%sが %.0f %s。"), *StatName, FMath::Abs(Amount), *Sign);
+	OwnerChar->OnReceiveLogMessage(LogMsg, ELogMessageType::System);
+	OwnerChar->NotifyStatsChanged();
+
+	return true;
 }

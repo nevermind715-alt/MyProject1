@@ -75,6 +75,19 @@ public:
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category = "Spawner Settings", Transient)
 	int32 CurrentSpawnCount = 0;
 
+	/** 空欄でなければ、プレイヤーがこのフラグを獲得した時に1体だけスポーンする。
+	    フラグが外れると再武装し、次にそのフラグが立った時にまた1体スポーンする（周回クエスト用）。
+	    設定時はゲーム開始時の自動スポーン（InitialSpawnDelay）と、討伐後の自動リスポーンは行わない */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Settings")
+	FName RequiredFlag;
+
+	/** 空欄でなければ、このスポナーが湧かせた個体が討伐された時にプレイヤーへ付与するフラグ。
+	    お使い・会話（Delivery）クエストなど TargetID で討伐を追えないクエストで、
+	    「悪党を倒したか」を依頼主への報告選択肢の RequiredFlag でゲートするために使う。
+	    RequiredFlag 運用時は、そのフラグが外れる（＝次の周回が始まる）タイミングでこのフラグも自動で外れる */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Settings")
+	FName GrantFlagOnEnemyDeath;
+
 	// --- 上書き用ステータス（ここで設定した値が敵にコピーされます） ---
 
 	/** 敵のジョブデータ（戦士、モンクなど） */
@@ -172,6 +185,30 @@ protected:
 	/** 敵が死んだ時に呼ばれる関数 */
 	UFUNCTION()
 	void OnEnemyDeath(AActor* DeadActor);
+
+	/** RequiredFlag運用時、今のフラグ周回で既にスポーン済みかどうか */
+	bool bSpawnedForCurrentFlag = false;
+
+	/** プレイヤーがフラグを獲得した時に呼ばれる（OnFlagAddedの購読先）。RequiredFlag一致時のみスポーンする */
+	UFUNCTION()
+	void OnPlayerFlagAdded(FName FlagName);
+
+	/** プレイヤーがフラグを失った時に呼ばれる（OnFlagRemovedの購読先）。RequiredFlag一致時、次周のため再武装する */
+	UFUNCTION()
+	void OnPlayerFlagRemoved(FName FlagName);
+
+	/** RequiredFlag運用時の初期化。プレイヤー生成と、別レベルからのステータス復元(ApplyPendingCharacterLoad)を
+	    待ってからRequiredFlagを評価する。復元はAddFlagを経由せずUnlockedFlagsを一括代入するためOnFlagAddedが
+	    飛ばず、BeginPlay一度きりの判定ではレベル遷移後に取りこぼす。成立するまで短間隔でリトライする */
+	void InitFlagSpawnWhenReady();
+
+	/** RequiredFlag / GrantFlagOnEnemyDeath の状態から、今このスポナーが1体スポーンすべきか判定する */
+	bool ShouldSpawnForFlagState(const class AMyProject1Character* PlayerChar) const;
+
+	/** InitFlagSpawnWhenReadyのリトライ用タイマー・試行回数、および購読済みフラグ */
+	FTimerHandle FlagInitTimerHandle;
+	int32 FlagInitAttempts = 0;
+	bool bFlagDelegatesBound = false;
 
 	/** リスポーンタイマー */
 	FTimerHandle RespawnTimerHandle;

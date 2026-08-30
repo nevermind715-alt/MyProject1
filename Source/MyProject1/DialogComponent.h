@@ -22,6 +22,11 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Dialog")
 	void StartDialog(FName RowName, UDataTable* DialogTable, AActor* InNPC);
 
+	// StartDialogの本体。指定行が見つかって実際に会話を開始できた場合のみtrueを返す。
+	// 呼び出し側が「会話を開始できた時だけ入力ロックする」等の判定に使えるようにするためのC++専用版。
+	// StartDialogはBlueprint互換のためvoid・BlueprintCallableのまま維持し、この関数へ委譲する
+	bool TryStartDialog(FName RowName, UDataTable* DialogTable, AActor* InNPC);
+
 	// 選択肢が選ばれた時にUIから呼ばれる関数
 	UFUNCTION(BlueprintCallable, Category = "Dialog")
 	void SelectChoice(int32 ChoiceIndex);
@@ -33,6 +38,12 @@ public:
 	// 選択肢のない会話で、画面をクリックして「次へ進む」時に呼ばれる関数
 	UFUNCTION(BlueprintCallable, Category = "Dialog")
 	void AdvanceDialog();
+
+	// 今この瞬間、選択肢の入力待ち（最終ページかつ選択肢が1件以上）かどうか。
+	// 「クリック/スペースで進む」系の全画面ウィジェット（WBP_DialogAdvance）を、
+	// 選択肢表示中だけCollapsedにして選択肢へのクリックを通すために使う
+	UFUNCTION(BlueprintPure, Category = "Dialog")
+	bool AreChoicesActive() const;
 
 	// 会話を終了させる
 	UFUNCTION(BlueprintCallable, Category = "Dialog")

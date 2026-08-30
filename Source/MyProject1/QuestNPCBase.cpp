@@ -156,10 +156,48 @@ void AQuestNPCBase::TalkToNPC(AMyProject1Character* PlayerChar)
 	{
 		if (UDialogComponent* PlayerDialogComp = PlayerChar->FindComponentByClass<UDialogComponent>())
 		{
-			PlayerDialogComp->StartDialog(DialogRowName_FirstMeet, DialogTable, this);
-			RpgInterface->SetInputLocked(true);
+			// 会話を開始できた時だけ入力ロックする（行の設定漏れでソフトロックしないため）
+			if (PlayerDialogComp->TryStartDialog(DialogRowName_FirstMeet, DialogTable, this))
+			{
+				RpgInterface->SetInputLocked(true);
+			}
+			else
+			{
+				UE_LOG(LogTemp, Warning, TEXT("[QuestNPC] %s: FirstMeet行 '%s' が未設定/未登録のため会話を開始できませんでした。"),
+					*GetName(), *DialogRowName_FirstMeet.ToString());
+			}
 		}
 		return;
+	}
+
+	// 条件付き会話（フラグ／冒険者等級で出し分け。FirstMeetの後・Quests配列より優先）。
+	// FirstMeetFlagと違い一度きりではなく、話しかけるたびに現在の状態に合った行を出す。
+	// どのエントリにも一致しなければreturnせず、そのままQuests配列の判定へ進む
+	if (ConditionalDialogs.Num() > 0)
+	{
+		const uint8 PlayerRankValue = static_cast<uint8>(RpgInterface->GetCharacterStats().AdventurerRank);
+
+		for (const FConditionalDialogEntry& CondEntry : ConditionalDialogs)
+		{
+			if (CondEntry.DialogRowName.IsNone()) continue;
+			if (!CondEntry.RequiredFlag.IsNone() && !RpgInterface->HasFlag(CondEntry.RequiredFlag)) continue;
+			if (!CondEntry.ExcludeFlag.IsNone() && RpgInterface->HasFlag(CondEntry.ExcludeFlag)) continue;
+			if (CondEntry.MinRank != EAdventurerRank::None && PlayerRankValue < static_cast<uint8>(CondEntry.MinRank)) continue;
+
+			if (UDialogComponent* PlayerDialogComp = PlayerChar->FindComponentByClass<UDialogComponent>())
+			{
+				if (PlayerDialogComp->TryStartDialog(CondEntry.DialogRowName, DialogTable, this))
+				{
+					RpgInterface->SetInputLocked(true);
+				}
+				else
+				{
+					UE_LOG(LogTemp, Warning, TEXT("[QuestNPC] %s: 条件付き会話行 '%s' が未設定/未登録のため会話を開始できませんでした。"),
+						*GetName(), *CondEntry.DialogRowName.ToString());
+				}
+			}
+			return;
+		}
 	}
 
 	if (Quests.Num() == 0) return;
@@ -212,9 +250,16 @@ void AQuestNPCBase::TalkToNPC(AMyProject1Character* PlayerChar)
 
 	if (UDialogComponent* PlayerDialogComp = PlayerChar->FindComponentByClass<UDialogComponent>())
 	{
-		PlayerDialogComp->StartDialog(RowName, DialogTable, this);
-
-		// 会話中はプレイヤー操作をロックする（DialogComponent::CloseDialogが解除する処理と対）
-		RpgInterface->SetInputLocked(true);
+		// 会話を開始できた時だけプレイヤー操作をロックする（DialogComponent::CloseDialogが解除する処理と対）。
+		// 表示行（DialogRowName_InProgress等）が未設定だと会話UIが出ないため、その場合はロックしない
+		if (PlayerDialogComp->TryStartDialog(RowName, DialogTable, this))
+		{
+			RpgInterface->SetInputLocked(true);
+		}
+		else
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[QuestNPC] %s: クエスト '%s' の表示行 '%s' が未設定/未登録のため会話を開始できませんでした。DT_QuestDialogのDialogRowName_*設定を確認してください。"),
+				*GetName(), *ResolvedQuestID.ToString(), *RowName.ToString());
+		}
 	}
 }
