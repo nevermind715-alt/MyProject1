@@ -176,6 +176,26 @@ bool UInventoryComponent::RemoveItem(FName ItemID, int32 Amount)
 	return true;
 }
 
+bool UInventoryComponent::DiscardItem(FName ItemID, int32 Amount)
+{
+	if (Amount <= 0) return false;
+
+	// EXアイテム（イベントや会話での受け渡しでのみ増減する特別な品）は捨てられない
+	FItemData* ItemInfo = GetItemData(ItemID);
+	if (ItemInfo && ItemInfo->bIsEx)
+	{
+		if (IRpgCharacterInterface* RpgInterface = Cast<IRpgCharacterInterface>(GetOwner()))
+		{
+			FString CannotDiscardMsg = FString::Printf(TEXT("%s は捨てられない。"), *ItemInfo->Name);
+			RpgInterface->OnReceiveLogMessage(CannotDiscardMsg, ELogMessageType::System);
+		}
+		return false;
+	}
+
+	// 通常の削除処理へ委譲（所持数チェック・スロット整理・OnInventoryUpdatedはRemoveItem側で行う）
+	return RemoveItem(ItemID, Amount);
+}
+
 TArray<FInventorySlot> UInventoryComponent::GetInventoryByType(EItemType TargetType)
 {
 	TArray<FInventorySlot> FilteredSlots;
@@ -266,6 +286,45 @@ bool UInventoryComponent::UseItem(FName ItemID)
 		{
 			FString CannotUseMsg = FString::Printf(TEXT("%s は使用できない！"), *ItemInfo->Name);
 			RpgInterface->OnReceiveLogMessage(CannotUseMsg, ELogMessageType::System);
+		}
+		return false;
+	}
+
+	// --- 拘束具・呪物の「鍵」：装備ロック（bCannotUnequipManually）を解除する ---
+	// 効果（Effects）ループには入らず、ここで完結して return する。
+	if (ItemInfo->bUnlocksRestraint)
+	{
+		int32 UnlockedCount = 0;
+		const TArray<EEquipmentSlot> LockedSlots = OwnerChar->GetLockedEquipmentSlots();
+		for (EEquipmentSlot Slot : LockedSlots)
+		{
+			if (!ItemInfo->bRestraintUnlockAnySlot && Slot != ItemInfo->RestraintUnlockSlot) continue;
+			// 鍵・ショップ解除はインベントリに戻す仕様
+			if (OwnerChar->ForceRemoveLockedEquipment(Slot, /*bReturnToInventory=*/true))
+			{
+				++UnlockedCount;
+			}
+		}
+
+		if (IRpgCharacterInterface* RpgInterface = Cast<IRpgCharacterInterface>(GetOwner()))
+		{
+			const FString Msg = (UnlockedCount > 0)
+				? FString::Printf(TEXT("%s で拘束を解除した。"), *ItemInfo->Name)
+				: FString::Printf(TEXT("%s で外せる装備がない。"), *ItemInfo->Name);
+			RpgInterface->OnReceiveLogMessage(Msg, ELogMessageType::System);
+		}
+
+		if (UnlockedCount > 0)
+		{
+			if (!ItemInfo->UseSound.IsNull())
+			{
+				if (USoundBase* SoundToPlay = ItemInfo->UseSound.LoadSynchronous())
+				{
+					UGameplayStatics::PlaySoundAtLocation(this, SoundToPlay, OwnerChar->GetActorLocation());
+				}
+			}
+			if (ItemInfo->bConsumeOnUse) { RemoveItem(ItemID, 1); }
+			return true;
 		}
 		return false;
 	}

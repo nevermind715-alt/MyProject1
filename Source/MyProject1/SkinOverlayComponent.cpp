@@ -250,17 +250,8 @@ TArray<FEquipmentStatModifier> USkinOverlayComponent::GetActiveStatModifiers() c
 		}
 	}
 
-	// ピアス
-	if (PiercingDataTable)
-	{
-		for (const auto& Pair : ActivePiercings)
-		{
-			if (FPiercingDataRow* Data = PiercingDataTable->FindRow<FPiercingDataRow>(Pair.Key, TEXT("PiercingStatLookup")))
-			{
-				Result.Append(Data->StatModifiers);
-			}
-		}
-	}
+	// ピアスはDT_Equipments（装備）へ統合済み。ステータス補正は装備側のRefreshEquipmentStatsが担当するため、
+	// ここで ActivePiercings を加算すると二重加算になる。よってピアスの加算はしない（旧オーバーレイ方式の名残）。
 
 	// 病気・ケガ
 	if (DiseaseDataTable)
@@ -450,18 +441,8 @@ bool USkinOverlayComponent::PopulateShopItemInfo(UDataTable* TargetDT, FName Row
 		OutInfo.RemovePrice = Data->RemovePrice;
 		return true;
 	}
-	else if (ShopCategory == EShopModeCategory::Piercing)
-	{
-		FPiercingDataRow* Data = TargetDT->FindRow<FPiercingDataRow>(RowName, TEXT("ShopItemLookup"));
-		// 職人のレベルがピアスの要求レベル未満ならリストに入れない！
-		if (!Data || Data->ItemLevel > CurrentShopLevel) return false;
-
-		OutInfo.DisplayName = Data->DisplayName;
-		OutInfo.Description = Data->Description;
-		OutInfo.BuyPrice = Data->BuyPrice;
-		OutInfo.RemovePrice = Data->RemovePrice;
-		return true;
-	}
+	// ピアスはDT_Equipmentsへ統合済み。GetGenerateShopItemList / GetShopItemInfoByRowName が
+	// Piercingカテゴリを先に横取りしてBuildPiercingShopListへ委譲するため、ここには到達しない。
 	else if (ShopCategory == EShopModeCategory::Scar)
 	{
 		FScarDataRow* Data = TargetDT->FindRow<FScarDataRow>(RowName, TEXT("ShopItemLookup"));
@@ -493,6 +474,17 @@ bool USkinOverlayComponent::PopulateShopItemInfo(UDataTable* TargetDT, FName Row
 TArray<FOverlayShopItemInfo> USkinOverlayComponent::GetGenerateShopItemList(EShopModeCategory ShopCategory) const
 {
 	TArray<FOverlayShopItemInfo> OutList;
+
+	// ピアスはDT_Equipments（装備）へ統合済み。装備側でリストを組み立てる。
+	if (ShopCategory == EShopModeCategory::Piercing)
+	{
+		if (OwnerCharacter)
+		{
+			OutList = OwnerCharacter->BuildPiercingShopList();
+		}
+		return OutList;
+	}
+
 	UDataTable* TargetDT = GetOverlayDataTableByCategory(ShopCategory);
 	if (!TargetDT) return OutList;
 
@@ -535,6 +527,21 @@ TArray<FOverlayShopItemInfo> USkinOverlayComponent::GetGenerateShopItemList(ESho
 bool USkinOverlayComponent::GetShopItemInfoByRowName(FName RowName, EShopModeCategory ShopCategory, FOverlayShopItemInfo& OutInfo) const
 {
 	if (RowName.IsNone()) return false;
+
+	// ピアスはDT_Equipments（装備）へ統合済み。装備側リストから該当行を探す。
+	if (ShopCategory == EShopModeCategory::Piercing)
+	{
+		if (!OwnerCharacter) return false;
+		for (const FOverlayShopItemInfo& Info : OwnerCharacter->BuildPiercingShopList())
+		{
+			if (Info.RowName == RowName)
+			{
+				OutInfo = Info;
+				return true;
+			}
+		}
+		return false;
+	}
 
 	UDataTable* TargetDT = GetOverlayDataTableByCategory(ShopCategory);
 	if (!TargetDT) return false;

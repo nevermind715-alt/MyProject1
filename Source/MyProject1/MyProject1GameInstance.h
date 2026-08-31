@@ -184,8 +184,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Save")
 	bool DoesSaveGameExist(const FString& SlotName = TEXT("SaveSlot1")) const;
 
-	/** レベル移動後、新しく生成されたキャラクターのBeginPlayから呼ばれ、PendingLoadSaveGameの中身を実際に適用する */
-	void ApplyPendingCharacterLoad(class AMyProject1Character* Character);
+	/** レベル移動後、新しく生成されたキャラクターのBeginPlayから呼ばれ、PendingLoadSaveGameの中身を実際に適用する。
+	 *  スナップショット（セーブロード or 別マップワープ）を実際に消費して復元したときだけ true を返す。
+	 *  false のときは「完全新規開始」なので、呼び出し側がデフォルト装備などの初期化を行ってよい。 */
+	bool ApplyPendingCharacterLoad(class AMyProject1Character* Character);
 
 	// --- ログウィンドウの履歴 ---
 	// レベル移動（OpenLevel）でWBP_LogWindowが再生成されても消えないよう、

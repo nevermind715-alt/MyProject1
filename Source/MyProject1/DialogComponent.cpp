@@ -6,6 +6,7 @@
 #include "GameFramework/PlayerController.h"
 #include "MyProject1GameInstance.h"
 #include "MyProject1Character.h"
+#include "InventoryComponent.h"
 #include "WarpPortal.h"
 #include "MyProject1HUD.h"
 #include "RpgCharacterInterface.h" 
@@ -88,7 +89,7 @@ void UDialogComponent::SelectChoice(int32 ChoiceIndex)
 
 	const FDialogChoice& SelectedChoice = CurrentDialogData.Choices[ChoiceIndex];
 
-	ExecuteActionCore(SelectedChoice.ActionType, SelectedChoice.ActionPayload, SelectedChoice.GrantFlag, SelectedChoice.bFadeOnGrantFlag, SelectedChoice.RemoveFlag, SelectedChoice.bFadeOnRemoveFlag, SelectedChoice.StatToChange, SelectedChoice.StatTargetActor, SelectedChoice.ExtraStatName, SelectedChoice.StatChangeAmount);
+	ExecuteActionCore(SelectedChoice.ActionType, SelectedChoice.ActionPayload, SelectedChoice.GrantFlag, SelectedChoice.bFadeOnGrantFlag, SelectedChoice.RemoveFlag, SelectedChoice.bFadeOnRemoveFlag, SelectedChoice.StatToChange, SelectedChoice.StatTargetActor, SelectedChoice.ExtraStatName, SelectedChoice.StatChangeAmount, SelectedChoice.ItemID, SelectedChoice.ItemAmount);
 
 	FString NextIDStr = SelectedChoice.NextDialogID.ToString().TrimStartAndEnd();
 	bool bHasNext = !SelectedChoice.NextDialogID.IsNone() && !NextIDStr.IsEmpty() && NextIDStr.ToLower() != TEXT("none");
@@ -109,7 +110,7 @@ void UDialogComponent::SelectChoice(int32 ChoiceIndex)
 	}
 }
 
-void UDialogComponent::ExecuteActionCore(EDialogActionType ActionType, const FString& ActionPayload, FName GrantFlag, bool bFadeOnGrantFlag, FName FlagToRemove, bool bFadeOnRemoveFlag, ETargetStat StatToChange, EStatTargetActor StatTargetActor, FName ExtraStatName, float StatChangeAmount)
+void UDialogComponent::ExecuteActionCore(EDialogActionType ActionType, const FString& ActionPayload, FName GrantFlag, bool bFadeOnGrantFlag, FName FlagToRemove, bool bFadeOnRemoveFlag, ETargetStat StatToChange, EStatTargetActor StatTargetActor, FName ExtraStatName, float StatChangeAmount, FName ItemID, int32 ItemAmount)
 {
 
 	IRpgCharacterInterface* RpgInterface = Cast<IRpgCharacterInterface>(GetOwner());
@@ -196,6 +197,25 @@ void UDialogComponent::ExecuteActionCore(EDialogActionType ActionType, const FSt
 	case EDialogActionType::RequestRankUp:
 		// ActionPayloadに設定先の等級（EAdventurerRankの行名。例："Rank4"）を入れて使う
 		RpgInterface->SetAdventurerRank(FName(*ActionPayload));
+		break;
+
+	case EDialogActionType::AddItem:
+		// ItemID/ItemAmountで指定したアイテムをプレイヤーのインベントリに追加する（渡す）。
+		// カバンが満杯で入り切らない場合はAddItem側がfalseを返すが、ここでは通知は出さない
+		if (!ItemID.IsNone() && ItemAmount > 0)
+		{
+			if (UInventoryComponent* Inv = GetOwner()->FindComponentByClass<UInventoryComponent>())
+				Inv->AddItem(ItemID, ItemAmount);
+		}
+		break;
+
+	case EDialogActionType::RemoveItem:
+		// ItemID/ItemAmountで指定したアイテムをプレイヤーのインベントリから削除する（奪う）
+		if (!ItemID.IsNone() && ItemAmount > 0)
+		{
+			if (UInventoryComponent* Inv = GetOwner()->FindComponentByClass<UInventoryComponent>())
+				Inv->RemoveItem(ItemID, ItemAmount);
+		}
 		break;
 
 	case EDialogActionType::Close:
@@ -433,7 +453,7 @@ void UDialogComponent::ShowCurrentLine()
 		// （会話終了設定の場合、この下でAdvanceDialogを経由せず直接CloseDialogするため、ここで実行しないと機会を失う）
 		if (CurrentDialogData.Choices.Num() == 0)
 		{
-			ExecuteActionCore(CurrentDialogData.ActionType, CurrentDialogData.ActionPayload, CurrentDialogData.GrantFlag, CurrentDialogData.bFadeOnGrantFlag, CurrentDialogData.RemoveFlag, CurrentDialogData.bFadeOnRemoveFlag, CurrentDialogData.StatToChange, CurrentDialogData.StatTargetActor, CurrentDialogData.ExtraStatName, CurrentDialogData.StatChangeAmount);
+			ExecuteActionCore(CurrentDialogData.ActionType, CurrentDialogData.ActionPayload, CurrentDialogData.GrantFlag, CurrentDialogData.bFadeOnGrantFlag, CurrentDialogData.RemoveFlag, CurrentDialogData.bFadeOnRemoveFlag, CurrentDialogData.StatToChange, CurrentDialogData.StatTargetActor, CurrentDialogData.ExtraStatName, CurrentDialogData.StatChangeAmount, CurrentDialogData.ItemID, CurrentDialogData.ItemAmount);
 		}
 
 		if (CurrentDialogData.Choices.Num() == 0 &&

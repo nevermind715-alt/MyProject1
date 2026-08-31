@@ -569,9 +569,66 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Equipment")
 	void EquipItem(FName ItemID, FEquipmentData EquipData);
 
-	// 外す部位を指定して受け取ります
+	// 外す部位を指定して受け取ります（見た目・鎖・状態の実処理。ロック判定はしない）
 	UFUNCTION(BlueprintCallable, Category = "Equipment")
 	void UnequipItem(EEquipmentSlot TargetSlot);
+
+	// 装備メニューの「外す」ボタンはこの関数を呼ぶこと（UnequipItemを直接呼ばない）。
+	// bCannotUnequipManually な装備はここで弾かれ、「外せない」ログを出して false を返す。
+	// FItemData::bIsEx に対する UInventoryComponent::DiscardItem() と同じ役割。
+	UFUNCTION(BlueprintCallable, Category = "Equipment")
+	bool TryUnequipItem(EEquipmentSlot TargetSlot);
+
+	// 指定スロットの装備が「自力では外せない」ロック装備かどうか（UIのボタン表示制御用）
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Equipment")
+	bool IsSlotLocked(EEquipmentSlot TargetSlot);
+
+	// 鍵アイテム／専門ショップ／破壊ポイントなど、正規の解除手段からのみ呼ぶ強制解除。
+	// ロック装備以外のスロットには作用しない。
+	// bReturnToInventory=true: 外した装備をインベントリに戻す（鍵・ショップ解除）
+	// bReturnToInventory=false: 戻さず消滅させる（破壊による解除）
+	// 戻り値: 実際にロック装備を外したら true
+	UFUNCTION(BlueprintCallable, Category = "Equipment")
+	bool ForceRemoveLockedEquipment(EEquipmentSlot TargetSlot, bool bReturnToInventory);
+
+	// 現在装備しているロック装備（bCannotUnequipManually）のスロット一覧。
+	// 解錠屋ショップUI・破壊ポイントの対象選択・鍵の対象判定などから使う。
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Equipment")
+	TArray<EEquipmentSlot> GetLockedEquipmentSlots();
+
+	// 解錠屋ショップ（EShopModeCategory::Restraint）からの解除。
+	// FEquipmentDataのUnlockLevel/UnlockPriceを見て、職人レベル判定→ギル支払い→解除（インベントリに戻す）まで行う。
+	// 戻り値: 解除できたら true（レベル不足・所持金不足・非ロックなら false ＋ログ）
+	UFUNCTION(BlueprintCallable, Category = "Equipment")
+	bool TryShopUnlockRestraint(EEquipmentSlot TargetSlot, int32 ShopLevel);
+
+	// --- ピアス医者ショップ（EShopModeCategory::Piercing）用 ---
+	// ピアス＝TargetSlotがExtra1〜Extra5の装備。将来 bIsPiercing を導入するならこの判定を差し替える。
+	UFUNCTION(BlueprintPure, Category = "Equipment")
+	static bool IsPiercingSlot(EEquipmentSlot Slot);
+
+	// 現在装備している「呪われピアス」（Extra1〜5 かつ bCannotUnequipManually）のスロット一覧。医者ショップの除去タブ用。
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Equipment")
+	TArray<EEquipmentSlot> GetEquippedCursedPiercingSlots();
+
+	// DT_Equipments のうち TargetSlot が Extra1〜5 の行名一覧。医者ショップの装着タブのカタログ用。
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Equipment")
+	TArray<FName> GetAllPiercingEquipmentRowNames();
+
+	// 医者ショップ：呪われピアスを有料で除去する（UnlockLevel判定→UnlockPrice支払い→消滅。インベントリには戻さない）。
+	// EquipRowName は現在装備中の呪われピアスの行名。装備中スロットは内部で解決する。
+	UFUNCTION(BlueprintCallable, Category = "Equipment")
+	bool TryDoctorRemovePiercing(FName EquipRowName, int32 ShopLevel);
+
+	// 医者ショップ：ピアス装備を DT_Items の Price ＋ PriceMarkup で購入し、その場で装着する。
+	UFUNCTION(BlueprintCallable, Category = "Equipment")
+	bool TryDoctorAddPiercing(FName EquipRowName, int32 PriceMarkup);
+
+	// 医者ショップ（EShopModeCategory::Piercing）のリストを FOverlayShopItemInfo 形式で丸ごと返す。
+	// ・未装備のピアス行 = カタログ（bIsOwned=false, BuyPrice = DT_Items.Price + ActiveShopNPCのPiercingAddMarkup）
+	// ・装備中の呪われピアス = 除去対象（bIsOwned=true, RemovePrice = FEquipmentData.UnlockPrice）
+	// SkinOverlayComponent::GetGenerateShopItemList が Piercing カテゴリでこれに委譲するため、既存の施術ショップWBPがそのまま使える。
+	TArray<FOverlayShopItemInfo> BuildPiercingShopList() const;
 
 	
 	// 全装備のステータス補正を再計算して適用する
@@ -609,6 +666,16 @@ public:
 	// 装備データテーブルの参照
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment")
 	UDataTable* EquipmentDataTable;
+
+	// 完全新規開始時（セーブロードでも別マップワープでもない初回Play）にだけ装備させる初期装備。
+	// EquipmentDataTable（DT_Equipments）のRow名を並べるだけで、BeginPlayでEquipItem()経由で反映される。
+	// AQuestNPCBase::InitialEquipmentRowNamesのプレイヤー版だが、
+	// プレイヤーはShouldApplyEquipmentStatBonuses()がtrueのままなのでStatModifiersも通常どおり乗る。
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Equipment")
+	TArray<FName> DefaultEquipmentRowNames;
+
+	/** DefaultEquipmentRowNamesをEquipmentDataTableから引いて装備させる。完全新規開始時のみBeginPlayから呼ばれる。 */
+	void ApplyDefaultEquipment();
 
 	
 	// バフ専用データテーブルの参照

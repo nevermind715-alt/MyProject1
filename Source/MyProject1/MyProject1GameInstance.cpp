@@ -510,9 +510,9 @@ bool UMyProject1GameInstance::DoesSaveGameExist(const FString& SlotName) const
 	return UGameplayStatics::DoesSaveGameExist(SlotName, 0);
 }
 
-void UMyProject1GameInstance::ApplyPendingCharacterLoad(AMyProject1Character* Character)
+bool UMyProject1GameInstance::ApplyPendingCharacterLoad(AMyProject1Character* Character)
 {
-	if (!Character || !PendingLoadSaveGame) return;
+	if (!Character || !PendingLoadSaveGame) return false;
 
 	UMyProject1SaveGame* Loaded = PendingLoadSaveGame;
 
@@ -555,6 +555,7 @@ void UMyProject1GameInstance::ApplyPendingCharacterLoad(AMyProject1Character* Ch
 	Character->NotifyStatsChanged();
 
 	PendingLoadSaveGame = nullptr;
+	return true;
 }
 
 void UMyProject1GameInstance::AddLogHistoryEntry(const FString& Message, ELogMessageType InLogType)

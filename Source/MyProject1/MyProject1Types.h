@@ -91,7 +91,8 @@ enum class EShopModeCategory : uint8
 	Armor     UMETA(DisplayName = "防具屋 (Armor)"),
 	Potion    UMETA(DisplayName = "ポーション屋 (Potion)"),
 	Material  UMETA(DisplayName = "素材屋 (Material)"),
-	Food      UMETA(DisplayName = "料理屋 (Food)")
+	Food      UMETA(DisplayName = "料理屋 (Food)"),
+	Restraint UMETA(DisplayName = "解錠屋・鍛冶（拘束具/呪物の解除）")
 };
 
 // ショップNPCが「特定アイテムのみ売買」モードの時に使う、個別アイテムの取扱設定
@@ -478,6 +479,32 @@ enum class EItemType : uint8
 	Consumable  UMETA(DisplayName = "その他消費アイテム")
 };
 
+// --- 装備スロットの定義 ---
+// ※FItemData（拘束具の鍵）からも参照するため、ここで早めに定義しておく
+UENUM(BlueprintType)
+enum class EEquipmentSlot : uint8
+{
+	Hair          UMETA(DisplayName = "髪型"),
+	Head          UMETA(DisplayName = "頭防具"),
+	Torso         UMETA(DisplayName = "胴防具"),
+	InnerUpper    UMETA(DisplayName = "上半身インナー"),
+	InnerLower    UMETA(DisplayName = "下半身インナー"),
+	Waist         UMETA(DisplayName = "腰装備（スカート等）"),
+	Hands         UMETA(DisplayName = "手防具（手袋・小手）"),
+	Legs          UMETA(DisplayName = "脚防具"),
+	Feet          UMETA(DisplayName = "足防具"),
+	Neck          UMETA(DisplayName = "首装備（Static）"),
+	Wrist         UMETA(DisplayName = "腕輪（Static）"),
+	Ankle         UMETA(DisplayName = "足輪（Static）"),
+	Weapon        UMETA(DisplayName = "メイン武器"),
+	Extra1        UMETA(DisplayName = "特殊枠1（ピアス等）"),
+	Extra2        UMETA(DisplayName = "特殊枠2（ピアス等）"),
+	Extra3        UMETA(DisplayName = "特殊枠3（ピアス等）"),
+	Extra4        UMETA(DisplayName = "特殊枠4（ピアス等）"),
+	Extra5        UMETA(DisplayName = "特殊枠5（ピアス等）"),
+	Max           UMETA(Hidden)
+};
+
 //どのステータスを変化させるかの定義
 UENUM(BlueprintType)
 enum class ETargetStat : uint8
@@ -755,6 +782,21 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item")
 	bool bCanUse = true;
 
+	// --- 拘束具・呪物の「鍵」設定（UseItem()で装備ロックを解除する） ---
+	// ※このアイテムはItemTypeがConsumable/Potion/Foodのいずれかである必要がある（UseItem()の使用可否ゲート）
+
+	/** trueにすると、このアイテムの使用で装備ロック（FEquipmentData::bCannotUnequipManually）を解除する */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item|RestraintKey")
+	bool bUnlocksRestraint = false;
+
+	/** trueなら万能鍵：装備中のロック装備をすべて解除する。falseならRestraintUnlockSlotの1スロットのみ */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item|RestraintKey", meta = (EditCondition = "bUnlocksRestraint"))
+	bool bRestraintUnlockAnySlot = false;
+
+	/** この鍵が解除できる装備スロット（bRestraintUnlockAnySlot=falseのときのみ使用） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item|RestraintKey", meta = (EditCondition = "bUnlocksRestraint && !bRestraintUnlockAnySlot"))
+	EEquipmentSlot RestraintUnlockSlot = EEquipmentSlot::Hands;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item|Audio")
 	TSoftObjectPtr<USoundBase> UseSound;
 	
@@ -785,7 +827,7 @@ enum class EDialogActionType : uint8
 	CancelQuest     UMETA(DisplayName = "クエストを放棄する（あきらめる）"),
 	TalkProgress    UMETA(DisplayName = "会話クエストの進捗を進める（このNPCと話した）"),
 	ChangeStat      UMETA(DisplayName = "ステータスを変化させる"),
-	GiveItem        UMETA(DisplayName = "アイテムを渡す/奪う"),
+	AddItem         UMETA(DisplayName = "アイテムを渡す（インベントリに追加）"),
 	AddFlag         UMETA(DisplayName = "フラグを獲得する"),
 	RemoveFlag      UMETA(DisplayName = "フラグを消去する"),
 	Warp            UMETA(DisplayName = "ワープを実行する"),
@@ -793,7 +835,9 @@ enum class EDialogActionType : uint8
 	AddSkinOverlay     UMETA(DisplayName = "タトゥー/傷跡を強制追加"),
 	RemoveSkinOverlay  UMETA(DisplayName = "タトゥー/傷跡を強制削除"),
 	// ActionPayloadに設定先のEAdventurerRank行名（例："Rank4"）を入れる。条件判定はせず直接その等級に設定する
-	RequestRankUp      UMETA(DisplayName = "冒険者等級を設定する（ActionPayload=等級名）")
+	RequestRankUp      UMETA(DisplayName = "冒険者等級を設定する（ActionPayload=等級名）"),
+	// AddItemと対。ItemID/ItemAmountで指定したアイテムをプレイヤーのインベントリから削除する
+	RemoveItem      UMETA(DisplayName = "アイテムを奪う（インベントリから削除）")
 };
 
 // --- 選択肢1つ分のデータ ---
@@ -824,6 +868,14 @@ struct FDialogChoice
 	// アクションの引数（QuestIDの文字列や、好感度の増減数値など）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog")
 	FString ActionPayload;
+
+	// ActionType=AddItem/RemoveItem時に対象となるアイテムの行名（DT_ItemData等の行名）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (EditCondition = "ActionType == EDialogActionType::AddItem || ActionType == EDialogActionType::RemoveItem"))
+	FName ItemID;
+
+	// ActionType=AddItem/RemoveItem時の個数（常に正の値。奪う場合もRemoveItem側で減算する）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (EditCondition = "ActionType == EDialogActionType::AddItem || ActionType == EDialogActionType::RemoveItem", ClampMin = "1"))
+	int32 ItemAmount = 1;
 
 	// 空欄でなければ、ActionTypeが何であっても（TalkProgressなどと併用でも）このフラグを追加で獲得する
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog")
@@ -904,6 +956,14 @@ struct FDialogData : public FTableRowBase
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Action")
 	FString ActionPayload;
+
+	// ActionType=AddItem/RemoveItem時に対象となるアイテムの行名（DT_ItemData等の行名）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Action", meta = (EditCondition = "ActionType == EDialogActionType::AddItem || ActionType == EDialogActionType::RemoveItem"))
+	FName ItemID;
+
+	// ActionType=AddItem/RemoveItem時の個数（常に正の値。奪う場合もRemoveItem側で減算する）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Action", meta = (EditCondition = "ActionType == EDialogActionType::AddItem || ActionType == EDialogActionType::RemoveItem", ClampMin = "1"))
+	int32 ItemAmount = 1;
 
 	// 空欄でなければ、ActionTypeが何であっても（TalkProgressなどと併用でも）このフラグを追加で獲得する
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Action")
@@ -1325,31 +1385,6 @@ struct FWarpDestinationInfo
 	FText DisplayName;
 };
 
-// --- 装備スロットの定義 ---
-UENUM(BlueprintType)
-enum class EEquipmentSlot : uint8
-{
-	Hair          UMETA(DisplayName = "髪型"),
-	Head          UMETA(DisplayName = "頭防具"),
-	Torso         UMETA(DisplayName = "胴防具"),
-	InnerUpper    UMETA(DisplayName = "上半身インナー"),
-	InnerLower    UMETA(DisplayName = "下半身インナー"),
-	Waist         UMETA(DisplayName = "腰装備（スカート等）"),
-	Hands         UMETA(DisplayName = "手防具（手袋・小手）"),
-	Legs          UMETA(DisplayName = "脚防具"),
-	Feet          UMETA(DisplayName = "足防具"),
-	Neck          UMETA(DisplayName = "首装備（Static）"),
-	Wrist         UMETA(DisplayName = "腕輪（Static）"),
-	Ankle         UMETA(DisplayName = "足輪（Static）"),
-	Weapon        UMETA(DisplayName = "メイン武器"),
-	Extra1        UMETA(DisplayName = "特殊枠1（ピアス等）"),
-	Extra2        UMETA(DisplayName = "特殊枠2（ピアス等）"),
-	Extra3        UMETA(DisplayName = "特殊枠3（ピアス等）"),
-	Extra4        UMETA(DisplayName = "特殊枠4（ピアス等）"),
-	Extra5        UMETA(DisplayName = "特殊枠5（ピアス等）"),
-	Max           UMETA(Hidden)
-};
-
 // --- 拘束具（足枷等）装備時の移動制限プリセット ---
 UENUM(BlueprintType)
 enum class ERestrainedSpeedPreset : uint8
@@ -1525,6 +1560,26 @@ struct FEquipmentData : public FTableRowBase
 	/** この胴装備・腰装備・脚装備を着ている間、下半身インナーを非表示にする */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment|InnerVisibility", meta = (EditCondition = "TargetSlot == EEquipmentSlot::Torso || TargetSlot == EEquipmentSlot::Waist || TargetSlot == EEquipmentSlot::Legs"))
 	bool bHideInnerLower = false;
+
+	// ============================================================================
+	// 装備ロック（手枷・拘束具・呪物など、装備者が自力で外せない装備）
+	// bRestrictsMovement とは完全に独立。拘束具でも自由に外せる物を作れるし、
+	// 移動制限のないピアス等でも「自力では外せない」設定にできる。
+	// 解除は鍵アイテム／専門ショップ／破壊ポイント経由の
+	// AMyProject1Character::ForceRemoveLockedEquipment() でのみ可能。
+	// ============================================================================
+
+	/** trueの場合、装備メニューの「外す」では外せなくなる（拘束・呪い共通） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment|Lock")
+	bool bCannotUnequipManually = false;
+
+	/** 専門ショップ（EShopModeCategory::Restraint）での解除費用。bCannotUnequipManually時のみ意味を持つ */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment|Lock", meta = (EditCondition = "bCannotUnequipManually", ClampMin = "0"))
+	int32 UnlockPrice = 500;
+
+	/** ショップ解除に必要な職人レベル（AShopNPCBase::ShopLevelがこの値以上でないと解除できない） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment|Lock", meta = (EditCondition = "bCannotUnequipManually", ClampMin = "1"))
+	int32 UnlockLevel = 1;
 
 	// ============================================================================
 	// 拘束具（足枷等）による移動制限・アニメーション変更

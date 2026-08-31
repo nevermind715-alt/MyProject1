@@ -38,6 +38,7 @@
 #include "WallWarpLink.h"
 #include "QuestItemPoint.h"
 #include "SleepPoint.h"
+#include "RestraintBreakPoint.h"
 
 
 
@@ -284,6 +285,10 @@ void AMyProject1Character::BeginPlay()
 		}
 	}
 
+	// セーブロード or 別マップワープでの復元が行われたか。
+	// 復元された場合は装備もその内容で再構築されるため、DefaultEquipmentRowNamesは適用しない。
+	bool bRestoredFromSnapshot = false;
+
 	if (UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetGameInstance()))
 	{
 		// すぐに呼ぶのではなく、1フレーム待つか、
@@ -294,7 +299,7 @@ void AMyProject1Character::BeginPlay()
 		if (GetController() && IsPlayerControlled())
 		{
 			GameInst->ApplyPendingWarp(this);
-			GameInst->ApplyPendingCharacterLoad(this);
+			bRestoredFromSnapshot = GameInst->ApplyPendingCharacterLoad(this);
 		}
 
 		// マップも太陽も準備完了したこのタイミングで、初回の時間を通知する ---
@@ -314,6 +319,13 @@ void AMyProject1Character::BeginPlay()
 
 	// ゲーム開始時にデータテーブルの情報をキャラクターに反映させる
 	ApplyJobData();
+
+	// 完全新規開始（セーブロードでも別マップワープでもない初回Play）のときだけ初期装備を着せる。
+	// ApplyJobData()が素体メッシュ・ジョブ既定の髪をセットした後に呼ぶこと（順序が重要）。
+	if (IsPlayerControlled() && !bRestoredFromSnapshot)
+	{
+		ApplyDefaultEquipment();
+	}
 
 	UpdateHealthWidgetName(CharacterName);
 
@@ -427,6 +439,13 @@ void AMyProject1Character::OnActionKeyPressed()
 	if (ASleepPoint* SleepPoint = Cast<ASleepPoint>(CurrentTarget))
 	{
 		SleepPoint->TryInteract(this);
+		return;
+	}
+
+	// 拘束具の破壊ポイントなら破壊解除を試みる
+	if (ARestraintBreakPoint* BreakPoint = Cast<ARestraintBreakPoint>(CurrentTarget))
+	{
+		BreakPoint->TryInteract(this);
 		return;
 	}
 
@@ -2726,6 +2745,24 @@ void AMyProject1Character::UpdateBlink(float DeltaTime)
 // 装備システムの関数実装
 // ==========================================
 
+void AMyProject1Character::ApplyDefaultEquipment()
+{
+	if (!EquipmentDataTable) return;
+
+	for (const FName& RowName : DefaultEquipmentRowNames)
+	{
+		if (RowName.IsNone()) continue;
+
+		// すでに何か装備しているスロットは上書きしない（他経路で先に着せた分を尊重する）
+		FEquipmentData* EquipData = EquipmentDataTable->FindRow<FEquipmentData>(RowName, TEXT("PlayerDefaultEquipment"));
+		if (!EquipData) continue;
+		if (CurrentEquippedItems.Contains(EquipData->TargetSlot)) continue;
+
+		// EquipItem()末尾でRefreshEquipmentStats()も呼ばれるため、StatModifiersも通常どおり反映される
+		EquipItem(RowName, *EquipData);
+	}
+}
+
 void AMyProject1Character::EquipItem(FName ItemID, FEquipmentData EquipData)
 {
 	// ==========================================
@@ -3119,6 +3156,312 @@ void AMyProject1Character::UnequipItem(EEquipmentSlot TargetSlot)
 
 	RefreshEquipmentStats();
 	RefreshMovementRestriction();
+}
+
+bool AMyProject1Character::IsSlotLocked(EEquipmentSlot TargetSlot)
+{
+	const FName EquippedItemID = GetEquippedItemID(TargetSlot);
+	if (EquippedItemID.IsNone() || !EquipmentDataTable) return false;
+
+	const FEquipmentData* EquipData = EquipmentDataTable->FindRow<FEquipmentData>(EquippedItemID, TEXT("IsSlotLocked"));
+	return EquipData && EquipData->bCannotUnequipManually;
+}
+
+bool AMyProject1Character::TryUnequipItem(EEquipmentSlot TargetSlot)
+{
+	if (IsSlotLocked(TargetSlot))
+	{
+		// 表示名は DevMemo（開発用メモ＝アイテム名）を使う。無ければ行名。
+		const FName EquippedItemID = GetEquippedItemID(TargetSlot);
+		FString DisplayName = EquippedItemID.ToString();
+		if (EquipmentDataTable)
+		{
+			if (const FEquipmentData* EquipData = EquipmentDataTable->FindRow<FEquipmentData>(EquippedItemID, TEXT("TryUnequipItem")))
+			{
+				if (!EquipData->DevMemo.IsEmpty()) DisplayName = EquipData->DevMemo;
+			}
+		}
+		OnReceiveLogMessage(FString::Printf(TEXT("%s は自力では外せない。"), *DisplayName), ELogMessageType::System);
+		return false;
+	}
+
+	UnequipItem(TargetSlot);
+	return true;
+}
+
+bool AMyProject1Character::ForceRemoveLockedEquipment(EEquipmentSlot TargetSlot, bool bReturnToInventory)
+{
+	// ロック装備でないスロットには作用させない（誤爆防止）
+	if (!IsSlotLocked(TargetSlot)) return false;
+
+	const FName RemovedItemID = GetEquippedItemID(TargetSlot);
+
+	UnequipItem(TargetSlot);
+
+	// 鍵・ショップ解除はインベントリに戻す。破壊解除は戻さない（＝消滅）。
+	if (bReturnToInventory && !RemovedItemID.IsNone() && InventoryComp)
+	{
+		InventoryComp->AddItem(RemovedItemID, 1);
+	}
+
+	return true;
+}
+
+TArray<EEquipmentSlot> AMyProject1Character::GetLockedEquipmentSlots()
+{
+	TArray<EEquipmentSlot> Result;
+	if (!EquipmentDataTable) return Result;
+
+	for (const TPair<EEquipmentSlot, FName>& Pair : CurrentEquippedItems)
+	{
+		if (Pair.Value.IsNone()) continue;
+
+		const FEquipmentData* EquipData = EquipmentDataTable->FindRow<FEquipmentData>(Pair.Value, TEXT("GetLockedEquipmentSlots"));
+		if (EquipData && EquipData->bCannotUnequipManually)
+		{
+			Result.Add(Pair.Key);
+		}
+	}
+	return Result;
+}
+
+bool AMyProject1Character::TryShopUnlockRestraint(EEquipmentSlot TargetSlot, int32 ShopLevel)
+{
+	if (!IsSlotLocked(TargetSlot) || !EquipmentDataTable) return false;
+
+	const FName EquippedItemID = GetEquippedItemID(TargetSlot);
+	const FEquipmentData* EquipData = EquipmentDataTable->FindRow<FEquipmentData>(EquippedItemID, TEXT("TryShopUnlockRestraint"));
+	if (!EquipData) return false;
+
+	FString DisplayName = EquipData->DevMemo.IsEmpty() ? EquippedItemID.ToString() : EquipData->DevMemo;
+
+	// 職人レベル判定
+	if (ShopLevel < EquipData->UnlockLevel)
+	{
+		OnReceiveLogMessage(FString::Printf(TEXT("ここの職人では %s は外せないようだ。"), *DisplayName), ELogMessageType::System);
+		return false;
+	}
+
+	// ギル支払い（TrySpendGilは足りなければ何もせずfalse）
+	if (!InventoryComp || !InventoryComp->TrySpendGil(EquipData->UnlockPrice))
+	{
+		OnReceiveLogMessage(FString::Printf(TEXT("解除費用（%dギル）が足りない。"), EquipData->UnlockPrice), ELogMessageType::System);
+		return false;
+	}
+
+	// 解除（インベントリに戻す）
+	ForceRemoveLockedEquipment(TargetSlot, /*bReturnToInventory=*/true);
+	OnReceiveLogMessage(FString::Printf(TEXT("%s を外してもらった。"), *DisplayName), ELogMessageType::System);
+	return true;
+}
+
+bool AMyProject1Character::IsPiercingSlot(EEquipmentSlot Slot)
+{
+	return Slot == EEquipmentSlot::Extra1 || Slot == EEquipmentSlot::Extra2
+		|| Slot == EEquipmentSlot::Extra3 || Slot == EEquipmentSlot::Extra4
+		|| Slot == EEquipmentSlot::Extra5;
+}
+
+TArray<EEquipmentSlot> AMyProject1Character::GetEquippedCursedPiercingSlots()
+{
+	TArray<EEquipmentSlot> Result;
+	if (!EquipmentDataTable) return Result;
+
+	for (const TPair<EEquipmentSlot, FName>& Pair : CurrentEquippedItems)
+	{
+		if (Pair.Value.IsNone() || !IsPiercingSlot(Pair.Key)) continue;
+
+		const FEquipmentData* EquipData = EquipmentDataTable->FindRow<FEquipmentData>(Pair.Value, TEXT("GetEquippedCursedPiercingSlots"));
+		if (EquipData && EquipData->bCannotUnequipManually)
+		{
+			Result.Add(Pair.Key);
+		}
+	}
+	return Result;
+}
+
+TArray<FName> AMyProject1Character::GetAllPiercingEquipmentRowNames()
+{
+	TArray<FName> Result;
+	if (!EquipmentDataTable) return Result;
+
+	for (const FName& RowName : EquipmentDataTable->GetRowNames())
+	{
+		const FEquipmentData* EquipData = EquipmentDataTable->FindRow<FEquipmentData>(RowName, TEXT("GetAllPiercingEquipmentRowNames"));
+		if (EquipData && IsPiercingSlot(EquipData->TargetSlot))
+		{
+			Result.Add(RowName);
+		}
+	}
+	return Result;
+}
+
+bool AMyProject1Character::TryDoctorRemovePiercing(FName EquipRowName, int32 ShopLevel)
+{
+	if (EquipRowName.IsNone() || !EquipmentDataTable) return false;
+
+	// 装備中の呪われピアス（Extra1〜5 かつ bCannotUnequipManually）から、行名が一致するスロットを探す
+	EEquipmentSlot TargetSlot = EEquipmentSlot::Max;
+	for (const TPair<EEquipmentSlot, FName>& Pair : CurrentEquippedItems)
+	{
+		if (Pair.Value == EquipRowName && IsPiercingSlot(Pair.Key) && IsSlotLocked(Pair.Key))
+		{
+			TargetSlot = Pair.Key;
+			break;
+		}
+	}
+	if (TargetSlot == EEquipmentSlot::Max) return false;
+
+	const FEquipmentData* EquipData = EquipmentDataTable->FindRow<FEquipmentData>(EquipRowName, TEXT("TryDoctorRemovePiercing"));
+	if (!EquipData) return false;
+
+	const FString DisplayName = EquipData->DevMemo.IsEmpty() ? EquipRowName.ToString() : EquipData->DevMemo;
+
+	if (ShopLevel < EquipData->UnlockLevel)
+	{
+		OnReceiveLogMessage(FString::Printf(TEXT("この医者では %s は外せないようだ。"), *DisplayName), ELogMessageType::System);
+		return false;
+	}
+
+	if (!InventoryComp || !InventoryComp->TrySpendGil(EquipData->UnlockPrice))
+	{
+		OnReceiveLogMessage(FString::Printf(TEXT("施術費（%dギル）が足りない。"), EquipData->UnlockPrice), ELogMessageType::System);
+		return false;
+	}
+
+	// 呪われピアスの除去＝消滅（インベントリには戻さない）
+	ForceRemoveLockedEquipment(TargetSlot, /*bReturnToInventory=*/false);
+	OnReceiveLogMessage(FString::Printf(TEXT("%s を外してもらった。"), *DisplayName), ELogMessageType::System);
+
+	// 既存の施術ショップUIはこのデリゲートでリストを更新する
+	if (OnSkinOverlayUIChangedDelegate.IsBound())
+	{
+		OnSkinOverlayUIChangedDelegate.Broadcast();
+	}
+	return true;
+}
+
+bool AMyProject1Character::TryDoctorAddPiercing(FName EquipRowName, int32 PriceMarkup)
+{
+	if (EquipRowName.IsNone() || !EquipmentDataTable) return false;
+
+	FEquipmentData* EquipData = EquipmentDataTable->FindRow<FEquipmentData>(EquipRowName, TEXT("TryDoctorAddPiercing"));
+	if (!EquipData || !IsPiercingSlot(EquipData->TargetSlot)) return false;
+
+	const FString DisplayName = EquipData->DevMemo.IsEmpty() ? EquipRowName.ToString() : EquipData->DevMemo;
+
+	// 同じスロットに既にピアスがあるなら不可
+	if (CurrentEquippedItems.Contains(EquipData->TargetSlot))
+	{
+		OnReceiveLogMessage(TEXT("そこには既にピアスが入っている。"), ELogMessageType::System);
+		return false;
+	}
+
+	// 価格 = DT_Items の Price ＋ 施術マークアップ（店ごとに設定）
+	int32 BasePrice = 0;
+	if (InventoryComp && InventoryComp->ItemDataTable)
+	{
+		if (const FItemData* ItemData = InventoryComp->ItemDataTable->FindRow<FItemData>(EquipRowName, TEXT("TryDoctorAddPiercing_Price")))
+		{
+			BasePrice = ItemData->Price;
+		}
+	}
+	const int32 FinalPrice = FMath::Max(0, BasePrice + PriceMarkup);
+
+	if (!InventoryComp || !InventoryComp->TrySpendGil(FinalPrice))
+	{
+		OnReceiveLogMessage(FString::Printf(TEXT("施術費（%dギル）が足りない。"), FinalPrice), ELogMessageType::System);
+		return false;
+	}
+
+	// 店で買ってその場で装着（インベントリ経由なし）
+	EquipItem(EquipRowName, *EquipData);
+	OnReceiveLogMessage(FString::Printf(TEXT("%s を装着した。%dギルを支払った。"), *DisplayName, FinalPrice), ELogMessageType::System);
+
+	if (OnSkinOverlayUIChangedDelegate.IsBound())
+	{
+		OnSkinOverlayUIChangedDelegate.Broadcast();
+	}
+	return true;
+}
+
+TArray<FOverlayShopItemInfo> AMyProject1Character::BuildPiercingShopList() const
+{
+	TArray<FOverlayShopItemInfo> OutList;
+	if (!EquipmentDataTable) return OutList;
+
+	// 店の技術レベルと施術マークアップ（NPCがいなければ制限なし・マークアップ既定値）
+	int32 ShopLevel = 99;
+	int32 AddMarkup = 10000;
+	if (ActiveShopNPC)
+	{
+		ShopLevel = ActiveShopNPC->ShopLevel;
+		AddMarkup = ActiveShopNPC->PiercingAddMarkup;
+	}
+
+	const UDataTable* ItemDT = (InventoryComp ? InventoryComp->ItemDataTable : nullptr);
+
+	// --- 装備中の「呪われピアス」＝除去対象（bIsOwned=true） ---
+	for (const TPair<EEquipmentSlot, FName>& Pair : CurrentEquippedItems)
+	{
+		if (Pair.Value.IsNone() || !IsPiercingSlot(Pair.Key)) continue;
+
+		const FEquipmentData* EquipData = EquipmentDataTable->FindRow<FEquipmentData>(Pair.Value, TEXT("BuildPiercingShopList_Remove"));
+		if (!EquipData || !EquipData->bCannotUnequipManually) continue;
+
+		FOverlayShopItemInfo Info;
+		Info.RowName = Pair.Value;
+		Info.bIsOwned = true;
+		Info.RemovePrice = EquipData->UnlockPrice;
+		Info.BuyPrice = 0;
+		if (ItemDT)
+		{
+			if (const FItemData* ItemData = ItemDT->FindRow<FItemData>(Pair.Value, TEXT("BuildPiercingShopList_RemoveName")))
+			{
+				Info.DisplayName = ItemData->Name;
+				Info.Description = ItemData->Description;
+			}
+		}
+		if (Info.DisplayName.IsEmpty()) Info.DisplayName = EquipData->DevMemo.IsEmpty() ? Pair.Value.ToString() : EquipData->DevMemo;
+		OutList.Add(Info);
+	}
+
+	// --- 未装備のピアス装備＝カタログ（bIsOwned=false） ---
+	for (const FName& RowName : EquipmentDataTable->GetRowNames())
+	{
+		const FEquipmentData* EquipData = EquipmentDataTable->FindRow<FEquipmentData>(RowName, TEXT("BuildPiercingShopList_Add"));
+		if (!EquipData || !IsPiercingSlot(EquipData->TargetSlot)) continue;
+
+		// そのスロットが既に埋まっているカタログ品は出さない（買っても装着できないため）
+		if (CurrentEquippedItems.Contains(EquipData->TargetSlot)) continue;
+
+		// 店の技術レベルが足りないものは並べない（他の施術ショップと同じ挙動）
+		if (EquipData->UnlockLevel > ShopLevel) continue;
+
+		int32 BasePrice = 0;
+		FString ItemName;
+		FText ItemDesc = FText::GetEmpty();
+		if (ItemDT)
+		{
+			if (const FItemData* ItemData = ItemDT->FindRow<FItemData>(RowName, TEXT("BuildPiercingShopList_AddName")))
+			{
+				BasePrice = ItemData->Price;
+				ItemName = ItemData->Name;
+				ItemDesc = ItemData->Description;
+			}
+		}
+
+		FOverlayShopItemInfo Info;
+		Info.RowName = RowName;
+		Info.bIsOwned = false;
+		Info.BuyPrice = FMath::Max(0, BasePrice + AddMarkup);
+		Info.RemovePrice = 0;
+		Info.DisplayName = ItemName.IsEmpty() ? (EquipData->DevMemo.IsEmpty() ? RowName.ToString() : EquipData->DevMemo) : ItemName;
+		Info.Description = ItemDesc;
+		OutList.Add(Info);
+	}
+
+	return OutList;
 }
 
 void AMyProject1Character::RefreshMovementRestriction()
@@ -3881,6 +4224,14 @@ void AMyProject1Character::TryAddSkinOverlay(FName RowName, bool bIsShopPurchase
 {
 	if (!SkinOverlayComp || RowName.IsNone()) return;
 
+	// ピアスはDT_Equipments（装備）へ統合済み。旧オーバーレイ方式ではなく装備の着脱で処理する。
+	if (ShopCategory == EShopModeCategory::Piercing)
+	{
+		const int32 Markup = ActiveShopNPC ? ActiveShopNPC->PiercingAddMarkup : 10000;
+		TryDoctorAddPiercing(RowName, Markup);
+		return;
+	}
+
 	if (SkinOverlayComp->IsOverlayActive(RowName, ShopCategory))
 	{
 		if (bIsShopPurchase)
@@ -3899,12 +4250,6 @@ void AMyProject1Character::TryAddSkinOverlay(FName RowName, bool bIsShopPurchase
 			if (ShopCategory == EShopModeCategory::Tattoo)
 			{
 				FSkinOverlayDataRow* Data = TargetDT->FindRow<FSkinOverlayDataRow>(RowName, TEXT("ShopAddPriceLookup"));
-				if (Data) FinalPrice = Data->BuyPrice;
-			}
-			else if (ShopCategory == EShopModeCategory::Piercing)
-			{
-				// ピアスの新しい装着費（BuyPrice）を適用
-				FPiercingDataRow* Data = TargetDT->FindRow<FPiercingDataRow>(RowName, TEXT("ShopAddPriceLookup"));
 				if (Data) FinalPrice = Data->BuyPrice;
 			}
 			else if (ShopCategory == EShopModeCategory::Scar || ShopCategory == EShopModeCategory::Disease)
@@ -3939,21 +4284,29 @@ void AMyProject1Character::TryAddSkinOverlay(FName RowName, bool bIsShopPurchase
 	{
 		if (ShopCategory == EShopModeCategory::Disease) OnReceiveLogMessage(FString::Printf(TEXT("【%s】を治療した。%d円を支払った。"), *TargetName, FinalPrice), ELogMessageType::System);
 		else if (ShopCategory == EShopModeCategory::Scar) OnReceiveLogMessage(FString::Printf(TEXT("【%s】を綺麗に整形した。%d円を支払った。"), *TargetName, FinalPrice), ELogMessageType::System);
-		else if (ShopCategory == EShopModeCategory::Piercing) OnReceiveLogMessage(FString::Printf(TEXT("【%s】を装着した。%d円を支払った。"), *TargetName, FinalPrice), ELogMessageType::System);
 		else OnReceiveLogMessage(FString::Printf(TEXT("体に新たな刺青【%s】を刻んだ。%d円を支払った。"), *TargetName, FinalPrice), ELogMessageType::System);
 	}
 	else
 	{
 		if (ShopCategory == EShopModeCategory::Disease) OnReceiveLogMessage(FString::Printf(TEXT("【%s】が治癒した。"), *TargetName), ELogMessageType::System);
 		else if (ShopCategory == EShopModeCategory::Scar) OnReceiveLogMessage(FString::Printf(TEXT("【%s】が綺麗に整形された。"), *TargetName), ELogMessageType::System);
-		else if (ShopCategory == EShopModeCategory::Piercing) OnReceiveLogMessage(FString::Printf(TEXT("【%s】が装着された。"), *TargetName), ELogMessageType::System);
 		else OnReceiveLogMessage(FString::Printf(TEXT("体に新たな刺青【%s】が刻まれた。"), *TargetName), ELogMessageType::System);
 	}
 }
 
 void AMyProject1Character::TryRemoveSkinOverlay(FName RowName, bool bIsShopPurchase, int32 OverridePrice, FString DisplayName, EShopModeCategory ShopCategory)
 {
-	if (!SkinOverlayComp || !SkinOverlayComp->IsOverlayActive(RowName, ShopCategory))
+	if (!SkinOverlayComp) return;
+
+	// ピアスはDT_Equipments（装備）へ統合済み。呪われピアスの除去は装備側で処理する。
+	if (ShopCategory == EShopModeCategory::Piercing)
+	{
+		const int32 ShopLevel = ActiveShopNPC ? ActiveShopNPC->ShopLevel : 99;
+		TryDoctorRemovePiercing(RowName, ShopLevel);
+		return;
+	}
+
+	if (!SkinOverlayComp->IsOverlayActive(RowName, ShopCategory))
 	{
 		if (bIsShopPurchase)
 		{
@@ -3971,12 +4324,6 @@ void AMyProject1Character::TryRemoveSkinOverlay(FName RowName, bool bIsShopPurch
 			if (ShopCategory == EShopModeCategory::Tattoo)
 			{
 				FSkinOverlayDataRow* Data = TargetDT->FindRow<FSkinOverlayDataRow>(RowName, TEXT("ShopRemovePriceLookup"));
-				if (Data) FinalPrice = Data->RemovePrice;
-			}
-			else if (ShopCategory == EShopModeCategory::Piercing)
-			{
-				// ピアスの新しい取り外し費（RemovePrice）を適用
-				FPiercingDataRow* Data = TargetDT->FindRow<FPiercingDataRow>(RowName, TEXT("ShopRemovePriceLookup"));
 				if (Data) FinalPrice = Data->RemovePrice;
 			}
 			else if (ShopCategory == EShopModeCategory::Scar)
@@ -4016,13 +4363,11 @@ void AMyProject1Character::TryRemoveSkinOverlay(FName RowName, bool bIsShopPurch
 	if (bIsShopPurchase)
 	{
 		if (ShopCategory == EShopModeCategory::Disease) OnReceiveLogMessage(FString::Printf(TEXT("【%s】の治療が完了した。%d円を支払った。"), *TargetName, FinalPrice), ELogMessageType::System);
-		else if (ShopCategory == EShopModeCategory::Piercing) OnReceiveLogMessage(FString::Printf(TEXT("【%s】を取り外した。%d円を支払った。"), *TargetName, FinalPrice), ELogMessageType::System);
 		else OnReceiveLogMessage(FString::Printf(TEXT("体から【%s】を消去した。%d円を支払った。"), *TargetName, FinalPrice), ELogMessageType::System);
 	}
 	else
 	{
 		if (ShopCategory == EShopModeCategory::Disease) OnReceiveLogMessage(FString::Printf(TEXT("【%s】が完治した。"), *TargetName), ELogMessageType::System);
-		else if (ShopCategory == EShopModeCategory::Piercing) OnReceiveLogMessage(FString::Printf(TEXT("【%s】が取り外された。"), *TargetName), ELogMessageType::System);
 		else OnReceiveLogMessage(FString::Printf(TEXT("体から【%s】が消滅した。"), *TargetName), ELogMessageType::System);
 	}
 }
@@ -4088,8 +4433,8 @@ bool AMyProject1Character::TrySellItem(FName ItemID, int32 Amount)
 	FItemData ItemInfo;
 	if (!InventoryComp->GetItemDataBP(ItemID, ItemInfo)) return false;
 
-	// 1. 「だいじなもの（KeyItem）」は売却不可能オブジェクトとして弾く
-	if (ItemInfo.ItemType == EItemType::KeyItem)
+	// 1. 「だいじなもの（KeyItem）」とEXアイテム（イベント/会話の受け渡しでのみ増減する特別な品）は売却不可
+	if (ItemInfo.ItemType == EItemType::KeyItem || ItemInfo.bIsEx)
 	{
 		OnReceiveLogMessage(TEXT("それは売却できません。"), ELogMessageType::System);
 		return false;

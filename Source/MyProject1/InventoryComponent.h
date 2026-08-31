@@ -98,6 +98,14 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	bool RemoveItem(FName ItemID, int32 Amount);
 
+	/**
+	 * アイテムを「捨てる」。EXアイテム（イベントや会話での受け渡しでのみ増減する特別な品）は
+	 * 捨てられずにfalseを返す。それ以外はRemoveItemに委譲する。
+	 * インベントリUIの「捨てる」ボタンはRemoveItemではなくこの関数を呼ぶこと。
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Inventory")
+	bool DiscardItem(FName ItemID, int32 Amount);
+
 	/** 特定のアイテムを何個持っているか確認する */
 	UFUNCTION(BlueprintPure, Category = "Inventory")
 	int32 GetItemQuantity(FName ItemID);

@@ -49,6 +49,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ShopNPC|Data", meta = (ClampMin = "1"))
 	int32 ShopLevel;
 
+	/** ピアス医者ショップ（ShopModeCategory=Piercing）の装着タブで、DT_Itemsの価格に上乗せする施術料。店ごとに調整可 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ShopNPC|Data", meta = (ClampMin = "0"))
+	int32 PiercingAddMarkup = 10000;
+
 	/** アイテムデータテーブルの参照（エディタの詳細パネルから DT_Items をセットする） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ShopNPC|Data")
 	UDataTable* ItemDataTable;
