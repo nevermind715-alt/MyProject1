@@ -3464,6 +3464,42 @@ TArray<FOverlayShopItemInfo> AMyProject1Character::BuildPiercingShopList() const
 	return OutList;
 }
 
+TArray<FOverlayShopItemInfo> AMyProject1Character::BuildRestraintShopList() const
+{
+	TArray<FOverlayShopItemInfo> OutList;
+	if (!EquipmentDataTable) return OutList;
+
+	const UDataTable* ItemDT = (InventoryComp ? InventoryComp->ItemDataTable : nullptr);
+
+	// 現在装備中の「自力では外せないロック装備」＝解除対象。
+	// ピアス枠（Extra1〜5）はピアス医者ショップの専任のため、ここでは除外する。
+	for (const TPair<EEquipmentSlot, FName>& Pair : CurrentEquippedItems)
+	{
+		if (Pair.Value.IsNone() || IsPiercingSlot(Pair.Key)) continue;
+
+		const FEquipmentData* EquipData = EquipmentDataTable->FindRow<FEquipmentData>(Pair.Value, TEXT("BuildRestraintShopList_Remove"));
+		if (!EquipData || !EquipData->bCannotUnequipManually) continue;
+
+		FOverlayShopItemInfo Info;
+		Info.RowName = Pair.Value;
+		Info.bIsOwned = true;
+		Info.RemovePrice = EquipData->UnlockPrice;
+		Info.BuyPrice = 0;
+		if (ItemDT)
+		{
+			if (const FItemData* ItemData = ItemDT->FindRow<FItemData>(Pair.Value, TEXT("BuildRestraintShopList_RemoveName")))
+			{
+				Info.DisplayName = ItemData->Name;
+				Info.Description = ItemData->Description;
+			}
+		}
+		if (Info.DisplayName.IsEmpty()) Info.DisplayName = EquipData->DevMemo.IsEmpty() ? Pair.Value.ToString() : EquipData->DevMemo;
+		OutList.Add(Info);
+	}
+
+	return OutList;
+}
+
 void AMyProject1Character::RefreshMovementRestriction()
 {
 	// 速度：複数の拘束具を同時装備している場合、最も制限の強い（＝遅い歩き優先の）
@@ -4232,6 +4268,13 @@ void AMyProject1Character::TryAddSkinOverlay(FName RowName, bool bIsShopPurchase
 		return;
 	}
 
+	// 拘束具・呪物は「購入」概念がない除去専用ショップ。ここに来ても何もしない
+	// （GetOverlayDataTableByCategory の default が Tattoo テーブルを返すため、素通りさせると誤課金＋誤オーバーレイになる）。
+	if (ShopCategory == EShopModeCategory::Restraint)
+	{
+		return;
+	}
+
 	if (SkinOverlayComp->IsOverlayActive(RowName, ShopCategory))
 	{
 		if (bIsShopPurchase)
@@ -4303,6 +4346,27 @@ void AMyProject1Character::TryRemoveSkinOverlay(FName RowName, bool bIsShopPurch
 	{
 		const int32 ShopLevel = ActiveShopNPC ? ActiveShopNPC->ShopLevel : 99;
 		TryDoctorRemovePiercing(RowName, ShopLevel);
+		return;
+	}
+
+	// 拘束具・呪物もDT_Equipments（装備）側。RowNameから装備中スロットを解決してTryShopUnlockRestraintへ委譲。
+	// レベル判定・ギル支払い・インベントリへの返却・ログは TryShopUnlockRestraint がすべて行う。
+	if (ShopCategory == EShopModeCategory::Restraint)
+	{
+		const int32 ShopLevel = ActiveShopNPC ? ActiveShopNPC->ShopLevel : 99;
+		for (const TPair<EEquipmentSlot, FName>& Pair : CurrentEquippedItems)
+		{
+			if (Pair.Value == RowName && !IsPiercingSlot(Pair.Key))
+			{
+				const EEquipmentSlot SlotToUnlock = Pair.Key;
+				if (TryShopUnlockRestraint(SlotToUnlock, ShopLevel) && OnSkinOverlayUIChangedDelegate.IsBound())
+				{
+					// 施術ショップWBPが購読しているUI更新デリゲート。解除成功時にリストを再描画させる。
+					OnSkinOverlayUIChangedDelegate.Broadcast();
+				}
+				return;
+			}
+		}
 		return;
 	}
 

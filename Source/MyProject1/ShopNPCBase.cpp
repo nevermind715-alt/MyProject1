@@ -177,9 +177,13 @@ void AShopNPCBase::OpenShop(AMyProject1Character* PlayerChar)
 	{
 		HUD->ToggleTreatmentMenu(); // 既存
 	}
+	else if (ShopModeCategory == EShopModeCategory::Restraint)
+	{
+		HUD->ToggleRestraintShopMenu(); // 解錠屋（拘束具/呪物の解除）専用
+	}
 	else
 	{
-		
+
 		HUD->ToggleItemShopMenu();
 	}
 }

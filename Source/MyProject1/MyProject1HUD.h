@@ -66,6 +66,17 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "UI")
 	void ToggleTattooMenu();
 
+	// --- 解錠屋（拘束具/呪物の解除）専門店メニュー用の変数と関数 ---
+	// 刺青店（TattooMenu）と同じ構造。HUDのBPで RestraintShopMenuClass に WBP_RockBreakerShop を割り当てる。
+	UPROPERTY(EditAnywhere, Category = "UI")
+	TSubclassOf<class UUserWidget> RestraintShopMenuClass;
+
+	UPROPERTY(BlueprintReadOnly, Category = "UI")
+	class UUserWidget* RestraintShopMenuWidget;
+
+	UFUNCTION(BlueprintCallable, Category = "UI")
+	void ToggleRestraintShopMenu();
+
 	UFUNCTION(BlueprintPure, Category = "UI")
 	bool IsCommandMenuOpen() const;
 

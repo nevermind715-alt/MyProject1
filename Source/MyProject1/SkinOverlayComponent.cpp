@@ -475,12 +475,14 @@ TArray<FOverlayShopItemInfo> USkinOverlayComponent::GetGenerateShopItemList(ESho
 {
 	TArray<FOverlayShopItemInfo> OutList;
 
-	// ピアスはDT_Equipments（装備）へ統合済み。装備側でリストを組み立てる。
-	if (ShopCategory == EShopModeCategory::Piercing)
+	// ピアス・拘束具はDT_Equipments（装備）へ統合済み。装備側でリストを組み立てる。
+	if (ShopCategory == EShopModeCategory::Piercing || ShopCategory == EShopModeCategory::Restraint)
 	{
 		if (OwnerCharacter)
 		{
-			OutList = OwnerCharacter->BuildPiercingShopList();
+			OutList = (ShopCategory == EShopModeCategory::Piercing)
+				? OwnerCharacter->BuildPiercingShopList()
+				: OwnerCharacter->BuildRestraintShopList();
 		}
 		return OutList;
 	}
@@ -528,11 +530,14 @@ bool USkinOverlayComponent::GetShopItemInfoByRowName(FName RowName, EShopModeCat
 {
 	if (RowName.IsNone()) return false;
 
-	// ピアスはDT_Equipments（装備）へ統合済み。装備側リストから該当行を探す。
-	if (ShopCategory == EShopModeCategory::Piercing)
+	// ピアス・拘束具はDT_Equipments（装備）へ統合済み。装備側リストから該当行を探す。
+	if (ShopCategory == EShopModeCategory::Piercing || ShopCategory == EShopModeCategory::Restraint)
 	{
 		if (!OwnerCharacter) return false;
-		for (const FOverlayShopItemInfo& Info : OwnerCharacter->BuildPiercingShopList())
+		const TArray<FOverlayShopItemInfo> List = (ShopCategory == EShopModeCategory::Piercing)
+			? OwnerCharacter->BuildPiercingShopList()
+			: OwnerCharacter->BuildRestraintShopList();
+		for (const FOverlayShopItemInfo& Info : List)
 		{
 			if (Info.RowName == RowName)
 			{

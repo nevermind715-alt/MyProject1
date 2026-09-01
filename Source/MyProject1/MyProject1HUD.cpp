@@ -244,6 +244,7 @@ void AMyProject1HUD::OpenTimeSkipMenu(bool bIsSleepMode)
     if (ChestMenuWidget && ChestMenuWidget->IsInViewport()) ToggleChestMenu();
     if (TreatmentMenuWidget && TreatmentMenuWidget->IsInViewport()) ToggleTreatmentMenu();
     if (TattooMenuWidget && TattooMenuWidget->IsInViewport()) ToggleTattooMenu();
+    if (RestraintShopMenuWidget && RestraintShopMenuWidget->IsInViewport()) ToggleRestraintShopMenu();
     if (ItemShopMenuWidget && ItemShopMenuWidget->IsInViewport()) ToggleItemShopMenu();
     if (CommandMenuWidget && CommandMenuWidget->IsInViewport()) ToggleCommandMenu();
 
@@ -596,6 +597,69 @@ void AMyProject1HUD::ToggleTattooMenu()
         }
 
         // クローズ用システムSE
+        if (MenuCloseSound) UGameplayStatics::PlaySound2D(this, MenuCloseSound);
+    }
+}
+
+// 解錠屋メニューの開閉。ToggleTattooMenu と同じ構造（別ウィジェットクラス・別インスタンス変数）。
+void AMyProject1HUD::ToggleRestraintShopMenu()
+{
+    APlayerController* PC = GetOwningPlayerController();
+    if (!PC) return;
+
+    // 1. 初回呼び出し時に解錠屋ショップ画面を動的生成
+    if (!RestraintShopMenuWidget && RestraintShopMenuClass)
+    {
+        RestraintShopMenuWidget = CreateWidget<UUserWidget>(GetWorld(), RestraintShopMenuClass);
+    }
+
+    if (!RestraintShopMenuWidget) return;
+
+    // 2. トグル判定
+    if (!RestraintShopMenuWidget->IsInViewport())
+    {
+        // 【開く処理】他のメニューが開いていたらすべて閉じる
+        if (InventoryMenuWidget && InventoryMenuWidget->IsInViewport()) ToggleInventoryMenu();
+        if (CommandMenuWidget && CommandMenuWidget->IsInViewport()) ToggleCommandMenu();
+        if (EquipmentMenuWidget && EquipmentMenuWidget->IsInViewport()) ToggleEquipmentMenu();
+        if (StatusMenuWidget && StatusMenuWidget->IsInViewport()) ToggleStatusMenu();
+        if (QuestMenuWidget && QuestMenuWidget->IsInViewport()) ToggleQuestMenu();
+        if (ChestMenuWidget && ChestMenuWidget->IsInViewport()) ChestMenuWidget->RemoveFromParent();
+        if (TreatmentMenuWidget && TreatmentMenuWidget->IsInViewport()) ToggleTreatmentMenu();
+        if (TattooMenuWidget && TattooMenuWidget->IsInViewport()) ToggleTattooMenu();
+
+        // 画面の最前面（Z-Order 20）へ配置
+        RestraintShopMenuWidget->AddToViewport(20);
+
+        // マウス解放・入力フォーカスの固定
+        FInputModeGameAndUI InputMode;
+        InputMode.SetWidgetToFocus(RestraintShopMenuWidget->TakeWidget());
+        PC->SetInputMode(InputMode);
+        PC->bShowMouseCursor = true;
+
+        // キャラクターの移動・旋回ロック
+        if (AMyProject1Character* OwnerChar = Cast<AMyProject1Character>(PC->GetPawn()))
+        {
+            OwnerChar->SetInputLocked(true);
+        }
+
+        if (MenuOpenSound) UGameplayStatics::PlaySound2D(this, MenuOpenSound);
+    }
+    else
+    {
+        // 【閉じる処理】画面から撤去
+        RestraintShopMenuWidget->RemoveFromParent();
+
+        FInputModeGameOnly InputMode;
+        PC->SetInputMode(InputMode);
+        PC->bShowMouseCursor = false;
+
+        if (AMyProject1Character* OwnerChar = Cast<AMyProject1Character>(PC->GetPawn()))
+        {
+            OwnerChar->SetInputLocked(false);
+            SayShopGoodbye(OwnerChar);
+        }
+
         if (MenuCloseSound) UGameplayStatics::PlaySound2D(this, MenuCloseSound);
     }
 }

@@ -630,6 +630,12 @@ public:
 	// SkinOverlayComponent::GetGenerateShopItemList が Piercing カテゴリでこれに委譲するため、既存の施術ショップWBPがそのまま使える。
 	TArray<FOverlayShopItemInfo> BuildPiercingShopList() const;
 
+	// 解錠屋ショップ（EShopModeCategory::Restraint）のリストを FOverlayShopItemInfo 形式で返す。
+	// ・現在装備中のロック装備（bCannotUnequipManually かつ 非ピアス枠）＝解除対象（bIsOwned=true, RemovePrice = FEquipmentData.UnlockPrice）
+	// ・拘束具は「購入」概念がないためカタログ行は返さない（除去専用リスト）。
+	// SkinOverlayComponent::GetGenerateShopItemList が Restraint カテゴリでこれに委譲するため、既存の施術ショップWBPがそのまま使える。
+	TArray<FOverlayShopItemInfo> BuildRestraintShopList() const;
+
 	
 	// 全装備のステータス補正を再計算して適用する
 	UFUNCTION(BlueprintCallable, Category = "Equipment")
