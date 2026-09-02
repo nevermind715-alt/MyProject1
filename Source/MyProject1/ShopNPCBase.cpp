@@ -101,7 +101,9 @@ TArray<FName> AShopNPCBase::GetAvailableShopItems() const
 		{
 			// 条件1：アイテムのジャンルがショップと一致しているか
 			// 条件2：アイテムのレベルがNPCの技術レベル以下か
-			if (ItemData->ItemType == TargetType && ItemData->ItemLevel <= ShopLevel)
+			// 条件3：非合法アイテムは、非合法販売を許可した店だけが店頭に並べる
+			if (ItemData->ItemType == TargetType && ItemData->ItemLevel <= ShopLevel
+				&& (!ItemData->bIsIllegal || bSellsIllegalItems))
 			{
 				AvailableItems.Add(RowName);
 			}
@@ -111,9 +113,20 @@ TArray<FName> AShopNPCBase::GetAvailableShopItems() const
 	return AvailableItems;
 }
 
+bool AShopNPCBase::IsItemIllegal(FName ItemID) const
+{
+	if (ItemID.IsNone() || !ItemDataTable) return false;
+
+	const FItemData* ItemData = ItemDataTable->FindRow<FItemData>(ItemID, TEXT("IsItemIllegalLookup"));
+	return ItemData ? ItemData->bIsIllegal : false;
+}
+
 bool AShopNPCBase::CanBuyItem(FName ItemID) const
 {
 	if (ItemID.IsNone()) return false;
+
+	// 非合法アイテムは、非合法販売を許可した店以外では購入できない（モード問わず共通ゲート）
+	if (IsItemIllegal(ItemID) && !bSellsIllegalItems) return false;
 
 	// 特定アイテムのみ扱うモードの場合は、リストに載っていて購入可フラグが立っている時だけ許可
 	if (bUseSpecificItemsOnly)
@@ -135,6 +148,9 @@ bool AShopNPCBase::CanBuyItem(FName ItemID) const
 bool AShopNPCBase::CanSellItem(FName ItemID) const
 {
 	if (ItemID.IsNone()) return false;
+
+	// 非合法アイテムは、非合法買取を許可した店以外では買い取ってもらえない（モード問わず共通ゲート）
+	if (IsItemIllegal(ItemID) && !bBuysIllegalItems) return false;
 
 	// 特定アイテムのみ扱うモードの場合は、リストに載っていて売却可フラグが立っている時だけ許可
 	if (bUseSpecificItemsOnly)

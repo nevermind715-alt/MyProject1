@@ -57,6 +57,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ShopNPC|Data")
 	UDataTable* ItemDataTable;
 
+	/** trueの場合、非合法アイテム（FItemData::bIsIllegal）をプレイヤーへ販売できる（店頭に並ぶ） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ShopNPC|Data")
+	bool bSellsIllegalItems = false;
+
+	/** trueの場合、非合法アイテム（FItemData::bIsIllegal）をプレイヤーから買い取れる */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ShopNPC|Data")
+	bool bBuysIllegalItems = false;
+
 	/** trueの場合、ShopModeCategory/ShopLevelによる自動判定を無視し、SpecificItemsに登録したアイテムのみを扱う */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ShopNPC|Data")
 	bool bUseSpecificItemsOnly = false;
@@ -76,6 +84,10 @@ public:
 	/** このNPCへItemIDを売却できるかを判定する */
 	UFUNCTION(BlueprintCallable, Category = "ShopNPC|Data")
 	bool CanSellItem(FName ItemID) const;
+
+	/** ItemIDが非合法アイテム（FItemData::bIsIllegal）かどうかをItemDataTableから調べる */
+	UFUNCTION(BlueprintPure, Category = "ShopNPC|Data")
+	bool IsItemIllegal(FName ItemID) const;
 
 	/** Blueprint（WBP）側でそのままFName（"Tattoo"等）として引き出せるようにする自動変換関数 */
 	UFUNCTION(BlueprintPure, Category = "ShopNPC|Data")

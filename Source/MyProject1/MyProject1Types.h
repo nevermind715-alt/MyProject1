@@ -772,6 +772,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	bool bIsEx = false;
 
+	/** trueにすると「非合法アイテム」扱い。非合法の売買を許可していない店では購入も買取もできなくなる */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item")
+	bool bIsIllegal = false;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item|Effect")
 	TArray<FItemEffect> Effects;
 		
