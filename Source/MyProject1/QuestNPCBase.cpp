@@ -4,6 +4,8 @@
 #include "MyAIController.h"
 #include "QuestComponent.h"
 #include "DialogComponent.h"
+#include "InventoryComponent.h"
+#include "MyProject1GameInstance.h"
 #include "RpgCharacterInterface.h"
 #include "Kismet/GameplayStatics.h"
 #include "GameFramework/SpringArmComponent.h"
@@ -143,6 +145,216 @@ void AQuestNPCBase::OnPlayerFlagRemoved(FName FlagName)
 	ApplyVisibilityForFlagState(false);
 }
 
+void AQuestNPCBase::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	// 会話前の向き直り中（FacePlayerThenTalk）にNPCが消えると、先行ロックしたプレイヤー入力が
+	// 戻らずソフトロックになるため解除する。会話後の戻り（ReturnAfterTalk）は入力ロックしていないので不要
+	if (GetWorldTimerManager().IsTimerActive(TurnTimerHandle))
+	{
+		if (TurnMode == ETurnMode::FacePlayerThenTalk)
+		{
+			if (IRpgCharacterInterface* Rpg = Cast<IRpgCharacterInterface>(PendingPlayerChar.Get()))
+			{
+				Rpg->SetInputLocked(false);
+			}
+		}
+		FinishTurn();
+	}
+
+	Super::EndPlay(EndPlayReason);
+}
+
+FRotator AQuestNPCBase::MakeFacePlayerRotation(const AActor* PlayerChar) const
+{
+	if (!PlayerChar) return GetActorRotation();
+
+	// ヨーのみプレイヤー方向へ（ピッチ/ロールは水平のまま）
+	FRotator LookAt = (PlayerChar->GetActorLocation() - GetActorLocation()).Rotation();
+	LookAt.Pitch = 0.0f;
+	LookAt.Roll = 0.0f;
+	return LookAt;
+}
+
+void AQuestNPCBase::StartDialogFacingPlayer(AMyProject1Character* PlayerChar, IRpgCharacterInterface* RpgInterface, FName RowName, const FString& LogContext)
+{
+	if (!PlayerChar || !RpgInterface) return;
+
+	// 回転中の再入。会話へ向けた向き直り中なら二重起動しない。
+	// 会話後の戻り回転中なら、それを中断して新しい会話の向き直りを優先する
+	if (GetWorldTimerManager().IsTimerActive(TurnTimerHandle))
+	{
+		if (TurnMode == ETurnMode::FacePlayerThenTalk) return;
+		FinishTurn();
+	}
+
+	UDialogComponent* PlayerDialogComp = PlayerChar->FindComponentByClass<UDialogComponent>();
+	if (!PlayerDialogComp) return;
+
+	const FRotator TargetRot = MakeFacePlayerRotation(PlayerChar);
+	const float YawDelta = FMath::Abs(FRotator::NormalizeAxis(TargetRot.Yaw - GetActorRotation().Yaw));
+
+	// 向き直り不要：フラグON、または既にほぼ正対している → 従来通り即座に会話開始
+	if (bDoNotTurnToPlayerOnTalk || YawDelta <= 1.0f)
+	{
+		if (!bDoNotTurnToPlayerOnTalk)
+		{
+			PreTalkRotation = GetActorRotation();
+			bHasPreTalkRotation = true;
+		}
+		BeginDialogRow(PlayerDialogComp, RpgInterface, RowName, LogContext, /*bDidTurn=*/false);
+		return;
+	}
+
+	// 向き直ってから会話：先に入力ロック＆向きを退避し、タイマーで一定速度回転させる。
+	// 会話は TickFacePlayerTurn の完了時に BeginDialogRow で開始する
+	PreTalkRotation = GetActorRotation();
+	bHasPreTalkRotation = true;
+	RpgInterface->SetInputLocked(true);
+
+	PendingPlayerChar = PlayerChar;
+	PendingDialogComp = PlayerDialogComp;
+	PendingDialogRow = RowName;
+	PendingLogContext = LogContext;
+
+	StartTurnTimer(ETurnMode::FacePlayerThenTalk);
+}
+
+void AQuestNPCBase::StartTurnTimer(ETurnMode Mode)
+{
+	TurnMode = Mode;
+	LastTurnTickTime = GetWorld()->GetTimeSeconds();
+	GetWorldTimerManager().SetTimer(TurnTimerHandle, this, &AQuestNPCBase::TickTurn, 1.0f / 120.0f, true);
+}
+
+void AQuestNPCBase::FinishTurn()
+{
+	GetWorldTimerManager().ClearTimer(TurnTimerHandle);
+	TurnMode = ETurnMode::None;
+}
+
+void AQuestNPCBase::TickTurn()
+{
+	// 会話へ向けた向き直り中は、対象が消えたら中断して先行ロックした入力と向きを戻す
+	if (TurnMode == ETurnMode::FacePlayerThenTalk)
+	{
+		AMyProject1Character* PlayerChar = PendingPlayerChar.Get();
+		UDialogComponent* PlayerDialogComp = PendingDialogComp.Get();
+		if (!PlayerChar || !PlayerDialogComp)
+		{
+			FinishTurn();
+			if (IRpgCharacterInterface* Rpg = Cast<IRpgCharacterInterface>(PlayerChar))
+			{
+				Rpg->SetInputLocked(false);
+			}
+			if (bHasPreTalkRotation)
+			{
+				SetActorRotation(PreTalkRotation);
+				bHasPreTalkRotation = false;
+			}
+			return;
+		}
+	}
+
+	const float Now = GetWorld()->GetTimeSeconds();
+	const float Step = FMath::Max(Now - LastTurnTickTime, 0.0f);
+	LastTurnTickTime = Now;
+
+	// FacePlayerThenTalkはプレイヤーが動く可能性があるので毎tick再計算、ReturnAfterTalkは固定値
+	const FRotator TargetRot = (TurnMode == ETurnMode::FacePlayerThenTalk)
+		? MakeFacePlayerRotation(PendingPlayerChar.Get())
+		: TurnFixedTarget;
+
+	const FRotator NewRot = FMath::RInterpConstantTo(GetActorRotation(), TargetRot, Step, TurnToPlayerSpeedDegPerSec);
+	SetActorRotation(NewRot);
+
+	if (!NewRot.Equals(TargetRot, 0.5f)) return;
+
+	// 回転完了
+	SetActorRotation(TargetRot);
+	const ETurnMode CompletedMode = TurnMode;
+	FinishTurn();
+
+	if (CompletedMode == ETurnMode::FacePlayerThenTalk)
+	{
+		// 向き直り完了 → 会話開始
+		BeginDialogRow(PendingDialogComp.Get(), Cast<IRpgCharacterInterface>(PendingPlayerChar.Get()), PendingDialogRow, PendingLogContext, /*bDidTurn=*/true);
+	}
+	else
+	{
+		// 会話開始前の向きへ戻し終えた
+		bHasPreTalkRotation = false;
+	}
+}
+
+void AQuestNPCBase::BeginDialogRow(UDialogComponent* PlayerDialogComp, IRpgCharacterInterface* RpgInterface, FName RowName, const FString& LogContext, bool bDidTurn)
+{
+	if (!PlayerDialogComp || !RpgInterface)
+	{
+		// 向き直り後にここへ来て開始できない場合、先行ロックを戻す
+		if (bDidTurn && RpgInterface)
+		{
+			RpgInterface->SetInputLocked(false);
+		}
+		if (bDidTurn && bHasPreTalkRotation)
+		{
+			SetActorRotation(PreTalkRotation);
+			bHasPreTalkRotation = false;
+		}
+		return;
+	}
+
+	if (PlayerDialogComp->TryStartDialog(RowName, DialogTable, this))
+	{
+		// bDidTurn時は既にロック済みだが冪等なので問題ない
+		RpgInterface->SetInputLocked(true);
+
+		// 会話終了通知を購読する（多重購読はAddUniqueDynamicで防止）。解除用にComponentを保持する
+		PlayerDialogComp->OnDialogClosed.AddUniqueDynamic(this, &AQuestNPCBase::OnTalkDialogClosed);
+		TalkDialogCompBound = PlayerDialogComp;
+	}
+	else
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[QuestNPC] %s: %s '%s' が未設定/未登録のため会話を開始できませんでした。"),
+			*GetName(), *LogContext, *RowName.ToString());
+
+		// 向き直りのために先行してロック・回転していた場合は元に戻す
+		if (bDidTurn)
+		{
+			RpgInterface->SetInputLocked(false);
+			if (bHasPreTalkRotation)
+			{
+				SetActorRotation(PreTalkRotation);
+				bHasPreTalkRotation = false;
+			}
+		}
+	}
+}
+
+void AQuestNPCBase::OnTalkDialogClosed()
+{
+	// 購読を解除する（次回の会話でまた購読し直す）
+	if (UDialogComponent* BoundComp = TalkDialogCompBound.Get())
+	{
+		BoundComp->OnDialogClosed.RemoveDynamic(this, &AQuestNPCBase::OnTalkDialogClosed);
+	}
+	TalkDialogCompBound.Reset();
+
+	if (!bHasPreTalkRotation) return;
+
+	// 会話開始前の向きへ、向き直りと同じ一定速度（TurnToPlayerSpeedDegPerSec）で戻す。
+	// ほぼ戻っている場合はタイマーを起こさず即確定する
+	const float YawDelta = FMath::Abs(FRotator::NormalizeAxis(PreTalkRotation.Yaw - GetActorRotation().Yaw));
+	if (YawDelta <= 1.0f)
+	{
+		SetActorRotation(PreTalkRotation);
+		bHasPreTalkRotation = false;
+		return;
+	}
+
+	TurnFixedTarget = PreTalkRotation;
+	StartTurnTimer(ETurnMode::ReturnAfterTalk);
+}
+
 void AQuestNPCBase::TalkToNPC(AMyProject1Character* PlayerChar)
 {
 	if (!PlayerChar || !DialogTable) return;
@@ -154,20 +366,58 @@ void AQuestNPCBase::TalkToNPC(AMyProject1Character* PlayerChar)
 	// フラグの付与は自分では行わず、DT_Dialogs側の対象行のGrantFlagに任せる）
 	if (!FirstMeetFlag.IsNone() && !RpgInterface->HasFlag(FirstMeetFlag))
 	{
-		if (UDialogComponent* PlayerDialogComp = PlayerChar->FindComponentByClass<UDialogComponent>())
-		{
-			// 会話を開始できた時だけ入力ロックする（行の設定漏れでソフトロックしないため）
-			if (PlayerDialogComp->TryStartDialog(DialogRowName_FirstMeet, DialogTable, this))
-			{
-				RpgInterface->SetInputLocked(true);
-			}
-			else
-			{
-				UE_LOG(LogTemp, Warning, TEXT("[QuestNPC] %s: FirstMeet行 '%s' が未設定/未登録のため会話を開始できませんでした。"),
-					*GetName(), *DialogRowName_FirstMeet.ToString());
-			}
-		}
+		// 必要ならプレイヤーへ向き直ってから会話開始（行の設定漏れ時はStartDialogFacingPlayer側でロックしない）
+		StartDialogFacingPlayer(PlayerChar, RpgInterface, DialogRowName_FirstMeet, TEXT("FirstMeet行"));
 		return;
+	}
+
+	// 日替わり会話シーケンス（多日クエストの自動進行。FirstMeetの後・ConditionalDialogsの前）。
+	// DailyDialogSequenceRows を、ゲーム内で日付が変わるごとに1行ずつ順番に表示する。
+	// 進行はプレイヤーのMyStats.DailyDialogProgressに自動記録され、セーブに残る（フラグの手管理は不要）。
+	// Wait行／Done行が未設定、または対象行がDialogTableに無い状態では、下のConditionalDialogs判定へフォールスルーする
+	if (bEnableDailyDialogSequence && !DailyDialogSequenceID.IsNone() && DailyDialogSequenceRows.Num() > 0)
+	{
+		int32 CurrentDay = 0;
+		if (UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetGameInstance()))
+		{
+			CurrentDay = GameInst->TotalElapsedDays;
+		}
+
+		// プレイヤーのステータスは参照で受け取り、進行記録をその場で更新する（GetCharacterStatsはFCharacterStats&を返す）
+		FCharacterStats& PlayerStats = RpgInterface->GetCharacterStats();
+		FDailyDialogProgress& Progress = PlayerStats.DailyDialogProgress.FindOrAdd(DailyDialogSequenceID);
+
+		FName SeqRowName;
+		bool bAdvanceStep = false;
+
+		if (Progress.Step >= DailyDialogSequenceRows.Num())
+		{
+			// 全行を表示し終えている
+			SeqRowName = DailyDialogSequenceDoneRow;
+		}
+		else if (Progress.LastAdvanceDay >= 0 && CurrentDay <= Progress.LastAdvanceDay)
+		{
+			// 最後に進めた日から日付が変わっていない＝今日はもう進めた
+			SeqRowName = DailyDialogSequenceWaitRow;
+		}
+		else
+		{
+			// 日付が変わった（または初回）＝今日の1行を表示し、1歩進める
+			SeqRowName = DailyDialogSequenceRows[Progress.Step];
+			bAdvanceStep = true;
+		}
+
+		// 対象行が実在する時だけシーケンスとして処理する。未設定／未登録なら通常判定へ落とす
+		if (!SeqRowName.IsNone() && DialogTable->FindRow<FDialogData>(SeqRowName, TEXT("DailyDialogSequence"), false))
+		{
+			if (bAdvanceStep)
+			{
+				Progress.Step++;
+				Progress.LastAdvanceDay = CurrentDay;
+			}
+			StartDialogFacingPlayer(PlayerChar, RpgInterface, SeqRowName, TEXT("日替わりシーケンス行"));
+			return;
+		}
 	}
 
 	// 条件付き会話（フラグ／冒険者等級で出し分け。FirstMeetの後・Quests配列より優先）。
@@ -175,7 +425,10 @@ void AQuestNPCBase::TalkToNPC(AMyProject1Character* PlayerChar)
 	// どのエントリにも一致しなければreturnせず、そのままQuests配列の判定へ進む
 	if (ConditionalDialogs.Num() > 0)
 	{
-		const uint8 PlayerRankValue = static_cast<uint8>(RpgInterface->GetCharacterStats().AdventurerRank);
+		const FCharacterStats& PlayerStats = RpgInterface->GetCharacterStats();
+		const uint8 PlayerRankValue = static_cast<uint8>(PlayerStats.AdventurerRank);
+		// アイテム所持数の確認用（無い個体でも落ちないよう、後段でnullガードして0扱いにする）
+		UInventoryComponent* PlayerInv = PlayerChar->FindComponentByClass<UInventoryComponent>();
 
 		for (const FConditionalDialogEntry& CondEntry : ConditionalDialogs)
 		{
@@ -184,18 +437,24 @@ void AQuestNPCBase::TalkToNPC(AMyProject1Character* PlayerChar)
 			if (!CondEntry.ExcludeFlag.IsNone() && RpgInterface->HasFlag(CondEntry.ExcludeFlag)) continue;
 			if (CondEntry.MinRank != EAdventurerRank::None && PlayerRankValue < static_cast<uint8>(CondEntry.MinRank)) continue;
 
-			if (UDialogComponent* PlayerDialogComp = PlayerChar->FindComponentByClass<UDialogComponent>())
+			// 数値ステータス条件（魅力値など）。複数指定は全てAND。1つでも未達ならこのエントリは飛ばす
+			bool bStatsOk = true;
+			for (const FQuestStatRequirement& StatReq : CondEntry.RequiredStats)
 			{
-				if (PlayerDialogComp->TryStartDialog(CondEntry.DialogRowName, DialogTable, this))
-				{
-					RpgInterface->SetInputLocked(true);
-				}
-				else
-				{
-					UE_LOG(LogTemp, Warning, TEXT("[QuestNPC] %s: 条件付き会話行 '%s' が未設定/未登録のため会話を開始できませんでした。"),
-						*GetName(), *CondEntry.DialogRowName.ToString());
-				}
+				if (!StatReq.IsSatisfiedBy(PlayerStats)) { bStatsOk = false; break; }
 			}
+			if (!bStatsOk) continue;
+
+			// 所持アイテム条件。複数指定は全てAND。InventoryComponentが無ければ所持数0として未達扱い
+			bool bItemsOk = true;
+			for (const FDialogItemRequirement& ItemReq : CondEntry.RequiredItems)
+			{
+				const int32 Owned = PlayerInv ? PlayerInv->GetItemQuantity(ItemReq.ItemID) : 0;
+				if (Owned < ItemReq.RequiredAmount) { bItemsOk = false; break; }
+			}
+			if (!bItemsOk) continue;
+
+			StartDialogFacingPlayer(PlayerChar, RpgInterface, CondEntry.DialogRowName, TEXT("条件付き会話行"));
 			return;
 		}
 	}
@@ -248,18 +507,9 @@ void AQuestNPCBase::TalkToNPC(AMyProject1Character* PlayerChar)
 		}
 	}
 
-	if (UDialogComponent* PlayerDialogComp = PlayerChar->FindComponentByClass<UDialogComponent>())
-	{
-		// 会話を開始できた時だけプレイヤー操作をロックする（DialogComponent::CloseDialogが解除する処理と対）。
-		// 表示行（DialogRowName_InProgress等）が未設定だと会話UIが出ないため、その場合はロックしない
-		if (PlayerDialogComp->TryStartDialog(RowName, DialogTable, this))
-		{
-			RpgInterface->SetInputLocked(true);
-		}
-		else
-		{
-			UE_LOG(LogTemp, Warning, TEXT("[QuestNPC] %s: クエスト '%s' の表示行 '%s' が未設定/未登録のため会話を開始できませんでした。DT_QuestDialogのDialogRowName_*設定を確認してください。"),
-				*GetName(), *ResolvedQuestID.ToString(), *RowName.ToString());
-		}
-	}
+	// 会話開始（DialogComponent::CloseDialogがSetInputLocked(false)する処理と対）。
+	// 表示行（DialogRowName_InProgress等）が未設定の場合はStartDialogFacingPlayer側でロックしない。
+	// 向き直りが必要ならヨー回転が完了してから会話ウィンドウを開く
+	StartDialogFacingPlayer(PlayerChar, RpgInterface, RowName,
+		FString::Printf(TEXT("クエスト '%s' の表示行"), *ResolvedQuestID.ToString()));
 }

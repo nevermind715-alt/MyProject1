@@ -274,6 +274,24 @@ enum class EAdventurerRank : uint8
 	Extra    UMETA(DisplayName = "番外")
 };
 
+// --- NPCの日替わり会話シーケンス1件分の進行記録 ---
+// FCharacterStats::DailyDialogProgress の値。キーは AQuestNPCBase::DailyDialogSequenceID。
+// AQuestNPCBase::TalkToNPC が読み書きし、セーブは FCharacterStats ごと丸ごと保存される
+USTRUCT(BlueprintType)
+struct FDailyDialogProgress
+{
+	GENERATED_BODY()
+
+	// 次に表示する DailyDialogSequenceRows のインデックス（0始まり。Rows.Num()に達したら完走）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog")
+	int32 Step = 0;
+
+	// 最後にステップを進めた時点の UMyProject1GameInstance::TotalElapsedDays。
+	// -1 は「一度も進めていない」の番兵（初回の話しかけを必ず通すため）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog")
+	int32 LastAdvanceDay = -1;
+};
+
 // --- ステータス管理用の構造体 ---
 USTRUCT(BlueprintType)
 struct FCharacterStats
@@ -394,6 +412,12 @@ struct FCharacterStats
 	// --- 獲得済みのストーリーフラグや条件のリスト ---
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats|Flags")
 	TArray<FName> UnlockedFlags;
+
+	// --- NPCの日替わり会話シーケンスの進行記録 ---
+	// キー：AQuestNPCBase::DailyDialogSequenceID。値：到達ステップと最後に進めた日。
+	// AQuestNPCBase::TalkToNPC が自動で読み書きするので、GrantFlag/ExcludeFlagの手管理は不要
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats|Dialog")
+	TMap<FName, FDailyDialogProgress> DailyDialogProgress;
 
 	// 名前指定でステータス数値を取り出す（クエストの受注条件判定などで使う汎用ルックアップ）
 	// 既知のステータス名で見つからなければExtraStatsにフォールバックする
@@ -1048,6 +1072,27 @@ struct FQuestStatRequirement
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Condition")
 	float RequiredValue = 0.0f;
+
+	// このステータス条件をStatsが満たしているか判定する。
+	// 未知のStatName（TryGetStatValueもExtraStatsも認識しない名前）は設定ミスとみなし、安全側でfalseを返す。
+	// ※UQuestComponent::CanAcceptQuest内には同等のインライン判定が別に存在するが、既存動作を変えないためそちらは触っていない
+	bool IsSatisfiedBy(const FCharacterStats& Stats) const
+	{
+		float StatValue = 0.0f;
+		if (!Stats.TryGetStatValue(StatName, StatValue))
+		{
+			return false;
+		}
+		switch (CompareOp)
+		{
+		case EStatCompareOp::GreaterOrEqual: return StatValue >= RequiredValue;
+		case EStatCompareOp::LessOrEqual:    return StatValue <= RequiredValue;
+		case EStatCompareOp::Equal:          return FMath::IsNearlyEqual(StatValue, RequiredValue);
+		case EStatCompareOp::Greater:        return StatValue > RequiredValue;
+		case EStatCompareOp::Less:           return StatValue < RequiredValue;
+		}
+		return false;
+	}
 };
 
 // --- クエストの基本データ（データテーブル用） ---
@@ -1286,6 +1331,21 @@ struct FQuestDialogSet
 	FName DialogRowName_Completed;
 };
 
+// --- 会話エントリの成立に必要な「所持アイテム」1件分（FConditionalDialogEntryで使用） ---
+USTRUCT(BlueprintType)
+struct FDialogItemRequirement
+{
+	GENERATED_BODY()
+
+	// 必要なアイテムの行名（インベントリのItemIDと同じ）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC")
+	FName ItemID;
+
+	// 必要な最低所持数
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC", meta = (ClampMin = "1"))
+	int32 RequiredAmount = 1;
+};
+
 // --- 条件（フラグ／冒険者等級）に応じて出し分ける会話1件分（AQuestNPCBaseのConditionalDialogs配列の要素） ---
 // FirstMeetFlagが「1フラグ→1行・一度きり」なのに対し、これは「複数の状態を優先順位付きで、話しかけるたびに」出す用途。
 // 配列を先頭から評価し、設定された条件（フラグ所持・除外フラグ非所持・等級）を全て満たした最初の行を表示する。
@@ -1309,6 +1369,17 @@ struct FConditionalDialogEntry
 	// 別々の台詞を出したい時は配列で上位等級のエントリを先に並べること
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC")
 	EAdventurerRank MinRank = EAdventurerRank::None;
+
+	// このエントリを選ぶのに必要な数値ステータス条件（例：魅力=Charm が 3 以上）。複数指定した場合は全てAND。
+	// 空なら条件なし。StatNameはFCharacterStats::TryGetStatValueが認識する名前（"Charm","Level","Fame"等）かExtraStatsのキー。
+	// 1つでも未達なら、このエントリは飛ばして次の（より下の）エントリを評価する
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC")
+	TArray<FQuestStatRequirement> RequiredStats;
+
+	// このエントリを選ぶのに必要な所持アイテム（ItemID＋最低所持数）。複数指定した場合は全てAND。
+	// 空なら条件なし。プレイヤーにInventoryComponentが無い場合は所持数0として扱う
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC")
+	TArray<FDialogItemRequirement> RequiredItems;
 
 	// 表示する会話行（NPCのDialogTable内のRowName）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC")
