@@ -76,12 +76,42 @@ void AQuestNPCBase::BeginPlay()
 
 	if (VisibilityMode == EFlagVisibilityMode::None || VisibilityFlag.IsNone()) return;
 
+	InitFlagVisibilityWhenReady();
+}
+
+void AQuestNPCBase::InitFlagVisibilityWhenReady()
+{
 	AMyProject1Character* PlayerChar = Cast<AMyProject1Character>(UGameplayStatics::GetPlayerCharacter(this, 0));
-	if (!PlayerChar) return;
+
+	// プレイヤーがまだ生成されていない（レベル遷移直後・ローディング画面中など）。少し待って再試行
+	if (!PlayerChar)
+	{
+		if (FlagVisibilityInitAttempts++ < 240) // 0.25秒 * 240 = 最大60秒粘る
+		{
+			GetWorldTimerManager().SetTimer(FlagVisibilityInitTimerHandle, this, &AQuestNPCBase::InitFlagVisibilityWhenReady, 0.25f, false);
+		}
+		return;
+	}
+
+	// フラグ通知の購読は一度だけ（同一マップでの「会話→フラグ付与」ライブ経路用）。
+	// 別レベルからのUnlockedFlags一括復元はAddFlagを経由しないためOnFlagAddedは飛んでこない → 下のHasFlag直接判定で拾う
+	if (!bFlagVisibilityDelegatesBound)
+	{
+		PlayerChar->OnFlagAdded.AddDynamic(this, &AQuestNPCBase::OnPlayerFlagAdded);
+		PlayerChar->OnFlagRemoved.AddDynamic(this, &AQuestNPCBase::OnPlayerFlagRemoved);
+		bFlagVisibilityDelegatesBound = true;
+		FlagVisibilityInitAttempts = 0; // ここからフラグ復元待ちの試行回数を数え直す
+	}
 
 	UpdateFlagVisibility(PlayerChar);
-	PlayerChar->OnFlagAdded.AddDynamic(this, &AQuestNPCBase::OnPlayerFlagAdded);
-	PlayerChar->OnFlagRemoved.AddDynamic(this, &AQuestNPCBase::OnPlayerFlagRemoved);
+
+	// プレイヤーは取れたがVisibilityFlagがまだ無い。別レベルからのステータス復元(ApplyPendingCharacterLoad)が
+	// このNPCの初期化より後にずれ込むケースを拾うため、数回だけ再チェックしてから諦める（以降はOnFlagAdded/OnFlagRemoved待ち）。
+	// ShowOnFlag／HideOnFlagどちらも「後から復元でフラグが現れる」のが危険ケースなので、判定条件は共通で良い
+	if (!PlayerChar->HasFlag(VisibilityFlag) && FlagVisibilityInitAttempts++ < 20) // 0.25秒 * 20 = 5秒
+	{
+		GetWorldTimerManager().SetTimer(FlagVisibilityInitTimerHandle, this, &AQuestNPCBase::InitFlagVisibilityWhenReady, 0.25f, false);
+	}
 }
 
 void AQuestNPCBase::ApplyInitialEquipment()
@@ -160,6 +190,9 @@ void AQuestNPCBase::EndPlay(const EEndPlayReason::Type EndPlayReason)
 		}
 		FinishTurn();
 	}
+
+	// フラグ表示の初期化待ちタイマーが回っている途中でNPCが消えた場合の後始末
+	GetWorldTimerManager().ClearTimer(FlagVisibilityInitTimerHandle);
 
 	Super::EndPlay(EndPlayReason);
 }
@@ -373,8 +406,13 @@ void AQuestNPCBase::TalkToNPC(AMyProject1Character* PlayerChar)
 
 	// 日替わり会話シーケンス（多日クエストの自動進行。FirstMeetの後・ConditionalDialogsの前）。
 	// DailyDialogSequenceRows を、ゲーム内で日付が変わるごとに1行ずつ順番に表示する。
-	// 進行はプレイヤーのMyStats.DailyDialogProgressに自動記録され、セーブに残る（フラグの手管理は不要）。
-	// Wait行／Done行が未設定、または対象行がDialogTableに無い状態では、下のConditionalDialogs判定へフォールスルーする
+	// 進行はプレイヤーのMyStats.DailyDialogProgressに記録され、セーブに残る。
+	// ここでは「どの行を表示するか」だけを決め、実際に1歩進めるのはAdvanceDailyDialogSequence()（会話側の
+	// bAdvanceDailySequenceがtrueの選択肢／行から呼ばれる）の役目。会話に到達しただけでは進まないので、
+	// 「はい/いいえ」のような分岐を挟んで「いいえ」なら進めない、という制御が行側で組める。
+	// Wait行／Done行が未設定、または対象行がDialogTableに無い状態では、下のConditionalDialogs判定へフォールスルーする。
+	// 今日のステップに条件（MinRank/RequiredStats/RequiredItems）が設定されていて未達の場合も同様にフォールスルーし、
+	// 進行（Step/LastAdvanceDay）は更新しない＝条件を満たすまで同じステップのまま待つ
 	if (bEnableDailyDialogSequence && !DailyDialogSequenceID.IsNone() && DailyDialogSequenceRows.Num() > 0)
 	{
 		int32 CurrentDay = 0;
@@ -383,13 +421,10 @@ void AQuestNPCBase::TalkToNPC(AMyProject1Character* PlayerChar)
 			CurrentDay = GameInst->TotalElapsedDays;
 		}
 
-		// プレイヤーのステータスは参照で受け取り、進行記録をその場で更新する（GetCharacterStatsはFCharacterStats&を返す）
-		FCharacterStats& PlayerStats = RpgInterface->GetCharacterStats();
-		FDailyDialogProgress& Progress = PlayerStats.DailyDialogProgress.FindOrAdd(DailyDialogSequenceID);
+		// 参照で受け取ってはいるが、ここでは読むだけ（更新はAdvanceDailyDialogSequence側の責務）
+		const FDailyDialogProgress& Progress = RpgInterface->GetCharacterStats().DailyDialogProgress.FindOrAdd(DailyDialogSequenceID);
 
 		FName SeqRowName;
-		bool bAdvanceStep = false;
-
 		if (Progress.Step >= DailyDialogSequenceRows.Num())
 		{
 			// 全行を表示し終えている
@@ -402,19 +437,41 @@ void AQuestNPCBase::TalkToNPC(AMyProject1Character* PlayerChar)
 		}
 		else
 		{
-			// 日付が変わった（または初回）＝今日の1行を表示し、1歩進める
-			SeqRowName = DailyDialogSequenceRows[Progress.Step];
-			bAdvanceStep = true;
+			// 日付が変わった（または初回）＝今日のステップの条件を確認してから表示する
+			const FDailyDialogSequenceStep& StepData = DailyDialogSequenceRows[Progress.Step];
+			const FCharacterStats& PlayerStats = RpgInterface->GetCharacterStats();
+			const uint8 PlayerRankValue = static_cast<uint8>(PlayerStats.AdventurerRank);
+
+			bool bStepConditionOk = (StepData.MinRank == EAdventurerRank::None || PlayerRankValue >= static_cast<uint8>(StepData.MinRank));
+
+			if (bStepConditionOk)
+			{
+				for (const FQuestStatRequirement& StatReq : StepData.RequiredStats)
+				{
+					if (!StatReq.IsSatisfiedBy(PlayerStats)) { bStepConditionOk = false; break; }
+				}
+			}
+
+			if (bStepConditionOk && StepData.RequiredItems.Num() > 0)
+			{
+				UInventoryComponent* PlayerInv = PlayerChar->FindComponentByClass<UInventoryComponent>();
+				for (const FDialogItemRequirement& ItemReq : StepData.RequiredItems)
+				{
+					const int32 Owned = PlayerInv ? PlayerInv->GetItemQuantity(ItemReq.ItemID) : 0;
+					if (Owned < ItemReq.RequiredAmount) { bStepConditionOk = false; break; }
+				}
+			}
+
+			// 条件未達なら何もしない（SeqRowNameはNoneのまま）＝下の判定へフォールスルーし、進行も進めない
+			if (bStepConditionOk)
+			{
+				SeqRowName = StepData.DialogRowName;
+			}
 		}
 
-		// 対象行が実在する時だけシーケンスとして処理する。未設定／未登録なら通常判定へ落とす
+		// 対象行が実在する時だけシーケンスとして処理する。未設定／未登録／条件未達なら通常判定へ落とす
 		if (!SeqRowName.IsNone() && DialogTable->FindRow<FDialogData>(SeqRowName, TEXT("DailyDialogSequence"), false))
 		{
-			if (bAdvanceStep)
-			{
-				Progress.Step++;
-				Progress.LastAdvanceDay = CurrentDay;
-			}
 			StartDialogFacingPlayer(PlayerChar, RpgInterface, SeqRowName, TEXT("日替わりシーケンス行"));
 			return;
 		}
@@ -512,4 +569,28 @@ void AQuestNPCBase::TalkToNPC(AMyProject1Character* PlayerChar)
 	// 向き直りが必要ならヨー回転が完了してから会話ウィンドウを開く
 	StartDialogFacingPlayer(PlayerChar, RpgInterface, RowName,
 		FString::Printf(TEXT("クエスト '%s' の表示行"), *ResolvedQuestID.ToString()));
+}
+
+void AQuestNPCBase::AdvanceDailyDialogSequence(AMyProject1Character* PlayerChar)
+{
+	if (!bEnableDailyDialogSequence || DailyDialogSequenceID.IsNone() || !PlayerChar) return;
+
+	IRpgCharacterInterface* RpgInterface = Cast<IRpgCharacterInterface>(PlayerChar);
+	if (!RpgInterface) return;
+
+	int32 CurrentDay = 0;
+	if (UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetGameInstance()))
+	{
+		CurrentDay = GameInst->TotalElapsedDays;
+	}
+
+	FDailyDialogProgress& Progress = RpgInterface->GetCharacterStats().DailyDialogProgress.FindOrAdd(DailyDialogSequenceID);
+
+	// 既に行数の上限に達していても、最後に進めた日だけは更新しておく
+	// （Doneの行でも誤ってActionTypeを付けてしまった場合に、Step自体が配列外まで増え続けるのを防ぐ）
+	if (Progress.Step < DailyDialogSequenceRows.Num())
+	{
+		Progress.Step++;
+	}
+	Progress.LastAdvanceDay = CurrentDay;
 }

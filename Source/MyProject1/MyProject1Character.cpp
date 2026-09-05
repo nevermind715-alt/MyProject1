@@ -2176,8 +2176,40 @@ void AMyProject1Character::ApplyItemBuff(FString ItemName, UTexture2D* Icon, con
 	// 今回の使用分を識別するID（重複可アイテムを連続使用した時、期限切れ処理で
 	// 「今回の使用分」だけを正しく取り除くために使う）
 	const int32 ThisStackID = NextBuffStackID++;
+	const float NewExpirationTime = GetWorld()->GetTimeSeconds() + Duration;
 
 	bool bHasAddedBuffIcon = false;
+
+	// 重複可（bAllowStacking）アイテムの場合、ステータス効果は使用ごとに独立して積み重ねる（各々が自分の
+	// タイマーで個別に切れる）が、表示アイコンまで使った分だけ増えると煩わしいので、同じ見た目のアイコンが
+	// 既にあれば増やさず、一番遅く切れる使用分にアイコンの消去タイミングを付け替えるだけにする。
+	auto AddOrRefreshBuffIcon = [&](UTexture2D* IconToUse)
+	{
+		if (bAllowStacking)
+		{
+			for (FActiveBuff& ExistingBuff : ActiveBuffs)
+			{
+				if (ExistingBuff.BuffName == ItemName && ExistingBuff.BuffIcon == IconToUse)
+				{
+					if (NewExpirationTime >= ExistingBuff.ExpirationTime)
+					{
+						ExistingBuff.ExpirationTime = NewExpirationTime;
+						ExistingBuff.StackID = ThisStackID; // アイコンの消去は今回の使用分の期限切れに委ねる
+					}
+					bHasAddedBuffIcon = true;
+					return;
+				}
+			}
+		}
+
+		FActiveBuff NewBuff;
+		NewBuff.BuffName = ItemName; // 削除時の目印としてアイテム名を記録
+		NewBuff.BuffIcon = IconToUse;
+		NewBuff.ExpirationTime = NewExpirationTime;
+		NewBuff.StackID = ThisStackID;
+		ActiveBuffs.Add(NewBuff);
+		bHasAddedBuffIcon = true;
+	};
 
 	// 1. すべての効果を一度に適用し、必要なら専用バフアイコンを登録する
 	for (const FItemEffect& Effect : Effects)
@@ -2208,13 +2240,7 @@ void AMyProject1Character::ApplyItemBuff(FString ItemName, UTexture2D* Icon, con
 			FBuffData* BuffRow = BuffDataTable->FindRow<FBuffData>(Effect.BuffID, TEXT("BuffLookup"));
 			if (BuffRow)
 			{
-				FActiveBuff NewBuff;
-				NewBuff.BuffName = ItemName; // 削除時の目印としてアイテム名を記録
-				NewBuff.BuffIcon = BuffRow->BuffIcon; // ★アイテム画像ではなく、バフ専用画像をセット！
-				NewBuff.ExpirationTime = GetWorld()->GetTimeSeconds() + Duration;
-				NewBuff.StackID = ThisStackID;
-				ActiveBuffs.Add(NewBuff);
-				bHasAddedBuffIcon = true;
+				AddOrRefreshBuffIcon(BuffRow->BuffIcon); // ★アイテム画像ではなく、バフ専用画像をセット！
 			}
 		}
 	}
@@ -2222,12 +2248,7 @@ void AMyProject1Character::ApplyItemBuff(FString ItemName, UTexture2D* Icon, con
 	// 万が一、データテーブルが未設定だったり、BuffIDを書き忘れていた場合の保険（今まで通りアイテムのアイコンを使う）
 	if (!bHasAddedBuffIcon && Icon)
 	{
-		FActiveBuff NewBuff;
-		NewBuff.BuffName = ItemName;
-		NewBuff.BuffIcon = Icon;
-		NewBuff.ExpirationTime = GetWorld()->GetTimeSeconds() + Duration;
-		NewBuff.StackID = ThisStackID;
-		ActiveBuffs.Add(NewBuff);
+		AddOrRefreshBuffIcon(Icon);
 	}
 
 	// BaseAttackPower/BaseDefensePowerが変わった可能性があるので、疲労補正込みの表示値を再計算する

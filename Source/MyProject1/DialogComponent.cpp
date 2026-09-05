@@ -9,7 +9,8 @@
 #include "InventoryComponent.h"
 #include "WarpPortal.h"
 #include "MyProject1HUD.h"
-#include "RpgCharacterInterface.h" 
+#include "RpgCharacterInterface.h"
+#include "QuestNPCBase.h"
 
 UDialogComponent::UDialogComponent()
 {
@@ -89,7 +90,7 @@ void UDialogComponent::SelectChoice(int32 ChoiceIndex)
 
 	const FDialogChoice& SelectedChoice = CurrentDialogData.Choices[ChoiceIndex];
 
-	ExecuteActionCore(SelectedChoice.ActionType, SelectedChoice.ActionPayload, SelectedChoice.GrantFlag, SelectedChoice.bFadeOnGrantFlag, SelectedChoice.RemoveFlag, SelectedChoice.bFadeOnRemoveFlag, SelectedChoice.StatToChange, SelectedChoice.StatTargetActor, SelectedChoice.ExtraStatName, SelectedChoice.StatChangeAmount, SelectedChoice.ItemID, SelectedChoice.ItemAmount);
+	ExecuteActionCore(SelectedChoice.ActionType, SelectedChoice.ActionPayload, SelectedChoice.GrantFlag, SelectedChoice.bFadeOnGrantFlag, SelectedChoice.RemoveFlag, SelectedChoice.bFadeOnRemoveFlag, SelectedChoice.StatToChange, SelectedChoice.StatTargetActor, SelectedChoice.ExtraStatName, SelectedChoice.StatChangeAmount, SelectedChoice.ItemID, SelectedChoice.ItemAmount, SelectedChoice.bAdvanceDailySequence);
 
 	FString NextIDStr = SelectedChoice.NextDialogID.ToString().TrimStartAndEnd();
 	bool bHasNext = !SelectedChoice.NextDialogID.IsNone() && !NextIDStr.IsEmpty() && NextIDStr.ToLower() != TEXT("none");
@@ -110,11 +111,21 @@ void UDialogComponent::SelectChoice(int32 ChoiceIndex)
 	}
 }
 
-void UDialogComponent::ExecuteActionCore(EDialogActionType ActionType, const FString& ActionPayload, FName GrantFlag, bool bFadeOnGrantFlag, FName FlagToRemove, bool bFadeOnRemoveFlag, ETargetStat StatToChange, EStatTargetActor StatTargetActor, FName ExtraStatName, float StatChangeAmount, FName ItemID, int32 ItemAmount)
+void UDialogComponent::ExecuteActionCore(EDialogActionType ActionType, const FString& ActionPayload, FName GrantFlag, bool bFadeOnGrantFlag, FName FlagToRemove, bool bFadeOnRemoveFlag, ETargetStat StatToChange, EStatTargetActor StatTargetActor, FName ExtraStatName, float StatChangeAmount, FName ItemID, int32 ItemAmount, bool bAdvanceDailySequence)
 {
 
 	IRpgCharacterInterface* RpgInterface = Cast<IRpgCharacterInterface>(GetOwner());
 	if (!RpgInterface) return;
+
+	// GrantFlagと同じく、ActionTypeが何であっても併用できる独立処理。
+	// 話しかけている相手（AQuestNPCBase）の日替わり会話シーケンスを1歩進める
+	if (bAdvanceDailySequence)
+	{
+		if (AQuestNPCBase* QuestNPC = Cast<AQuestNPCBase>(CurrentNPC))
+		{
+			QuestNPC->AdvanceDailyDialogSequence(Cast<AMyProject1Character>(GetOwner()));
+		}
+	}
 
 	// ActionType（TalkProgressなど）と併用できる、ActionTypeとは独立したフラグ付与
 	if (!GrantFlag.IsNone())
@@ -210,11 +221,23 @@ void UDialogComponent::ExecuteActionCore(EDialogActionType ActionType, const FSt
 		break;
 
 	case EDialogActionType::RemoveItem:
-		// ItemID/ItemAmountで指定したアイテムをプレイヤーのインベントリから削除する（奪う）
+		// ItemID/ItemAmountで指定したアイテムをプレイヤーのインベントリから削除する（奪う）。
+		// UInventoryComponent::RemoveItem自体はログを出さない（ポーション消費など内部利用で無言にするため）ので、
+		// 会話でのアイテム受け渡し時だけここでログを出す（AddItem側はAddItem内でログが出るのと対になる）
 		if (!ItemID.IsNone() && ItemAmount > 0)
 		{
 			if (UInventoryComponent* Inv = GetOwner()->FindComponentByClass<UInventoryComponent>())
-				Inv->RemoveItem(ItemID, ItemAmount);
+			{
+				if (Inv->RemoveItem(ItemID, ItemAmount))
+				{
+					FItemData ItemInfo;
+					const FString ItemName = Inv->GetItemDataBP(ItemID, ItemInfo) ? ItemInfo.Name : ItemID.ToString();
+					const FString LogMsg = (ItemAmount == 1)
+						? FString::Printf(TEXT("%sを渡した。"), *ItemName)
+						: FString::Printf(TEXT("%sを%d個渡した。"), *ItemName, ItemAmount);
+					RpgInterface->OnReceiveLogMessage(LogMsg, ELogMessageType::System);
+				}
+			}
 		}
 		break;
 
@@ -329,7 +352,7 @@ void UDialogComponent::ExecuteActionCore(EDialogActionType ActionType, const FSt
 
 void UDialogComponent::CloseDialog()
 {
-	
+
 	if (IRpgCharacterInterface* RpgInterface = Cast<IRpgCharacterInterface>(GetOwner()))
 	{
 		RpgInterface->CancelTarget();
@@ -430,7 +453,7 @@ void UDialogComponent::ShowCurrentLine()
 		DisplayData.bEndDialog = false;
 	}
 
-	
+
 	if (APawn* OwnerPawn = Cast<APawn>(GetOwner()))
 	{
 		if (APlayerController* PC = Cast<APlayerController>(OwnerPawn->GetController()))
@@ -453,7 +476,7 @@ void UDialogComponent::ShowCurrentLine()
 		// （会話終了設定の場合、この下でAdvanceDialogを経由せず直接CloseDialogするため、ここで実行しないと機会を失う）
 		if (CurrentDialogData.Choices.Num() == 0)
 		{
-			ExecuteActionCore(CurrentDialogData.ActionType, CurrentDialogData.ActionPayload, CurrentDialogData.GrantFlag, CurrentDialogData.bFadeOnGrantFlag, CurrentDialogData.RemoveFlag, CurrentDialogData.bFadeOnRemoveFlag, CurrentDialogData.StatToChange, CurrentDialogData.StatTargetActor, CurrentDialogData.ExtraStatName, CurrentDialogData.StatChangeAmount, CurrentDialogData.ItemID, CurrentDialogData.ItemAmount);
+			ExecuteActionCore(CurrentDialogData.ActionType, CurrentDialogData.ActionPayload, CurrentDialogData.GrantFlag, CurrentDialogData.bFadeOnGrantFlag, CurrentDialogData.RemoveFlag, CurrentDialogData.bFadeOnRemoveFlag, CurrentDialogData.StatToChange, CurrentDialogData.StatTargetActor, CurrentDialogData.ExtraStatName, CurrentDialogData.StatChangeAmount, CurrentDialogData.ItemID, CurrentDialogData.ItemAmount, CurrentDialogData.bAdvanceDailySequence);
 		}
 
 		if (CurrentDialogData.Choices.Num() == 0 &&

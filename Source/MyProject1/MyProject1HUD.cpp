@@ -677,6 +677,15 @@ void AMyProject1HUD::ToggleItemShopMenu()
     {
         ItemShopMenuWidget->RemoveFromParent();
 
+        // WBP_ItemShopはOnInventoryUpdated/OnItemHoverChangedにBindしたままRemoveFromParent()されるため、
+        // 閉じてもデリゲートに参照が残り続け、閉店後のアイテム使用等でUpdateShopListが誤って再実行されてしまう。
+        // ここで明示的に解除する（RemoveAllはバインドされていなくても安全）。
+        if (UInventoryComponent* Inv = PlayerChar->FindComponentByClass<UInventoryComponent>())
+        {
+            Inv->OnInventoryUpdated.RemoveAll(ItemShopMenuWidget);
+            Inv->OnItemHoverChanged.RemoveAll(ItemShopMenuWidget);
+        }
+
         // フィールド操作に入力を引き戻す（ゲームオンリー・操作ロック解除）
         FInputModeGameOnly InputMode;
         PC->SetInputMode(InputMode);

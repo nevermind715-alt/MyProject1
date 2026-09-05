@@ -71,10 +71,12 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC|Daily Sequence", meta = (EditCondition = "bEnableDailyDialogSequence"))
 	FName DailyDialogSequenceID;
 
-	// 1日1行ずつ表示する会話行（DialogTable内のRowName）。先頭が初回、以降は日をまたぐごとに次へ進む。
+	// 1日1ステップずつ表示するシーケンス。先頭が初回、以降は日をまたぐごとに次へ進む。
+	// 各要素はConditionalDialogsと同じ条件セット（等級・数値ステータス・所持アイテム）を個別に持てる。
+	// 条件未達の日はそのステップを飛ばさず、達成するまで同じステップのまま待つ（次の日にまた判定し直す）。
 	// ＋ボタンで末尾に追加していくだけでよい（並べ替え不要）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC|Daily Sequence", meta = (EditCondition = "bEnableDailyDialogSequence"))
-	TArray<FName> DailyDialogSequenceRows;
+	TArray<FDailyDialogSequenceStep> DailyDialogSequenceRows;
 
 	// その日はもう進めた時に表示する行（空欄なら通常の会話判定へフォールスルー）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC|Daily Sequence", meta = (EditCondition = "bEnableDailyDialogSequence"))
@@ -83,6 +85,13 @@ public:
 	// 全行を表示し終えた後に表示する行（空欄なら通常の会話判定へフォールスルー）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC|Daily Sequence", meta = (EditCondition = "bEnableDailyDialogSequence"))
 	FName DailyDialogSequenceDoneRow;
+
+	// 日替わり会話シーケンスを1歩進める（会話行の到達だけでは進めない。DialogのbAdvanceDailySequenceがtrueの
+	// 選択肢／行から呼ばれる）。「はい/いいえ」のような分岐で、実際にステップを完了したと判断できる方にだけ
+	// チェックを入れることで、「いいえ」を選んだ場合は進行が更新されず、次に話しかけた時に同じ行がもう一度出る、
+	// という制御ができる
+	UFUNCTION(BlueprintCallable, Category = "QuestNPC|Daily Sequence")
+	void AdvanceDailyDialogSequence(class AMyProject1Character* PlayerChar);
 
 	// 会話開始時にプレイヤーの方へ体（ヨーのみ）を向け、会話終了時に元の向きへ戻す。
 	// 座っているNPCなど向きを固定したい個体はチェックを入れる（チェックすると向き直らない）
@@ -134,6 +143,11 @@ protected:
 private:
 	/** InitialEquipmentRowNamesをEquipmentDataTableから引いて、BeginPlay時に見た目だけ反映する */
 	void ApplyInitialEquipment();
+
+	/** BeginPlay後、プレイヤー生成と別レベルからのステータス復元(ApplyPendingCharacterLoad)を待ってから
+	    VisibilityFlagを評価する。別レベル復元はUnlockedFlagsを一括代入するだけでOnFlagAddedが飛ばないため、
+	    復元がこのNPCのBeginPlayより後にずれ込むケースを数回の再チェックで拾う（ANPCSpawnerと同じ方式） */
+	void InitFlagVisibilityWhenReady();
 
 	/** VisibilityFlag/VisibilityModeの設定に応じて、現在の表示/当たり判定を更新する */
 	void UpdateFlagVisibility(const class AMyProject1Character* PlayerChar);
@@ -213,4 +227,9 @@ private:
 
 	/** OnDialogClosedを購読しているプレイヤーのDialogComponent（会話終了時に解除するため保持） */
 	TWeakObjectPtr<class UDialogComponent> TalkDialogCompBound;
+
+	/** InitFlagVisibilityWhenReadyの再試行タイマー／試行回数／OnFlagAdded購読済みフラグ */
+	FTimerHandle FlagVisibilityInitTimerHandle;
+	int32 FlagVisibilityInitAttempts = 0;
+	bool bFlagVisibilityDelegatesBound = false;
 };

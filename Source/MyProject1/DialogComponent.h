@@ -49,6 +49,11 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Dialog")
 	void CloseDialog();
 
+	// セリフ表示から選択肢表示までの遅延秒数（ほぼ同時に出ると不自然なため）。
+	// 選択肢ボタンの表示自体はUI側（WBP_ChoiceMenu）が担当するため、ここではその際に使う秒数をBlueprintへ公開するだけ
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Dialog")
+	float ChoiceRevealDelay = 0.5f;
+
 	// UI側でこれにイベントバインドする
 	UPROPERTY(BlueprintAssignable, Category = "Dialog")
 	FOnDialogUpdated OnDialogUpdated;
@@ -71,7 +76,7 @@ private:
 	FDialogData CurrentDialogData;
 
 	// アクションの実行本体（Choice経由でもセリフ単体経由でも共通で使う）
-	void ExecuteActionCore(EDialogActionType ActionType, const FString& ActionPayload, FName GrantFlag, bool bFadeOnGrantFlag, FName FlagToRemove, bool bFadeOnRemoveFlag, ETargetStat StatToChange, EStatTargetActor StatTargetActor, FName ExtraStatName, float StatChangeAmount, FName ItemID, int32 ItemAmount);
+	void ExecuteActionCore(EDialogActionType ActionType, const FString& ActionPayload, FName GrantFlag, bool bFadeOnGrantFlag, FName FlagToRemove, bool bFadeOnRemoveFlag, ETargetStat StatToChange, EStatTargetActor StatTargetActor, FName ExtraStatName, float StatChangeAmount, FName ItemID, int32 ItemAmount, bool bAdvanceDailySequence);
 
 	// --- 逐次表示システム用の変数と関数 ---
 

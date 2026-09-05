@@ -937,6 +937,12 @@ struct FDialogChoice
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog")
 	float StatChangeAmount = 0.0f;
 
+	// trueにすると、ActionTypeが何であってもこの選択肢を選んだ時にAQuestNPCBaseの日替わり会話シーケンスを1歩進める。
+	// 「はい/いいえ」のような分岐で、実際にステップを完了したと判断できる方にだけチェックを入れる用途
+	// （いいえ側はfalseのままにしておけば、次に話しかけた時に同じ行がもう一度出る）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog")
+	bool bAdvanceDailySequence = false;
+
 	// 次に飛ぶ会話のID（会話を続ける場合）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog")
 	FName NextDialogID;
@@ -1024,6 +1030,11 @@ struct FDialogData : public FTableRowBase
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Action")
 	float StatChangeAmount = 0.0f;
+
+	// trueにすると、ActionTypeが何であってもこの行の到達時にAQuestNPCBaseの日替わり会話シーケンスを1歩進める。
+	// Choicesが空の行（分岐なし）で、そのままステップ完了とみなしてよい場合に使う
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Action")
+	bool bAdvanceDailySequence = false;
 };
 
 // --- クエストの種類 ---
@@ -1384,6 +1395,32 @@ struct FConditionalDialogEntry
 	// 表示する会話行（NPCのDialogTable内のRowName）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC")
 	FName DialogRowName;
+};
+
+// --- 日替わり会話シーケンス1件分（AQuestNPCBaseのDailyDialogSequenceRows配列の要素） ---
+// ConditionalDialogsと同じ条件セット（等級・数値ステータス・所持アイテム）を、日替わりで進む各ステップにも
+// 個別に設定できるようにしたもの。条件を1つでも満たさない日は、そのステップを表示せず（進行＝Step/LastAdvanceDayも
+// 更新せず）通常のConditionalDialogs／Quests判定へフォールスルーする。条件を満たした日に改めて同じステップを評価する
+USTRUCT(BlueprintType)
+struct FDailyDialogSequenceStep
+{
+	GENERATED_BODY()
+
+	// 表示する会話行（NPCのDialogTable内のRowName）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC")
+	FName DialogRowName;
+
+	// この冒険者等級「以上」でないとこのステップを表示しない（None＝等級条件なし）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC")
+	EAdventurerRank MinRank = EAdventurerRank::None;
+
+	// このステップに必要な数値ステータス条件（例：魅力=Charm が 3 以上）。複数指定した場合は全てAND。空なら条件なし
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC")
+	TArray<FQuestStatRequirement> RequiredStats;
+
+	// このステップに必要な所持アイテム（ItemID＋最低所持数）。複数指定した場合は全てAND。空なら条件なし
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC")
+	TArray<FDialogItemRequirement> RequiredItems;
 };
 
 
