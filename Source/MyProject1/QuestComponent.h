@@ -97,6 +97,13 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Quest")
 	FName GetNextOfferableQuest(const TArray<FName>& CandidateQuestIDs);
 
+	/** このクエストの前提クエスト（FQuestData::PrerequisiteQuestIDs）が全て一度以上クリア済みかを返す。
+	    連続クエストで「前のクエストをクリアするまで次をボードに載せない」表示制御に使う想定。
+	    PrerequisiteQuestIDsが空なら常にtrue。RequiredFlag/RequiredRank/RequiredStatsは判定しない
+	    （それらが未達のクエストは従来通りボードに表示し、受注時にAcceptQuestで弾く）。 */
+	UFUNCTION(BlueprintPure, Category = "Quest")
+	bool AreQuestPrerequisitesMet(FName QuestID);
+
 	// 追加: アイテムを入手した時にカウントを進める関数
 	UFUNCTION(BlueprintCallable, Category = "Quest")
 	void UpdateGatherObjective(FName ItemID, int32 AmountAdded);

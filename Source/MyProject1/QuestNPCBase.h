@@ -50,7 +50,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC|FirstMeet")
 	FName DialogRowName_FirstMeet;
 
-	// --- 条件（フラグ／冒険者等級）に応じた会話の出し分け ---
+	// --- 条件（フラグ／代行者等級）に応じた会話の出し分け ---
 	// 空配列なら使わない（従来通りFirstMeetFlag→Quests配列のみで判定）。
 	// 設定すると、FirstMeetFlagの判定後・Quests配列の判定前にこの配列を先頭から評価し、
 	// 条件を満たした最初のエントリの行を表示する（FirstMeetと違い一度きりではなく、話しかけるたびに現在の状態の行を出す）。

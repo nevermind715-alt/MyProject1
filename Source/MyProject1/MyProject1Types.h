@@ -260,7 +260,7 @@ public:
 };
 
 
-// --- 冒険者クラスの等級（数値が大きいほど上位。未登録が最下位、番外が最上位） ---
+// --- 代行者クラスの等級（数値が大きいほど上位。未登録が最下位、番外が最上位） ---
 UENUM(BlueprintType)
 enum class EAdventurerRank : uint8
 {
@@ -387,8 +387,8 @@ struct FCharacterStats
 	TMap<FName, float> ExtraStats;
 
 
-	// --- 冒険者クラスの等級（ギルドNPCへの申請で昇格） ---
-	// 初期値は「未登録」。冒険者登録ダイアログでRequestRankUpを実行すると五等になる
+	// --- 代行者クラスの等級（ギルドNPCへの申請で昇格） ---
+	// 初期値は「未登録」。代行者登録ダイアログでRequestRankUpを実行すると五等になる
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats")
 	EAdventurerRank AdventurerRank = EAdventurerRank::None;
 
@@ -863,7 +863,7 @@ enum class EDialogActionType : uint8
 	AddSkinOverlay     UMETA(DisplayName = "タトゥー/傷跡を強制追加"),
 	RemoveSkinOverlay  UMETA(DisplayName = "タトゥー/傷跡を強制削除"),
 	// ActionPayloadに設定先のEAdventurerRank行名（例："Rank4"）を入れる。条件判定はせず直接その等級に設定する
-	RequestRankUp      UMETA(DisplayName = "冒険者等級を設定する（ActionPayload=等級名）"),
+	RequestRankUp      UMETA(DisplayName = "代行者等級を設定する（ActionPayload=等級名）"),
 	// AddItemと対。ItemID/ItemAmountで指定したアイテムをプレイヤーのインベントリから削除する
 	RemoveItem      UMETA(DisplayName = "アイテムを奪う（インベントリから削除）")
 };
@@ -1118,6 +1118,11 @@ struct FQuestData : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Condition")
 	FName RequiredFlag;
 
+	// 受注に必要な最低代行者等級。None（未登録）＝等級条件なし。
+	// 例：Rank4 を指定すると「四等以上」でないと受注できない（EAdventurerRankは数値が大きいほど上位）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Condition")
+	EAdventurerRank RequiredRank = EAdventurerRank::None;
+
 	// 汎用の受注前提クエスト（クエスト種別を問わず使える）。ここに列挙した全てのクエストが
 	// EverCompletedQuestIDsに含まれていないと受注不可。
 	// ※Achievement専用のRequiredQuestIDs（達成カウント用の進捗判定）とは役割が別なので分離している
@@ -1357,7 +1362,7 @@ struct FDialogItemRequirement
 	int32 RequiredAmount = 1;
 };
 
-// --- 条件（フラグ／冒険者等級）に応じて出し分ける会話1件分（AQuestNPCBaseのConditionalDialogs配列の要素） ---
+// --- 条件（フラグ／代行者等級）に応じて出し分ける会話1件分（AQuestNPCBaseのConditionalDialogs配列の要素） ---
 // FirstMeetFlagが「1フラグ→1行・一度きり」なのに対し、これは「複数の状態を優先順位付きで、話しかけるたびに」出す用途。
 // 配列を先頭から評価し、設定された条件（フラグ所持・除外フラグ非所持・等級）を全て満たした最初の行を表示する。
 // 例：ギルド受付で「未登録→受付案内」「登録済み(五等)→五等向け」「四等→四等向け」…と現在の状態の台詞を出し分ける。
@@ -1375,7 +1380,7 @@ struct FConditionalDialogEntry
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC")
 	FName ExcludeFlag;
 
-	// この冒険者等級「以上」なら該当（None＝等級条件なし）。「登録済み」の判定にはRank5（五等）以上を指定する。
+	// この代行者等級「以上」なら該当（None＝等級条件なし）。「登録済み」の判定にはRank5（五等）以上を指定する。
 	// EAdventurerRankは数値が大きいほど上位（None < Rank5 < Rank4 < ... < Extra）なので、
 	// 別々の台詞を出したい時は配列で上位等級のエントリを先に並べること
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC")
@@ -1410,7 +1415,7 @@ struct FDailyDialogSequenceStep
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC")
 	FName DialogRowName;
 
-	// この冒険者等級「以上」でないとこのステップを表示しない（None＝等級条件なし）
+	// この代行者等級「以上」でないとこのステップを表示しない（None＝等級条件なし）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC")
 	EAdventurerRank MinRank = EAdventurerRank::None;
 
@@ -1939,7 +1944,7 @@ struct FOverlayShopItemInfo
 };
 
 // ============================================================================
-// ★ 冒険者クラスの等級：昇格条件・昇格ボーナス（データテーブル用）
+// ★ 代行者クラスの等級：昇格条件・昇格ボーナス（データテーブル用）
 // 行名（RowName）は、昇格「先」のEAdventurerRankの名前（"Rank4"など）と一致させる想定。
 // ============================================================================
 USTRUCT(BlueprintType)

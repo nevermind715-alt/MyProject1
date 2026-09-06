@@ -767,6 +767,14 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Inventory|Shop")
 	bool TrySellItem(FName ItemID, int32 Amount = 1);
 
+	/** アイテム購入が成功した時に鳴らすお金のSE（入手音とは別枠。位置非依存なのでPlaySound2D） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory|Shop|Sounds")
+	USoundBase* ShopPurchaseSound = nullptr;
+
+	/** アイテム売却が成功した時に鳴らすお金のSE（位置非依存なのでPlaySound2D） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory|Shop|Sounds")
+	USoundBase* ShopSellSound = nullptr;
+
 protected:
 	/** 鎖設定に基づいてコンポーネントの状態を再構築する内部関数 */
 	void SetupCableSystem(const FCableAttachmentSettings& Settings, EEquipmentSlot Slot, USceneComponent* AssociatedComponent = nullptr);
@@ -1192,7 +1200,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "RPG Stats|Job")
 	void ApplyJobData();
 
-	// --- 冒険者クラスの等級（ギルドNPCへの申請で昇格） ---
+	// --- 代行者クラスの等級（ギルドNPCへの申請で昇格） ---
 
 	/** 等級ごとの昇格ボーナスを定義したデータテーブル（行名は設定先のEAdventurerRank名と一致させる）。
 	    昇格条件はもうここでは見ない（Quest側のRequiredStats/RequiredFlagで受注可否を制御する方式に変更したため）。

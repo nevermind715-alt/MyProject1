@@ -213,6 +213,17 @@ bool UQuestComponent::CanAcceptQuest(FName QuestID, FString& OutFailReason)
 		return false;
 	}
 
+	// 受注条件1.5：代行者等級（None＝条件なし。EAdventurerRankは数値が大きいほど上位）
+	if (Data.RequiredRank != EAdventurerRank::None)
+	{
+		const uint8 PlayerRankValue = static_cast<uint8>(OwnerChar->GetCharacterStats().AdventurerRank);
+		if (PlayerRankValue < static_cast<uint8>(Data.RequiredRank))
+		{
+			OutFailReason = TEXT("受注条件が未達です（代行者等級が足りません）。");
+			return false;
+		}
+	}
+
 	// 受注条件2：前提クエスト（種別問わず。全て一度はクリア済みである必要がある）
 	for (const FName& ReqQuestID : Data.PrerequisiteQuestIDs)
 	{
@@ -290,6 +301,27 @@ FName UQuestComponent::GetNextOfferableQuest(const TArray<FName>& CandidateQuest
 	}
 
 	return NAME_None;
+}
+
+bool UQuestComponent::AreQuestPrerequisitesMet(FName QuestID)
+{
+	FQuestData Data;
+	if (!GetQuestData(QuestID, Data))
+	{
+		// データが取れない場合はここで弾かず、既存のボード側フィルタに委ねる
+		return true;
+	}
+
+	// CanAcceptQuest内の前提クエスト判定と同じ条件。
+	// EverCompletedQuestIDsはリピートクエストのクールダウンでCompletedQuestsから消えても残る永続リスト
+	for (const FName& ReqQuestID : Data.PrerequisiteQuestIDs)
+	{
+		if (!EverCompletedQuestIDs.Contains(ReqQuestID))
+		{
+			return false;
+		}
+	}
+	return true;
 }
 
 bool UQuestComponent::AcceptQuest(FName QuestID)

@@ -1897,7 +1897,7 @@ void AMyProject1Character::ApplyJobData()
 	NotifyStatsChanged();
 }
 
-// --- 冒険者クラスの等級：ギルドNPCへの申請による昇格判定 ---
+// --- 代行者クラスの等級：ギルドNPCへの申請による昇格判定 ---
 bool AMyProject1Character::SetAdventurerRank(FName TargetRankRowName)
 {
 	// 昇格条件はここでは判定しない（呼び出し側＝昇格QuestのRequiredStats/RequiredFlagで
@@ -1906,7 +1906,7 @@ bool AMyProject1Character::SetAdventurerRank(FName TargetRankRowName)
 	const int64 RankValue = RankEnum->GetValueByName(TargetRankRowName);
 	if (RankValue == INDEX_NONE)
 	{
-		OnReceiveLogMessage(FString::Printf(TEXT("冒険者等級「%s」は存在しません。"), *TargetRankRowName.ToString()), ELogMessageType::System);
+		OnReceiveLogMessage(FString::Printf(TEXT("代行者等級「%s」は存在しません。"), *TargetRankRowName.ToString()), ELogMessageType::System);
 		return false;
 	}
 
@@ -1952,7 +1952,7 @@ bool AMyProject1Character::SetAdventurerRank(FName TargetRankRowName)
 	}
 
 	FString SpeakerName = MyStats.NPCName.IsEmpty() ? CharacterName : MyStats.NPCName;
-	OnReceiveLogMessage(FString::Printf(TEXT("%sは冒険者等級「%s」になった！"), *SpeakerName, *GetAdventurerRankDisplayName().ToString()), ELogMessageType::System);
+	OnReceiveLogMessage(FString::Printf(TEXT("%sは代行者等級「%s」になった！"), *SpeakerName, *GetAdventurerRankDisplayName().ToString()), ELogMessageType::System);
 
 	if (OnAdventurerRankChangedDelegate.IsBound())
 	{
@@ -4494,6 +4494,12 @@ bool AMyProject1Character::TryBuyItem(FName ItemID, int32 Amount)
 		FString LogMsg = FString::Printf(TEXT("%sを%d個購入した。%d円を支払った。"), *ItemInfo.Name, Amount, TotalPrice);
 		OnReceiveLogMessage(LogMsg, ELogMessageType::System);
 
+		// 5. 購入成立時のお金のSEを再生（AddItem内の入手音とは別枠。エディタでセットされていなければ何もしない）
+		if (ShopPurchaseSound)
+		{
+			UGameplayStatics::PlaySound2D(this, ShopPurchaseSound);
+		}
+
 		return true;
 	}
 	else
@@ -4554,6 +4560,12 @@ bool AMyProject1Character::TrySellItem(FName ItemID, int32 Amount)
 		// システムログを出力
 		FString LogMsg = FString::Printf(TEXT("%sを%d個売却した。%d円を手に入れた。"), *ItemInfo.Name, Amount, TotalSellPrice);
 		OnReceiveLogMessage(LogMsg, ELogMessageType::System);
+
+		// 売却成立時のお金のSEを再生（エディタでセットされていなければ何もしない）
+		if (ShopSellSound)
+		{
+			UGameplayStatics::PlaySound2D(this, ShopSellSound);
+		}
 
 		return true;
 	}

@@ -477,7 +477,7 @@ void AQuestNPCBase::TalkToNPC(AMyProject1Character* PlayerChar)
 		}
 	}
 
-	// 条件付き会話（フラグ／冒険者等級で出し分け。FirstMeetの後・Quests配列より優先）。
+	// 条件付き会話（フラグ／代行者等級で出し分け。FirstMeetの後・Quests配列より優先）。
 	// FirstMeetFlagと違い一度きりではなく、話しかけるたびに現在の状態に合った行を出す。
 	// どのエントリにも一致しなければreturnせず、そのままQuests配列の判定へ進む
 	if (ConditionalDialogs.Num() > 0)
