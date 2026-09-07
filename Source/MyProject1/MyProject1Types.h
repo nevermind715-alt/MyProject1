@@ -865,7 +865,9 @@ enum class EDialogActionType : uint8
 	// ActionPayloadに設定先のEAdventurerRank行名（例："Rank4"）を入れる。条件判定はせず直接その等級に設定する
 	RequestRankUp      UMETA(DisplayName = "代行者等級を設定する（ActionPayload=等級名）"),
 	// AddItemと対。ItemID/ItemAmountで指定したアイテムをプレイヤーのインベントリから削除する
-	RemoveItem      UMETA(DisplayName = "アイテムを奪う（インベントリから削除）")
+	RemoveItem      UMETA(DisplayName = "アイテムを奪う（インベントリから削除）"),
+	// ActionPayloadに渡す金額（￥）を数値の文字列で入れる（例："500"）。プレイヤーの所持金に加算する（報酬の前金など）
+	AddGil          UMETA(DisplayName = "お金を渡す（ActionPayload=金額）")
 };
 
 // --- 選択肢1つ分のデータ ---

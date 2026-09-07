@@ -241,6 +241,22 @@ void UDialogComponent::ExecuteActionCore(EDialogActionType ActionType, const FSt
 		}
 		break;
 
+	case EDialogActionType::AddGil:
+		// ActionPayloadに入れた金額（￥）の数値文字列をプレイヤーの所持金に加算する（報酬の前金など）。
+		// RemoveItemと同じく、渡した時だけここでシステムログを出す
+		{
+			const int32 GilAmount = FCString::Atoi(*ActionPayload);
+			if (GilAmount > 0)
+			{
+				if (UInventoryComponent* Inv = GetOwner()->FindComponentByClass<UInventoryComponent>())
+				{
+					Inv->AddGil(GilAmount);
+					RpgInterface->OnReceiveLogMessage(FString::Printf(TEXT("%d￥ 手に入れた。"), GilAmount), ELogMessageType::System);
+				}
+			}
+		}
+		break;
+
 	case EDialogActionType::Close:
 		CloseDialog();
 		break;
