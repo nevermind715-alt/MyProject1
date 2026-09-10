@@ -1504,6 +1504,71 @@ struct FWarpDestinationInfo
 	FText DisplayName;
 };
 
+// --- セーブ画面のスロット一覧UI用の軽量データ（C++からBPへ1スロット分の見出し情報を渡す用） ---
+// スロットのセーブ本体（UMyProject1SaveGame）そのものではなく、一覧に並べて表示するのに必要な項目だけを持つ。
+// データが無いスロットは bHasData=false で返し、BP側は「-- 空き --」表示に使う。
+USTRUCT(BlueprintType)
+struct FSaveSlotDisplayInfo
+{
+	GENERATED_BODY()
+
+	// Save/Load関数へ渡す内部スロット名（"SaveSlot1"〜"SaveSlot5" もしくは "AutoSave"）
+	UPROPERTY(BlueprintReadOnly, Category = "Save")
+	FString SlotName;
+
+	// 手動スロットは1〜5。オートセーブスロットは0。
+	UPROPERTY(BlueprintReadOnly, Category = "Save")
+	int32 SlotIndex = 0;
+
+	// オートセーブ専用スロットか（BP側で行の見た目や「上書き禁止」を出し分ける用）
+	UPROPERTY(BlueprintReadOnly, Category = "Save")
+	bool bIsAutoSave = false;
+
+	// このスロットにセーブデータが存在するか
+	UPROPERTY(BlueprintReadOnly, Category = "Save")
+	bool bHasData = false;
+
+	// --- ここから下は bHasData==true のときだけ意味を持つ ---
+
+	// セーブ時にいた場所の表示名（GameInstanceのLevelDisplayNameMapで引く。未登録ならレベル名そのまま）
+	UPROPERTY(BlueprintReadOnly, Category = "Save")
+	FText LocationName;
+
+	// プレイヤー名（セーブ時点）
+	UPROPERTY(BlueprintReadOnly, Category = "Save")
+	FString PlayerName;
+
+	// プレイヤーレベル（セーブ時点）
+	UPROPERTY(BlueprintReadOnly, Category = "Save")
+	int32 PlayerLevel = 0;
+
+	// 代行者ランクの表示名（セーブ時点）
+	UPROPERTY(BlueprintReadOnly, Category = "Save")
+	FText RankText;
+
+	// 所持金（セーブ時点）
+	UPROPERTY(BlueprintReadOnly, Category = "Save")
+	int32 Gil = 0;
+
+	// ゲーム内の暦（セーブ時点）
+	UPROPERTY(BlueprintReadOnly, Category = "Save")
+	int32 InGameYear = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Save")
+	int32 InGameMonth = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Save")
+	int32 InGameDay = 0;
+
+	// 通算経過日数（セーブ時点）
+	UPROPERTY(BlueprintReadOnly, Category = "Save")
+	int32 TotalElapsedDays = 0;
+
+	// 実時間のセーブ日時を整形済み文字列にしたもの（"2026/09/10 14:32"）。空データなら空文字。
+	UPROPERTY(BlueprintReadOnly, Category = "Save")
+	FString SavedAtText;
+};
+
 // --- 拘束具（足枷等）装備時の移動制限プリセット ---
 UENUM(BlueprintType)
 enum class ERestrainedSpeedPreset : uint8

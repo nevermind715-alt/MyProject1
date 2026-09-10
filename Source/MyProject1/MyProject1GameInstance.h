@@ -172,9 +172,27 @@ public:
 	UPROPERTY()
 	class UMyProject1SaveGame* PendingLoadSaveGame = nullptr;
 
+	/** 手動セーブスロットの数（"SaveSlot1"〜"SaveSlot5"）。オートセーブスロットはこれとは別に1つ持つ。 */
+	static constexpr int32 NumManualSaveSlots = 5;
+
+	/** オートセーブ専用スロットの内部名 */
+	static const FString AutoSaveSlotName;
+
+	/** 手動スロット番号（1〜NumManualSaveSlots）から内部スロット名（"SaveSlot3"等）を作る */
+	UFUNCTION(BlueprintPure, Category = "Save")
+	static FString GetManualSaveSlotName(int32 SlotIndex);
+
+	/** レベル名（PlayerLevelName）→ セーブ画面に出す場所の表示名の対応表。未登録のレベルはレベル名をそのまま表示する。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Save")
+	TMap<FName, FText> LevelDisplayNameMap;
+
 	/** 現在のプレイヤー状態をまとめてスロットに保存する */
 	UFUNCTION(BlueprintCallable, Category = "Save")
 	bool SaveCurrentGame(const FString& SlotName = TEXT("SaveSlot1"));
+
+	/** オートセーブスロットへ保存する（呼び出しタイミングは呼ぶ側で決める。SaveCurrentGame(AutoSaveSlotName)の薄いラッパー） */
+	UFUNCTION(BlueprintCallable, Category = "Save")
+	bool AutoSaveGame();
 
 	/** スロットからセーブデータを読み込み、既存のワープ着地機構に相乗りしてプレイヤーへ反映する */
 	UFUNCTION(BlueprintCallable, Category = "Save")
@@ -183,6 +201,15 @@ public:
 	/** 指定したスロットにセーブデータが存在するか（UIの「つづきから」表示用） */
 	UFUNCTION(BlueprintPure, Category = "Save")
 	bool DoesSaveGameExist(const FString& SlotName = TEXT("SaveSlot1")) const;
+
+	/** セーブ画面の一覧用：手動スロット1〜5＋オートセーブの計(NumManualSaveSlots+1)件の見出し情報を返す。
+	 *  先頭がオートセーブ、続いて手動スロット1〜5の順で並ぶ。 */
+	UFUNCTION(BlueprintCallable, Category = "Save")
+	TArray<FSaveSlotDisplayInfo> GetAllSaveSlotInfos() const;
+
+	/** 指定した1スロット分の見出し情報を返す（セーブ直後にその行だけ更新したい時に使う）。 */
+	UFUNCTION(BlueprintCallable, Category = "Save")
+	FSaveSlotDisplayInfo GetSaveSlotInfo(const FString& SlotName) const;
 
 	/** レベル移動後、新しく生成されたキャラクターのBeginPlayから呼ばれ、PendingLoadSaveGameの中身を実際に適用する。
 	 *  スナップショット（セーブロード or 別マップワープ）を実際に消費して復元したときだけ true を返す。

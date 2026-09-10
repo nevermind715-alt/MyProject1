@@ -48,17 +48,68 @@ void AQuestItemPoint::BeginPlay()
 {
 	Super::BeginPlay();
 
+	InitFlagVisibilityWhenReady();
+}
+
+void AQuestItemPoint::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	// フラグ初期化待ちのタイマーが回っている途中でアクタが消えた場合の後始末
+	GetWorldTimerManager().ClearTimer(FlagInitTimerHandle);
+
+	Super::EndPlay(EndPlayReason);
+}
+
+void AQuestItemPoint::InitFlagVisibilityWhenReady()
+{
 	AMyProject1Character* PlayerChar = Cast<AMyProject1Character>(UGameplayStatics::GetPlayerCharacter(this, 0));
-	if (!PlayerChar) return;
+
+	// プレイヤーがまだ生成されていない（レベル遷移直後・ローディング画面中など）。少し待って再試行
+	if (!PlayerChar)
+	{
+		if (FlagInitAttempts++ < 240) // 0.25秒 * 240 = 最大60秒粘る
+		{
+			GetWorldTimerManager().SetTimer(FlagInitTimerHandle, this, &AQuestItemPoint::InitFlagVisibilityWhenReady, 0.25f, false);
+		}
+		return;
+	}
+
+	// フラグ通知の購読は一度だけ（同一マップでの「会話→フラグ付与」ライブ経路用）。
+	// RequiredFlagが空欄でも購読はしておいて問題ない（OnPlayerFlagAdded側で無視される）。
+	// 別レベルからのUnlockedFlags一括復元はAddFlagを経由しないためOnFlagAddedは飛んでこない → 下のHasFlag直接判定で拾う
+	if (!bFlagDelegatesBound)
+	{
+		PlayerChar->OnFlagAdded.AddDynamic(this, &AQuestItemPoint::OnPlayerFlagAdded);
+		PlayerChar->OnFlagRemoved.AddDynamic(this, &AQuestItemPoint::OnPlayerFlagRemoved);
+		bFlagDelegatesBound = true;
+		FlagInitAttempts = 0; // ここからフラグ復元待ちの試行回数を数え直す
+	}
 
 	UpdateFlagVisibility(PlayerChar);
 
-	// RequiredFlagが空欄でも購読だけはしておいて問題ない（OnPlayerFlagAdded側で無視される）
-	PlayerChar->OnFlagAdded.AddDynamic(this, &AQuestItemPoint::OnPlayerFlagAdded);
+	// RequiredFlagもUsedFlagも空欄なら常時表示で確定。以降のリトライは不要
+	if (RequiredFlag.IsNone() && UsedFlag.IsNone()) return;
+
+	// プレイヤーは取れたが、判定に使うフラグがまだ復元されていない可能性がある。別レベルからのステータス復元
+	// (ApplyPendingCharacterLoad)がこのアクタの初期化より後にずれ込むケースを拾うため、数回だけ再チェックしてから
+	// 諦める（以降はOnFlagAdded待ち）
+	const bool bAwaitingRequired = !RequiredFlag.IsNone() && !PlayerChar->HasFlag(RequiredFlag);
+	const bool bAwaitingUsed     = !UsedFlag.IsNone()     && !PlayerChar->HasFlag(UsedFlag);
+	if ((bAwaitingRequired || bAwaitingUsed) && FlagInitAttempts++ < 20) // 0.25秒 * 20 = 5秒
+	{
+		GetWorldTimerManager().SetTimer(FlagInitTimerHandle, this, &AQuestItemPoint::InitFlagVisibilityWhenReady, 0.25f, false);
+	}
 }
 
 void AQuestItemPoint::UpdateFlagVisibility(const AMyProject1Character* PlayerChar)
 {
+	// 使用済みフラグが復元されていれば、RequiredFlagの状態に関わらず消費済みの見た目にして終了
+	// （別レベルへ行って戻ってきた時に、bUsedが初期化されて復活してしまうのを防ぐ）
+	if (!UsedFlag.IsNone() && PlayerChar && PlayerChar->HasFlag(UsedFlag))
+	{
+		ApplyUsedState();
+		return;
+	}
+
 	const bool bUnlocked = RequiredFlag.IsNone() || (PlayerChar && PlayerChar->HasFlag(RequiredFlag));
 
 	SetActorHiddenInGame(!bUnlocked);
@@ -67,10 +118,25 @@ void AQuestItemPoint::UpdateFlagVisibility(const AMyProject1Character* PlayerCha
 
 void AQuestItemPoint::OnPlayerFlagAdded(FName FlagName)
 {
+	// 使用済みフラグが立った（＝このポイントを消費した）なら、以後は消費済みの見た目で固定
+	if (!UsedFlag.IsNone() && FlagName == UsedFlag)
+	{
+		ApplyUsedState();
+		return;
+	}
+
 	if (RequiredFlag.IsNone() || FlagName != RequiredFlag) return;
 
 	SetActorHiddenInGame(false);
 	SetActorEnableCollision(true);
+}
+
+void AQuestItemPoint::OnPlayerFlagRemoved(FName FlagName)
+{
+	if (RequiredFlag.IsNone() || FlagName != RequiredFlag) return;
+
+	SetActorHiddenInGame(true);
+	SetActorEnableCollision(false);
 }
 
 void AQuestItemPoint::TryInteract(AMyProject1Character* Interactor)
@@ -171,12 +237,23 @@ void AQuestItemPoint::TryInteract(AMyProject1Character* Interactor)
 
 	if (bOneTimeUse)
 	{
-		bUsed = true;
-		Mesh->SetVisibility(false);
-		Mesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-		SkeletalMesh->SetVisibility(false);
-		Decal->SetVisibility(false);
+		ApplyUsedState();
+
+		// 使用済みを称号フラグとして永続化する（別レベルへ行って戻ってきても復活しないように）
+		if (!UsedFlag.IsNone())
+		{
+			Interactor->AddFlag(UsedFlag);
+		}
 	}
+}
+
+void AQuestItemPoint::ApplyUsedState()
+{
+	bUsed = true;
+	Mesh->SetVisibility(false);
+	Mesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	SkeletalMesh->SetVisibility(false);
+	Decal->SetVisibility(false);
 }
 
 void AQuestItemPoint::OnApproachTriggerBeginOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)

@@ -96,6 +96,13 @@ void AMyProject1HUD::ToggleCommandMenu()
         return;
     }
 
+    // もしセーブ／ロードメニューが存在し、画面に表示されているなら
+    if (SaveMenuWidget && SaveMenuWidget->IsInViewport())
+    {
+        ToggleSaveMenu();
+        return;
+    }
+
     // アイテムショップが開いている時にメニューキーが押されたらショップを閉じる
     if (ItemShopMenuWidget && ItemShopMenuWidget->IsInViewport())
     {
@@ -241,6 +248,7 @@ void AMyProject1HUD::OpenTimeSkipMenu(bool bIsSleepMode)
     if (EquipmentMenuWidget && EquipmentMenuWidget->IsInViewport()) ToggleEquipmentMenu();
     if (StatusMenuWidget && StatusMenuWidget->IsInViewport()) ToggleStatusMenu();
     if (QuestMenuWidget && QuestMenuWidget->IsInViewport()) ToggleQuestMenu();
+    if (SaveMenuWidget && SaveMenuWidget->IsInViewport()) ToggleSaveMenu();
     if (ChestMenuWidget && ChestMenuWidget->IsInViewport()) ToggleChestMenu();
     if (TreatmentMenuWidget && TreatmentMenuWidget->IsInViewport()) ToggleTreatmentMenu();
     if (TattooMenuWidget && TattooMenuWidget->IsInViewport()) ToggleTattooMenu();
@@ -411,6 +419,58 @@ void AMyProject1HUD::ToggleStatusMenu()
     }
 }
 
+// --- セーブ／ロードメニューの開閉処理（ToggleStatusMenuと同じ構造） ---
+void AMyProject1HUD::ToggleSaveMenu()
+{
+    APlayerController* PC = GetOwningPlayerController();
+    if (!PC || !SaveMenuClass) return;
+
+    if (!SaveMenuWidget)
+    {
+        // まだ作られていなければ生成する
+        SaveMenuWidget = CreateWidget<UUserWidget>(GetWorld(), SaveMenuClass);
+    }
+
+    if (SaveMenuWidget)
+    {
+        if (!SaveMenuWidget->IsInViewport())
+        {
+            // Z-Orderを20にして手前に表示
+            SaveMenuWidget->AddToViewport(20);
+
+            // 背後のメニューを隠す
+            if (CommandMenuWidget) CommandMenuWidget->SetVisibility(ESlateVisibility::Collapsed);
+
+            // 入力フォーカスをセーブ画面に向ける
+            FInputModeGameAndUI InputMode;
+            InputMode.SetWidgetToFocus(SaveMenuWidget->TakeWidget());
+            PC->SetInputMode(InputMode);
+
+            if (MenuOpenSound) UGameplayStatics::PlaySound2D(this, MenuOpenSound);
+        }
+        else
+        {
+            // 閉じる処理
+            SaveMenuWidget->RemoveFromParent();
+
+            // 背後のメニューを再表示する
+            if (CommandMenuWidget)
+            {
+                CommandMenuWidget->SetVisibility(ESlateVisibility::Visible);
+
+                FInputModeGameAndUI InputMode;
+                InputMode.SetWidgetToFocus(CommandMenuWidget->TakeWidget());
+                PC->SetInputMode(InputMode);
+
+                if (MenuCloseSound)
+                {
+                    UGameplayStatics::PlaySound2D(this, MenuCloseSound);
+                }
+            }
+        }
+    }
+}
+
 // --- チェストメニューの開閉処理 ---
 void AMyProject1HUD::ToggleChestMenu()
 {
@@ -432,6 +492,7 @@ void AMyProject1HUD::ToggleChestMenu()
             if (EquipmentMenuWidget && EquipmentMenuWidget->IsInViewport()) ToggleEquipmentMenu();
             if (StatusMenuWidget && StatusMenuWidget->IsInViewport()) ToggleStatusMenu();
             if (QuestMenuWidget && QuestMenuWidget->IsInViewport()) ToggleQuestMenu();
+            if (SaveMenuWidget && SaveMenuWidget->IsInViewport()) ToggleSaveMenu();
 
             // Z-Orderを20にして手前に表示
             ChestMenuWidget->AddToViewport(20);
@@ -495,6 +556,7 @@ void AMyProject1HUD::ToggleTreatmentMenu()
         if (EquipmentMenuWidget && EquipmentMenuWidget->IsInViewport()) ToggleEquipmentMenu();
         if (StatusMenuWidget && StatusMenuWidget->IsInViewport()) ToggleStatusMenu();
         if (QuestMenuWidget && QuestMenuWidget->IsInViewport()) ToggleQuestMenu();
+        if (SaveMenuWidget && SaveMenuWidget->IsInViewport()) ToggleSaveMenu();
         if (ChestMenuWidget && ChestMenuWidget->IsInViewport()) ChestMenuWidget->RemoveFromParent();
 
         // === 【追記】もし刺青専門店の画面が開いていたら自動で閉じる ===
@@ -555,6 +617,7 @@ void AMyProject1HUD::ToggleTattooMenu()
         if (EquipmentMenuWidget && EquipmentMenuWidget->IsInViewport()) ToggleEquipmentMenu();
         if (StatusMenuWidget && StatusMenuWidget->IsInViewport()) ToggleStatusMenu();
         if (QuestMenuWidget && QuestMenuWidget->IsInViewport()) ToggleQuestMenu();
+        if (SaveMenuWidget && SaveMenuWidget->IsInViewport()) ToggleSaveMenu();
         if (ChestMenuWidget && ChestMenuWidget->IsInViewport()) ChestMenuWidget->RemoveFromParent();
 
         // 総合クリニックが開いていたら閉じる
@@ -624,6 +687,7 @@ void AMyProject1HUD::ToggleRestraintShopMenu()
         if (EquipmentMenuWidget && EquipmentMenuWidget->IsInViewport()) ToggleEquipmentMenu();
         if (StatusMenuWidget && StatusMenuWidget->IsInViewport()) ToggleStatusMenu();
         if (QuestMenuWidget && QuestMenuWidget->IsInViewport()) ToggleQuestMenu();
+        if (SaveMenuWidget && SaveMenuWidget->IsInViewport()) ToggleSaveMenu();
         if (ChestMenuWidget && ChestMenuWidget->IsInViewport()) ChestMenuWidget->RemoveFromParent();
         if (TreatmentMenuWidget && TreatmentMenuWidget->IsInViewport()) ToggleTreatmentMenu();
         if (TattooMenuWidget && TattooMenuWidget->IsInViewport()) ToggleTattooMenu();
@@ -712,6 +776,7 @@ void AMyProject1HUD::ToggleItemShopMenu()
         if (EquipmentMenuWidget && EquipmentMenuWidget->IsInViewport()) ToggleEquipmentMenu();
         if (StatusMenuWidget && StatusMenuWidget->IsInViewport()) ToggleStatusMenu();
         if (QuestMenuWidget && QuestMenuWidget->IsInViewport()) ToggleQuestMenu();
+        if (SaveMenuWidget && SaveMenuWidget->IsInViewport()) ToggleSaveMenu();
         if (ChestMenuWidget && ChestMenuWidget->IsInViewport()) ChestMenuWidget->RemoveFromParent();
         if (TreatmentMenuWidget && TreatmentMenuWidget->IsInViewport()) ToggleTreatmentMenu();
         if (TattooMenuWidget && TattooMenuWidget->IsInViewport()) ToggleTattooMenu();

@@ -136,6 +136,17 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "UI")
 	void ToggleStatusMenu();
 
+	// --- セーブ／ロードメニュー用の変数 ---
+	UPROPERTY(EditAnywhere, Category = "UI")
+	TSubclassOf<class UUserWidget> SaveMenuClass;
+
+	UPROPERTY(BlueprintReadOnly, Category = "UI")
+	class UUserWidget* SaveMenuWidget;
+
+	// --- セーブ／ロードメニューの開閉関数（他サブメニューと同じ流儀。メインウィンドウのセーブボタンから呼ぶ） ---
+	UFUNCTION(BlueprintCallable, Category = "UI")
+	void ToggleSaveMenu();
+
 	// --- 待機/睡眠メニュー用の変数と関数 ---
 	UPROPERTY(EditAnywhere, Category = "UI")
 	TSubclassOf<UWBP_TimeSkipMenu> TimeSkipMenuClass;

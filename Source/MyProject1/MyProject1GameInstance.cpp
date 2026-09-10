@@ -409,6 +409,15 @@ TArray<FWarpDestinationInfo> UMyProject1GameInstance::GetAllWarpDestinations() c
 // セーブ/ロード
 // ----------------------------------------------------
 
+const FString UMyProject1GameInstance::AutoSaveSlotName = TEXT("AutoSave");
+
+FString UMyProject1GameInstance::GetManualSaveSlotName(int32 SlotIndex)
+{
+	// 呼び出し側のミスで範囲外が来ても安全なスロット名になるようクランプする
+	SlotIndex = FMath::Clamp(SlotIndex, 1, NumManualSaveSlots);
+	return FString::Printf(TEXT("SaveSlot%d"), SlotIndex);
+}
+
 UMyProject1SaveGame* UMyProject1GameInstance::CapturePlayerStateSnapshot(AMyProject1Character* Character)
 {
 	if (!Character) return nullptr;
@@ -471,7 +480,16 @@ bool UMyProject1GameInstance::SaveCurrentGame(const FString& SlotName)
 	UMyProject1SaveGame* SaveObj = CapturePlayerStateSnapshot(Character);
 	if (!SaveObj) return false;
 
+	// スロット一覧UIに出す見出し情報。ゲーム進行の復元には使わないので、ここ（明示セーブ）でのみ埋める。
+	SaveObj->SavedAtRealTime = FDateTime::Now();
+	SaveObj->PlayerDisplayName = SaveObj->PlayerStats.NPCName.IsEmpty() ? Character->CharacterName : SaveObj->PlayerStats.NPCName;
+
 	return UGameplayStatics::SaveGameToSlot(SaveObj, SlotName, 0);
+}
+
+bool UMyProject1GameInstance::AutoSaveGame()
+{
+	return SaveCurrentGame(AutoSaveSlotName);
 }
 
 bool UMyProject1GameInstance::LoadSavedGame(const FString& SlotName)
@@ -508,6 +526,82 @@ bool UMyProject1GameInstance::LoadSavedGame(const FString& SlotName)
 bool UMyProject1GameInstance::DoesSaveGameExist(const FString& SlotName) const
 {
 	return UGameplayStatics::DoesSaveGameExist(SlotName, 0);
+}
+
+FSaveSlotDisplayInfo UMyProject1GameInstance::GetSaveSlotInfo(const FString& SlotName) const
+{
+	FSaveSlotDisplayInfo Info;
+	Info.SlotName = SlotName;
+	Info.bIsAutoSave = (SlotName == AutoSaveSlotName);
+
+	// 手動スロット名（"SaveSlot3"等）から番号を取り出す。オートセーブは0のまま。
+	if (!Info.bIsAutoSave && SlotName.StartsWith(TEXT("SaveSlot")))
+	{
+		Info.SlotIndex = FCString::Atoi(*SlotName.RightChop(8)); // "SaveSlot" は8文字
+	}
+
+	if (!UGameplayStatics::DoesSaveGameExist(SlotName, 0))
+	{
+		Info.bHasData = false;
+		return Info;
+	}
+
+	const UMyProject1SaveGame* Loaded = Cast<UMyProject1SaveGame>(UGameplayStatics::LoadGameFromSlot(SlotName, 0));
+	if (!Loaded)
+	{
+		// ファイルはあるが読めない（バージョン不整合など）。空き扱いにせず「壊れている」と分かる最低限だけ返す。
+		Info.bHasData = false;
+		return Info;
+	}
+
+	Info.bHasData = true;
+
+	// 場所の表示名（対応表で引けなければレベル名そのまま）
+	if (const FText* Mapped = LevelDisplayNameMap.Find(Loaded->PlayerLevelName))
+	{
+		Info.LocationName = *Mapped;
+	}
+	else
+	{
+		Info.LocationName = FText::FromName(Loaded->PlayerLevelName);
+	}
+
+	Info.PlayerName = Loaded->PlayerDisplayName;
+	Info.PlayerLevel = Loaded->PlayerStats.Level;
+
+	if (const UEnum* RankEnum = StaticEnum<EAdventurerRank>())
+	{
+		Info.RankText = RankEnum->GetDisplayNameTextByValue(static_cast<int64>(Loaded->PlayerStats.AdventurerRank));
+	}
+
+	Info.Gil = Loaded->Gil;
+	Info.InGameYear = Loaded->CurrentYear;
+	Info.InGameMonth = Loaded->CurrentMonth;
+	Info.InGameDay = Loaded->CurrentDay;
+	Info.TotalElapsedDays = Loaded->TotalElapsedDays;
+
+	// 実時間のセーブ日時。旧セーブなど未設定（Ticks==0）の場合は空文字のままにしておく。
+	if (Loaded->SavedAtRealTime.GetTicks() != 0)
+	{
+		Info.SavedAtText = Loaded->SavedAtRealTime.ToString(TEXT("%Y/%m/%d %H:%M"));
+	}
+
+	return Info;
+}
+
+TArray<FSaveSlotDisplayInfo> UMyProject1GameInstance::GetAllSaveSlotInfos() const
+{
+	TArray<FSaveSlotDisplayInfo> Result;
+	Result.Reserve(NumManualSaveSlots + 1);
+
+	// 先頭にオートセーブ、続いて手動スロット1〜5
+	Result.Add(GetSaveSlotInfo(AutoSaveSlotName));
+	for (int32 i = 1; i <= NumManualSaveSlots; ++i)
+	{
+		Result.Add(GetSaveSlotInfo(GetManualSaveSlotName(i)));
+	}
+
+	return Result;
 }
 
 bool UMyProject1GameInstance::ApplyPendingCharacterLoad(AMyProject1Character* Character)

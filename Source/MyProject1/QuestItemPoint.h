@@ -37,6 +37,7 @@ public:
 
 protected:
 	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 public:
 	// --- 見た目 ---
@@ -111,6 +112,13 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Item Interact")
 	bool bUsed = false;
 
+	/** 空欄でなければ、bOneTimeUseで使用した瞬間にプレイヤーへこのフラグを付与する。
+	    称号フラグはセーブ／レベル遷移をまたいで復元されるため、別レベルへ行って戻っても「使用済み」を維持できる。
+	    空欄の場合は従来どおりセッション内のみ有効（レベル再ロードで復活する）。
+	    周回させたい場合はクエストのCompletionRemoveFlag等でこのフラグを消すこと */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item Interact", meta = (EditCondition = "bOneTimeUse"))
+	FName UsedFlag;
+
 	// --- 演出 ---
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item Interact|Audio")
 	class USoundBase* InteractSound = nullptr;
@@ -129,12 +137,32 @@ public:
 	void TryInteract(class AMyProject1Character* Interactor);
 
 private:
-	/** RequiredFlagの所持状況に応じて、表示/当たり判定のON・OFFを切り替える */
+	/** RequiredFlag運用時の初期化。プレイヤー生成と、別レベルからのステータス復元(ApplyPendingCharacterLoad)を
+	    待ってからRequiredFlagを評価する。復元はAddFlagを経由せずUnlockedFlagsを一括代入するためOnFlagAddedが
+	    飛ばず、BeginPlay一度きりの判定ではレベル遷移後に取りこぼす。成立するまで短間隔でリトライする
+	    （ANPCSpawner::InitFlagSpawnWhenReady / AQuestNPCBase::InitFlagVisibilityWhenReadyと同じ対策） */
+	void InitFlagVisibilityWhenReady();
+
+	/** RequiredFlag / UsedFlag の所持状況に応じて、表示/当たり判定のON・OFFを切り替える */
 	void UpdateFlagVisibility(const class AMyProject1Character* PlayerChar);
+
+	/** bOneTimeUse使用済みの見た目（メッシュ非表示・当たり判定OFF）を適用する。
+	    ライブ消費時と、UsedFlag復元による「戻ってきたら既に使用済み」時の両方から呼ぶ */
+	void ApplyUsedState();
 
 	/** プレイヤーがフラグを獲得した時に呼ばれる（OnFlagAddedの購読先）。RequiredFlag一致時のみ表示を更新する */
 	UFUNCTION()
 	void OnPlayerFlagAdded(FName FlagName);
+
+	/** プレイヤーがフラグを失った時に呼ばれる（OnFlagRemovedの購読先）。RequiredFlag一致時のみ再び非表示に戻す。
+	    クエストのCompletionRemoveFlagをRequiredFlag（＝AcceptFlag）と同じ名前にしておくと、報告＝クリアで消える */
+	UFUNCTION()
+	void OnPlayerFlagRemoved(FName FlagName);
+
+	/** InitFlagVisibilityWhenReadyのリトライ用タイマー・試行回数、および購読済みフラグ */
+	FTimerHandle FlagInitTimerHandle;
+	int32 FlagInitAttempts = 0;
+	bool bFlagDelegatesBound = false;
 
 	/** ApproachTriggerにプレイヤーが入った時に呼ばれる。ApproachSoundを鳴らす */
 	UFUNCTION()

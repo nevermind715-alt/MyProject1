@@ -13,6 +13,18 @@ class MYPROJECT1_API UMyProject1SaveGame : public USaveGame
 	GENERATED_BODY()
 
 public:
+	// --- スロット一覧UI用の見出し情報 ---
+	// 一覧に「いつ・どこで・誰が」を出すためだけの軽量メタ情報。ゲーム進行の復元には使わない。
+	// SaveCurrentGame（ディスクへの明示セーブ）でのみ設定され、別マップワープのスナップショットでは未設定でよい。
+
+	// 実時間のセーブ日時（FDateTime::Now()）
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Save|Meta")
+	FDateTime SavedAtRealTime;
+
+	// セーブ時点のプレイヤー表示名
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Save|Meta")
+	FString PlayerDisplayName;
+
 	// --- 復帰先の座標 ---
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Save|Location")
 	FName PlayerLevelName;
