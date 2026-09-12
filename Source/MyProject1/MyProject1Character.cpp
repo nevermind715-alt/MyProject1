@@ -338,6 +338,8 @@ void AMyProject1Character::BeginPlay()
 
 	// 疲労度の計算を「1秒に1回」のペースで自動実行する
 	GetWorldTimerManager().SetTimer(TimerHandle_FatigueUpdate, this, &AMyProject1Character::HandleFatigueTick, 1.0f, true);
+	// O・Gaugeの自然減衰も「1秒に1回」のペースで自動実行する
+	GetWorldTimerManager().SetTimer(TimerHandle_OGaugeUpdate, this, &AMyProject1Character::HandleOGaugeTick, 1.0f, true);
 	// --- 最初のまばたきまでの時間をセット ---
 	TimeUntilNextBlink = FMath::RandRange(BlinkIntervalMin, BlinkIntervalMax);
 }
@@ -940,6 +942,9 @@ void AMyProject1Character::Tick(float DeltaTime)
 			TargetSpeed = WaterWalkSpeed; // 水中なら速度を上書き
 		}
 	}
+
+	// --- 3.4 装備／タトゥー・ピアス／月齢フェーズ／消費アイテムの時限効果から合算された移動速度％補正を適用 ---
+	TargetSpeed *= FMath::Max(0.1f, 1.0f + MyStats.MovementSpeedRateBonus / 100.0f);
 
 	// --- 3.5 拘束具（足枷等）装備中は、状況に関わらず速度に上限をかける ---
 	if (bIsMovementRestricted && RestrainedSpeedCap > 0.0f)
@@ -2230,6 +2235,17 @@ void AMyProject1Character::ApplyItemBuff(FString ItemName, UTexture2D* Icon, con
 		case ETargetStat::Favor:       MyStats.Favor += Effect.EffectAmount;       break;
 		case ETargetStat::Charm:       MyStats.Charm += Effect.EffectAmount;       break;
 		case ETargetStat::Mental:      MyStats.Mental += Effect.EffectAmount;      break;
+		case ETargetStat::FatigueGainRate:     MyStats.FatigueGainRateBonus += Effect.EffectAmount;     break;
+		case ETargetStat::FatigueRecoveryRate: MyStats.FatigueRecoveryRateBonus += Effect.EffectAmount; break;
+		case ETargetStat::OGaugeGainRate:      MyStats.OGaugeGainRateBonus += Effect.EffectAmount;      break;
+		case ETargetStat::OGaugeRecoveryRate:  MyStats.OGaugeRecoveryRateBonus += Effect.EffectAmount;  break;
+		case ETargetStat::MovementSpeedRate:   MyStats.MovementSpeedRateBonus += Effect.EffectAmount;   break;
+		case ETargetStat::CustomExtraStat:
+			if (!Effect.ExtraStatName.IsNone())
+			{
+				MyStats.ExtraStats.FindOrAdd(Effect.ExtraStatName) += Effect.EffectAmount;
+			}
+			break;
 		default: break;
 		}
 
@@ -2287,6 +2303,17 @@ void AMyProject1Character::ExpireItemBuff(FString ItemName, TArray<FItemEffect> 
 		case ETargetStat::Favor:       MyStats.Favor -= Effect.EffectAmount;       break;
 		case ETargetStat::Charm:       MyStats.Charm -= Effect.EffectAmount;       break;
 		case ETargetStat::Mental:      MyStats.Mental -= Effect.EffectAmount;      break;
+		case ETargetStat::FatigueGainRate:     MyStats.FatigueGainRateBonus -= Effect.EffectAmount;     break;
+		case ETargetStat::FatigueRecoveryRate: MyStats.FatigueRecoveryRateBonus -= Effect.EffectAmount; break;
+		case ETargetStat::OGaugeGainRate:      MyStats.OGaugeGainRateBonus -= Effect.EffectAmount;      break;
+		case ETargetStat::OGaugeRecoveryRate:  MyStats.OGaugeRecoveryRateBonus -= Effect.EffectAmount;  break;
+		case ETargetStat::MovementSpeedRate:   MyStats.MovementSpeedRateBonus -= Effect.EffectAmount;   break;
+		case ETargetStat::CustomExtraStat:
+			if (!Effect.ExtraStatName.IsNone())
+			{
+				MyStats.ExtraStats.FindOrAdd(Effect.ExtraStatName) -= Effect.EffectAmount;
+			}
+			break;
 		default: break;
 		}
 	}
@@ -2311,8 +2338,12 @@ void AMyProject1Character::ExpireItemBuff(FString ItemName, TArray<FItemEffect> 
 		OnBuffListChangedDelegate.Broadcast();
 	}
 
-	FString Msg = FString::Printf(TEXT("%sの効果が切れた。"), *ItemName);
-	OnReceiveLogMessage(Msg, ELogMessageType::System);
+	// O・Gauge発動によるステータス異常はシステム側の自動処理のため、消費アイテムと違い期限切れログは出さない
+	if (ItemName != TEXT("O・Gauge"))
+	{
+		FString Msg = FString::Printf(TEXT("%sの効果が切れた。"), *ItemName);
+		OnReceiveLogMessage(Msg, ELogMessageType::System);
+	}
 }
 
 void AMyProject1Character::PlayFootstepSound()
@@ -2450,10 +2481,14 @@ void AMyProject1Character::HandleFatigueTick()
 	}
 
 	// --- 3. 疲労度の自然変動（戦闘時の増減はリアルタイム基準） ---
+	// 装備／タトゥー・ピアス／月齢フェーズ／消費アイテムの時限効果から合算された％補正を倍率に変換（最低0.1倍まで）
+	const float FatigueGainFactor = FMath::Max(0.1f, 1.0f + MyStats.FatigueGainRateBonus / 100.0f);
+	const float FatigueRecoveryFactor = FMath::Max(0.1f, 1.0f + MyStats.FatigueRecoveryRateBonus / 100.0f);
+
 	if (bIsAutoAttacking || bIsPreparingAttack)
 	{
 		// 抜刀中（エンゲージ中）：1秒あたりの疲労度を加算
-		MyStats.Energy = FMath::Clamp(MyStats.Energy + FatigueIncreasePerSec, MyStats.BaseEnergy, MyStats.MaxEnergy);
+		MyStats.Energy = FMath::Clamp(MyStats.Energy + FatigueIncreasePerSec * FatigueGainFactor, MyStats.BaseEnergy, MyStats.MaxEnergy);
 	}
 	else
 	{
@@ -2461,7 +2496,7 @@ void AMyProject1Character::HandleFatigueTick()
 		double CurrentTime = GetWorld()->GetTimeSeconds();
 		if (CurrentTime - LastCombatTime >= AutoRecoveryStartDelay)
 		{
-			MyStats.Energy = FMath::Clamp(MyStats.Energy - FatigueDecreasePerSec, MyStats.BaseEnergy, MyStats.MaxEnergy);
+			MyStats.Energy = FMath::Clamp(MyStats.Energy - FatigueDecreasePerSec * FatigueRecoveryFactor, MyStats.BaseEnergy, MyStats.MaxEnergy);
 		}
 	}
 
@@ -2510,6 +2545,143 @@ void AMyProject1Character::ApplyFatigueForSkippedMinutes(int32 MinutesSkipped, b
 		RecalculateFatigueAdjustedCombatStats();
 		NotifyStatsChanged();
 	}
+}
+
+// --- O・Gaugeを1秒ごとに自然減衰させる（疲労と違い、戦闘中かどうかに関わらず常に減衰する） ---
+void AMyProject1Character::HandleOGaugeTick()
+{
+	if (IsDead() || !IsPlayerControlled()) return;
+
+	float OldOGauge = MyStats.OGauge;
+
+	const float RecoveryFactor = FMath::Max(0.1f, 1.0f + MyStats.OGaugeRecoveryRateBonus / 100.0f);
+	MyStats.OGauge = FMath::Clamp(MyStats.OGauge - OGaugeDecreasePerSec * RecoveryFactor, 0.0f, MyStats.MaxOGauge);
+
+	if (MyStats.OGauge != OldOGauge)
+	{
+		NotifyStatsChanged();
+	}
+}
+
+// --- O・Gaugeを安全に増減させ、閾値到達時は即座に発動処理を行う（敵の攻撃／イベント／インタラクトから呼ぶ想定） ---
+void AMyProject1Character::AddOGauge(float Amount)
+{
+	if (IsDead() || !IsPlayerControlled()) return;
+
+	// 上昇分にのみ、装備／タトゥー・ピアス／月齢フェーズ／消費アイテムの時限効果から合算された％補正を掛ける
+	if (Amount > 0.0f)
+	{
+		const float GainFactor = FMath::Max(0.1f, 1.0f + MyStats.OGaugeGainRateBonus / 100.0f);
+		Amount *= GainFactor;
+	}
+
+	float OldOGauge = MyStats.OGauge;
+	MyStats.OGauge = FMath::Clamp(MyStats.OGauge + Amount, 0.0f, MyStats.MaxOGauge);
+
+	if (MyStats.OGauge >= OGaugeTriggerThreshold)
+	{
+		// 発動：閾値到達直後に即座にOGaugeTriggerDropToまで落とす（このため次のAddOGaugeまで再発動しない）
+		MyStats.OGauge = OGaugeTriggerDropTo;
+
+		UTexture2D* TriggerIcon = nullptr;
+		if (BuffDataTable && !OGaugeTriggerBuffID.IsNone())
+		{
+			if (FBuffData* BuffRow = BuffDataTable->FindRow<FBuffData>(OGaugeTriggerBuffID, TEXT("OGaugeTriggerLookup")))
+			{
+				TriggerIcon = BuffRow->BuffIcon;
+			}
+		}
+
+		// EffectDurationが0以下の要素は即時・永続効果、0より大きい要素は時限効果としてApplyItemBuffにまとめて渡す
+		// （ApplyItemBuffは1回の呼び出しにつき1つのDurationしか持てないため、複数の時限効果が混在する場合は
+		//   消費アイテムのTimedEffectsと同様、先頭要素のEffectDurationを共通のDurationとして扱う）
+		TArray<FItemEffect> TimedEffects;
+		for (const FItemEffect& Effect : OGaugeTriggerEffects)
+		{
+			if (Effect.EffectDuration > 0.0f)
+			{
+				TimedEffects.Add(Effect);
+			}
+			else
+			{
+				ApplyInstantOGaugeEffect(Effect);
+			}
+		}
+
+		if (TimedEffects.Num() > 0)
+		{
+			ApplyItemBuff(TEXT("O・Gauge"), TriggerIcon, TimedEffects, TimedEffects[0].EffectDuration);
+		}
+	}
+
+	if (MyStats.OGauge != OldOGauge)
+	{
+		NotifyStatsChanged();
+	}
+}
+
+// --- OGaugeTriggerEffectsのうちEffectDuration<=0（即時・永続）の1要素を適用する。
+//     InventoryComponent::UseItem()の消費アイテム永続効果と同じロジック（Mental等はMentalBonus経由で
+//     RefreshEquipmentStatsの再計算に消されないようにする）を、O・Gauge発動用に個別に用意したもの ---
+void AMyProject1Character::ApplyInstantOGaugeEffect(const FItemEffect& Effect)
+{
+	auto ClampAmountToCap = [](float CurrentValue, float RawAmount, float CapValue) -> float
+	{
+		if (CapValue <= 0.0f || RawAmount <= 0.0f) return RawAmount;
+		if (CurrentValue >= CapValue) return 0.0f;
+		return FMath::Min(RawAmount, CapValue - CurrentValue);
+	};
+
+	switch (Effect.TargetStat)
+	{
+	case ETargetStat::HP:
+		UpdateHealth(Effect.EffectAmount);
+		break;
+	case ETargetStat::Stamina:
+		MyStats.Stamina = FMath::Clamp(MyStats.Stamina + Effect.EffectAmount, 0.0f, MyStats.MaxStamina);
+		break;
+	case ETargetStat::Fame:
+		MyStats.Fame += ClampAmountToCap(MyStats.Fame, Effect.EffectAmount, Effect.CapValue);
+		break;
+	case ETargetStat::Favor:
+		MyStats.Favor += ClampAmountToCap(MyStats.Favor, Effect.EffectAmount, Effect.CapValue);
+		break;
+	case ETargetStat::Charm:
+		MyStats.Charm += ClampAmountToCap(MyStats.Charm, Effect.EffectAmount, Effect.CapValue);
+		break;
+	case ETargetStat::Alcohol:
+		MyStats.Alcohol += ClampAmountToCap(MyStats.Alcohol, Effect.EffectAmount, Effect.CapValue);
+		break;
+	case ETargetStat::Mental:
+		// MyStats.MentalはRefreshEquipmentStatsで毎回「1.0 + MentalBonus + 装備ボーナス」から再計算されるため、
+		// 永続効果はMentalBonus側に積んでから再計算させる（消費アイテムの永続Mental効果と同じ経路）
+		MyStats.MentalBonus += ClampAmountToCap(MyStats.MentalBonus, Effect.EffectAmount, Effect.CapValue);
+		RefreshEquipmentStats();
+		break;
+	case ETargetStat::CustomExtraStat:
+		if (!Effect.ExtraStatName.IsNone())
+		{
+			float CurrentValue = GetExtraStat(Effect.ExtraStatName);
+			float AddAmount = ClampAmountToCap(CurrentValue, Effect.EffectAmount, Effect.CapValue);
+			if (AddAmount != 0.0f)
+			{
+				AddExtraStat(Effect.ExtraStatName, AddAmount);
+			}
+		}
+		break;
+	case ETargetStat::AttackPower:
+		MyStats.BaseAttackPower += ClampAmountToCap(MyStats.BaseAttackPower, Effect.EffectAmount, Effect.CapValue);
+		RecalculateFatigueAdjustedCombatStats();
+		break;
+	case ETargetStat::DefensePower:
+		MyStats.BaseDefensePower += ClampAmountToCap(MyStats.BaseDefensePower, Effect.EffectAmount, Effect.CapValue);
+		RecalculateFatigueAdjustedCombatStats();
+		break;
+	default:
+		break;
+	}
+
+	NotifyStatsChanged();
 }
 
 // --- 疲労度を加味した攻撃速度（間隔）の計算 ---
@@ -3858,6 +4030,13 @@ void AMyProject1Character::RefreshEquipmentStats()
 	MyStats.DEX = BaseDEX + GetBonus(ETargetStat::DEX);
 	MyStats.AGI = BaseAGI + GetBonus(ETargetStat::AGI);
 	MyStats.Mental = 1.0f + MyStats.MentalBonus + GetBonus(ETargetStat::Mental); // 初期値1.0 + 恒久加算分 + 装備ボーナス
+
+	// 4.5. 疲労度・O・Gauge・移動速度の増減速度に対する％補正（装備／タトゥー・ピアス／月齢フェーズから合算）
+	MyStats.FatigueGainRateBonus = GetBonus(ETargetStat::FatigueGainRate);
+	MyStats.FatigueRecoveryRateBonus = GetBonus(ETargetStat::FatigueRecoveryRate);
+	MyStats.OGaugeGainRateBonus = GetBonus(ETargetStat::OGaugeGainRate);
+	MyStats.OGaugeRecoveryRateBonus = GetBonus(ETargetStat::OGaugeRecoveryRate);
+	MyStats.MovementSpeedRateBonus = GetBonus(ETargetStat::MovementSpeedRate);
 
 	// 5. STRやVITから派生する戦闘力（攻撃力・防御力）を計算
 	// ※AttackPower/DefensePower自体はRecalculateFatigueAdjustedCombatStats()が疲労補正込みで確定させるので、

@@ -381,6 +381,30 @@ struct FCharacterStats
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats")
 	float BaseEnergy = 0.0f; // 蓄積疲労度（休息してもこれ以上は回復しない値）
 
+	// --- O・Gauge（疲労とは別枠の、敵の攻撃やイベントで溜まっていくゲージ） ---
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats")
+	float OGauge = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats")
+	float MaxOGauge = 100.0f;
+
+	// --- 装備／タトゥー・ピアス／月齢フェーズ／消費アイテムの時限効果から合算される、
+	//     疲労度・O・Gauge・移動速度の増減速度に対する％補正（+20なら1.2倍、-30なら0.7倍として使う） ---
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats|RateBonus")
+	float FatigueGainRateBonus = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats|RateBonus")
+	float FatigueRecoveryRateBonus = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats|RateBonus")
+	float OGaugeGainRateBonus = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats|RateBonus")
+	float OGaugeRecoveryRateBonus = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats|RateBonus")
+	float MovementSpeedRateBonus = 0.0f;
+
 	// --- 予備・カスタムステータス枠 ---
 	// 好きな名前（FName）と数値（float）を自由にペアにして追加できるリスト
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats|Extra")
@@ -440,6 +464,7 @@ struct FCharacterStats
 		if (StatName == FName(TEXT("Mental")))        { OutValue = Mental; return true; }
 		if (StatName == FName(TEXT("Alcohol")))       { OutValue = Alcohol; return true; }
 		if (StatName == FName(TEXT("Energy")))        { OutValue = Energy; return true; }
+		if (StatName == FName(TEXT("OGauge")))        { OutValue = OGauge; return true; }
 		if (StatName == FName(TEXT("CurrentXP")))     { OutValue = (float)CurrentXP; return true; }
 
 		if (const float* Extra = ExtraStats.Find(StatName))
@@ -551,7 +576,12 @@ enum class ETargetStat : uint8
 	CustomExtraStat UMETA(DisplayName = "カスタムステータス (ExtraStats)"),
 	DefensePower UMETA(DisplayName = "防御力"),
 	Mental      UMETA(DisplayName = "精神力 (Mental)"),
-	Alcohol     UMETA(DisplayName = "酒量 (Alcohol)")
+	Alcohol     UMETA(DisplayName = "酒量 (Alcohol)"),
+	FatigueGainRate     UMETA(DisplayName = "疲労上昇速度％ (FatigueGainRate)"),
+	FatigueRecoveryRate UMETA(DisplayName = "疲労回復速度％ (FatigueRecoveryRate)"),
+	OGaugeGainRate      UMETA(DisplayName = "O・Gauge上昇速度％ (OGaugeGainRate)"),
+	OGaugeRecoveryRate  UMETA(DisplayName = "O・Gauge回復速度％ (OGaugeRecoveryRate)"),
+	MovementSpeedRate   UMETA(DisplayName = "移動速度％ (MovementSpeedRate)")
 };
 
 // Stats to Changeで変化させる対象。NPCを選ぶと、会話相手であるそのNPC自身のMyStats（個体ごとのFavor/Hostility等）を書き換える

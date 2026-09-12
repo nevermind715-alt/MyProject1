@@ -123,6 +123,12 @@ protected:
 	/** 1秒ごとに呼ばれる疲労度計算関数 */
 	void HandleFatigueTick();
 
+	/** O・Gaugeを1秒ごとに減衰させるためのタイマー */
+	FTimerHandle TimerHandle_OGaugeUpdate;
+
+	/** 1秒ごとに呼ばれるO・Gauge減衰関数 */
+	void HandleOGaugeTick();
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Regeneration")
 	float AutoRecoveryStartDelay = 10.0f;
 
@@ -372,6 +378,36 @@ public:
 	 *  HandleFatigueTick（疲労度が変わった時）とRefreshEquipmentStats等（Base側が変わった時）の両方から呼ばれる */
 	UFUNCTION(BlueprintCallable, Category = "Combat|Fatigue Penalty")
 	void RecalculateFatigueAdjustedCombatStats();
+
+	// --- O・Gauge設定（疲労とは別枠。敵の攻撃／イベント／インタラクトで加算され、現実時間で自然減衰する） ---
+
+	/** 非戦闘時含め、1秒間に自然減衰するO・Gaugeの量 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|OGauge")
+	float OGaugeDecreasePerSec = 1.0f;
+
+	/** この値に達すると発動する閾値 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|OGauge")
+	float OGaugeTriggerThreshold = 100.0f;
+
+	/** 発動した瞬間に即座に落ちる値 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|OGauge")
+	float OGaugeTriggerDropTo = 50.0f;
+
+	/** 発動中にActiveBuffsへ表示するアイコンのBuffID（DT_Buffsの行名。未設定なら無アイコン） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|OGauge")
+	FName OGaugeTriggerBuffID;
+
+	/** 発動時に適用するステータス異常の内容。各要素のEffectDurationが0以下なら即時・永続効果、
+	 *  0より大きければその秒数だけの時限効果（ApplyItemBuffと同じ仕組みで適用・自動解除）として扱う */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|OGauge")
+	TArray<FItemEffect> OGaugeTriggerEffects;
+
+	/** O・Gaugeを安全に増減させ、閾値到達時の発動処理も行う関数（敵の攻撃／イベント／インタラクトから呼ぶ） */
+	UFUNCTION(BlueprintCallable, Category = "Combat|OGauge")
+	void AddOGauge(float Amount);
+
+	/** OGaugeTriggerEffectsのうちEffectDuration<=0（即時・永続）の1要素を、消費アイテムの永続効果と同じロジックで適用する */
+	void ApplyInstantOGaugeEffect(const FItemEffect& Effect);
 
 	/** 特殊技（ウェポンスキル等）を実行する関数 */
 	UFUNCTION(BlueprintCallable, Category = "Combat|Special")
