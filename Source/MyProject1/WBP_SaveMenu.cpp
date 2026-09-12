@@ -1,4 +1,5 @@
 #include "WBP_SaveMenu.h"
+#include "WBP_SaveSlot.h"
 #include "MyProject1GameInstance.h"
 #include "MyProject1HUD.h"
 #include "GameFramework/PlayerController.h"
@@ -7,48 +8,145 @@ void UWBP_SaveMenu::NativeConstruct()
 {
 	Super::NativeConstruct();
 
-	// 入力モード／マウスカーソルはAMyProject1HUD::ToggleSaveMenu側で設定済み（他サブメニューと同じ流儀）。
-	// ここでは初期のスロット一覧をBPへ渡すだけ。
-	OnSlotListReady(GetSlotList());
-}
-
-TArray<FSaveSlotDisplayInfo> UWBP_SaveMenu::GetSlotList() const
-{
-	if (UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetGameInstance()))
+	// NativeConstructはAddToViewportのたびに毎回呼ばれる（オブジェクト生成時の1回だけではない）。
+	// SaveMenuWidgetはHUD側で使い回される（開閉のたびに作り直されない）ため、
+	// AddDynamicの前にRemoveDynamicしておかないと、開閉を繰り返すたびにバインドが積み重なり、
+	// 1クリックでハンドラが複数回呼ばれてしまう（閉じてもすぐ開き直る等の不具合の原因になる）。
+	if (Btn_Close)
 	{
-		return GameInst->GetAllSaveSlotInfos();
+		Btn_Close->OnClicked.RemoveDynamic(this, &UWBP_SaveMenu::HandleCloseClicked);
+		Btn_Close->OnClicked.AddDynamic(this, &UWBP_SaveMenu::HandleCloseClicked);
 	}
-	return TArray<FSaveSlotDisplayInfo>();
+	if (Btn_ConfirmYes)
+	{
+		Btn_ConfirmYes->OnClicked.RemoveDynamic(this, &UWBP_SaveMenu::HandleConfirmYesClicked);
+		Btn_ConfirmYes->OnClicked.AddDynamic(this, &UWBP_SaveMenu::HandleConfirmYesClicked);
+	}
+	if (Btn_ConfirmNo)
+	{
+		Btn_ConfirmNo->OnClicked.RemoveDynamic(this, &UWBP_SaveMenu::HandleConfirmNoClicked);
+		Btn_ConfirmNo->OnClicked.AddDynamic(this, &UWBP_SaveMenu::HandleConfirmNoClicked);
+	}
+
+	HideConfirmDialog();
+	RefreshSlotList();
+
+	OnMenuOpened();
 }
 
-void UWBP_SaveMenu::ExecuteSaveToSlot(const FString& SlotName)
+void UWBP_SaveMenu::RefreshSlotList()
 {
-	if (SlotName.IsEmpty()) return;
+	if (!Scroll_Slots || !SaveSlotWidgetClass) return;
+
+	Scroll_Slots->ClearChildren();
+	SlotWidgetsBySlotName.Empty();
 
 	UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetGameInstance());
 	if (!GameInst) return;
 
-	// オートセーブ専用スロットへは手動セーブさせない（一覧では読み取り専用の想定）
+	for (const FSaveSlotDisplayInfo& Info : GameInst->GetAllSaveSlotInfos())
+	{
+		UWBP_SaveSlot* Row = CreateWidget<UWBP_SaveSlot>(this, SaveSlotWidgetClass);
+		if (!Row) continue;
+
+		Row->Setup(Info);
+		Row->OnSaveClicked.AddDynamic(this, &UWBP_SaveMenu::HandleSaveRequested);
+		Row->OnLoadClicked.AddDynamic(this, &UWBP_SaveMenu::HandleLoadRequested);
+
+		Scroll_Slots->AddChild(Row);
+		SlotWidgetsBySlotName.Add(Info.SlotName, Row);
+	}
+}
+
+void UWBP_SaveMenu::HandleSaveRequested(const FString& SlotName)
+{
+	UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetGameInstance());
+	if (!GameInst) return;
+
+	// オートセーブ枠へは手動セーブさせない（WBP_SaveSlot::SetupがBtn_Saveを隠すが、念のため二重に防ぐ）
 	if (SlotName == UMyProject1GameInstance::AutoSaveSlotName) return;
+
+	if (GameInst->DoesSaveGameExist(SlotName))
+	{
+		ShowConfirmDialog(NSLOCTEXT("WBP_SaveMenu", "OverwriteConfirm", "このスロットに上書きしますか？"), SlotName, /*bIsLoad=*/false);
+	}
+	else
+	{
+		ExecuteSaveToSlot(SlotName);
+	}
+}
+
+void UWBP_SaveMenu::HandleLoadRequested(const FString& SlotName)
+{
+	UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetGameInstance());
+	if (!GameInst || !GameInst->DoesSaveGameExist(SlotName)) return;
+
+	ShowConfirmDialog(NSLOCTEXT("WBP_SaveMenu", "LoadConfirm", "このデータをロードします。よろしいですか？"), SlotName, /*bIsLoad=*/true);
+}
+
+void UWBP_SaveMenu::ShowConfirmDialog(const FText& Message, const FString& SlotName, bool bIsLoad)
+{
+	PendingSlotName = SlotName;
+	bPendingIsLoad = bIsLoad;
+
+	if (Txt_ConfirmMsg) Txt_ConfirmMsg->SetText(Message);
+	if (Overlay_Confirm) Overlay_Confirm->SetVisibility(ESlateVisibility::Visible);
+}
+
+void UWBP_SaveMenu::HideConfirmDialog()
+{
+	if (Overlay_Confirm) Overlay_Confirm->SetVisibility(ESlateVisibility::Collapsed);
+}
+
+void UWBP_SaveMenu::HandleConfirmYesClicked()
+{
+	HideConfirmDialog();
+
+	if (bPendingIsLoad)
+	{
+		ExecuteLoadFromSlot(PendingSlotName);
+	}
+	else
+	{
+		ExecuteSaveToSlot(PendingSlotName);
+	}
+}
+
+void UWBP_SaveMenu::HandleConfirmNoClicked()
+{
+	HideConfirmDialog();
+}
+
+void UWBP_SaveMenu::ExecuteSaveToSlot(const FString& SlotName)
+{
+	UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetGameInstance());
+	if (!GameInst) return;
 
 	if (GameInst->SaveCurrentGame(SlotName))
 	{
-		OnSlotSaved(GameInst->GetSaveSlotInfo(SlotName));
+		// 一覧を作り直さず、書き込んだ行だけ最新情報で差し替える（チラつき防止）
+		if (UWBP_SaveSlot** Row = SlotWidgetsBySlotName.Find(SlotName))
+		{
+			if (*Row)
+			{
+				(*Row)->Setup(GameInst->GetSaveSlotInfo(SlotName));
+			}
+		}
 	}
 }
 
 void UWBP_SaveMenu::ExecuteLoadFromSlot(const FString& SlotName)
 {
-	if (SlotName.IsEmpty()) return;
-
 	UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetGameInstance());
-	if (!GameInst) return;
+	if (!GameInst || !GameInst->DoesSaveGameExist(SlotName)) return;
 
-	// 空きスロットのロードは無視（BP側でもボタンを無効化しておくこと）
-	if (!GameInst->DoesSaveGameExist(SlotName)) return;
-
-	// LoadSavedGame内でOpenLevelされるため、この画面や入力モードの後始末はレベル遷移に任せてよい
+	// LoadSavedGame内でOpenLevelされるため、この画面の後始末はレベル遷移に任せてよい
 	GameInst->LoadSavedGame(SlotName);
+}
+
+void UWBP_SaveMenu::HandleCloseClicked()
+{
+	CloseSaveMenu();
 }
 
 void UWBP_SaveMenu::CloseSaveMenu()

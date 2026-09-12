@@ -447,9 +447,29 @@ void AMyProject1HUD::ToggleSaveMenu()
             PC->SetInputMode(InputMode);
 
             if (MenuOpenSound) UGameplayStatics::PlaySound2D(this, MenuOpenSound);
+
+            // セーブ画面を表示中はゲーム世界を一時停止する（NPC/敵の動き・アニメーション・物理を止める）。
+            // BGM（Field/Battle/RoomAudioComp）はUMusicControlComponent側でbIsUISound=true設定済みのため、
+            // SetGamePausedの影響を受けず鳴り続ける。
+            UGameplayStatics::SetGamePaused(GetWorld(), true);
+
+            // SetGamePausedだけではPlayerControllerの入力処理（カメラの見回し等）までは止まらないため、
+            // 既存のワープ暗転（BeginWarpFade）と同じ仕組みでプレイヤー入力自体も止める
+            if (AMyProject1Character* PlayerChar = Cast<AMyProject1Character>(PC->GetPawn()))
+            {
+                PlayerChar->DisableInput(PC);
+            }
         }
         else
         {
+            // ゲーム世界の一時停止とプレイヤー入力を先に戻す
+            UGameplayStatics::SetGamePaused(GetWorld(), false);
+
+            if (AMyProject1Character* PlayerChar = Cast<AMyProject1Character>(PC->GetPawn()))
+            {
+                PlayerChar->EnableInput(PC);
+            }
+
             // 閉じる処理
             SaveMenuWidget->RemoveFromParent();
 

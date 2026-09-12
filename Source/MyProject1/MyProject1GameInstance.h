@@ -172,8 +172,8 @@ public:
 	UPROPERTY()
 	class UMyProject1SaveGame* PendingLoadSaveGame = nullptr;
 
-	/** 手動セーブスロットの数（"SaveSlot1"〜"SaveSlot5"）。オートセーブスロットはこれとは別に1つ持つ。 */
-	static constexpr int32 NumManualSaveSlots = 5;
+	/** 手動セーブスロットの数（"SaveSlot1"〜"SaveSlot8"）。オートセーブスロットはこれとは別に1つ持つ。 */
+	static constexpr int32 NumManualSaveSlots = 8;
 
 	/** オートセーブ専用スロットの内部名 */
 	static const FString AutoSaveSlotName;
