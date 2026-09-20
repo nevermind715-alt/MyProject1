@@ -32,8 +32,8 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Music Control")
 	float FadeDuration = 1.5f;
 
-	// RoomMusicVolumeに入った時に呼ばれる。部屋専用BGMへクロスフェードする
-	void EnterRoomMusic(TSoftObjectPtr<USoundBase> NewRoomMusic);
+	// RoomMusicVolumeに入った時に呼ばれる。部屋専用BGMへクロスフェードする(VolumeScaleは部屋ごとの音量オーバーライド、1.0が基準)
+	void EnterRoomMusic(TSoftObjectPtr<USoundBase> NewRoomMusic, float VolumeScale = 1.0f);
 
 	// RoomMusicVolumeから出た時に呼ばれる。フィールドBGMへ戻す
 	void ExitRoomMusic();
@@ -66,8 +66,13 @@ private:
 	// 現在部屋の中にいるかどうか。Combatと合わせてフィールド曲の目標音量を決める
 	bool bInRoom = false;
 
-	// 再入場時に同じ部屋なら再クロスフェードしないようにするための比較用
+	// 再入場時に同じ部屋なら再クロスフェードしないようにするための比較用。
+	// 部屋を出た後も「直前にいた部屋の曲」として保持し続け、続きから再生の判定に使う
 	TSoftObjectPtr<USoundBase> CurrentRoomMusic;
+
+	// 部屋から出た時刻。この時刻からRoomMusicResumeThreshold以内に同じ曲の部屋へ戻った場合は続きから再生する
+	double LastRoomExitTime = -100.0;
+	const float RoomMusicResumeThreshold = 8.0f;
 
 	// --- フェード計算用のボリューム管理変数 ---
 	float TargetFieldVolume = 1.0f;

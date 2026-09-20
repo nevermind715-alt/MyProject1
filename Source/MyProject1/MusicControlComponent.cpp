@@ -123,12 +123,17 @@ void UMusicControlComponent::RefreshFieldTarget()
 	TargetFieldVolume = (bIsCombatMusicPlaying || bInRoom) ? SilentVolume : 1.0f;
 }
 
-void UMusicControlComponent::EnterRoomMusic(TSoftObjectPtr<USoundBase> NewRoomMusic)
+void UMusicControlComponent::EnterRoomMusic(TSoftObjectPtr<USoundBase> NewRoomMusic, float VolumeScale)
 {
 	if (!RoomAudioComp) return;
 
 	// 同じ部屋に入り直した場合（同一Volume内で再Overlapした場合など）は何もしない
 	if (bInRoom && CurrentRoomMusic == NewRoomMusic) return;
+
+	// 直前に出た部屋と同じ曲で、かつ一定時間以内の再入場かどうか（戦闘曲の復帰と同じ考え方）
+	double CurrentTime = GetWorld()->GetTimeSeconds();
+	bool bCanResume = !NewRoomMusic.IsNull() && CurrentRoomMusic == NewRoomMusic
+		&& (CurrentTime - LastRoomExitTime <= RoomMusicResumeThreshold);
 
 	bInRoom = true;
 	CurrentRoomMusic = NewRoomMusic;
@@ -136,14 +141,23 @@ void UMusicControlComponent::EnterRoomMusic(TSoftObjectPtr<USoundBase> NewRoomMu
 
 	if (!NewRoomMusic.IsNull())
 	{
-		USoundBase* LoadedRoomMusic = NewRoomMusic.LoadSynchronous();
-		RoomAudioComp->SetSound(LoadedRoomMusic);
-		RoomAudioComp->SetVolumeMultiplier(SilentVolume);
-		CurrentRoomVolume = SilentVolume;
-		RoomAudioComp->SetPaused(false);
-		RoomAudioComp->Stop();
-		RoomAudioComp->Play(0.0f);
-		TargetRoomVolume = 1.0f;
+		if (bCanResume)
+		{
+			// 一定時間以内：ポーズを解除して続きから再生
+			RoomAudioComp->SetPaused(false);
+		}
+		else
+		{
+			// 初めての入室、または時間切れ：最初から再生
+			USoundBase* LoadedRoomMusic = NewRoomMusic.LoadSynchronous();
+			RoomAudioComp->SetSound(LoadedRoomMusic);
+			RoomAudioComp->SetVolumeMultiplier(SilentVolume);
+			CurrentRoomVolume = SilentVolume;
+			RoomAudioComp->SetPaused(false);
+			RoomAudioComp->Stop();
+			RoomAudioComp->Play(0.0f);
+		}
+		TargetRoomVolume = VolumeScale;
 	}
 	else
 	{
@@ -158,7 +172,7 @@ void UMusicControlComponent::ExitRoomMusic()
 	if (!bInRoom) return;
 
 	bInRoom = false;
-	CurrentRoomMusic = nullptr;
+	LastRoomExitTime = GetWorld()->GetTimeSeconds();
 	TargetRoomVolume = SilentVolume;
 	RefreshFieldTarget();
 

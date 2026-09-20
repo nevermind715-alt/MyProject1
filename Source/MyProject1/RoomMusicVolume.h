@@ -23,6 +23,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Room Music")
 	TSoftObjectPtr<USoundBase> RoomMusic;
 
+	// この部屋のBGM音量(1.0が基準)。部屋ごとに音量を個別調整したい場合に使用する
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Room Music", meta = (ClampMin = "0.0", UIMin = "0.0", UIMax = "2.0"))
+	float Volume = 1.0f;
+
 protected:
 	virtual void BeginPlay() override;
 
