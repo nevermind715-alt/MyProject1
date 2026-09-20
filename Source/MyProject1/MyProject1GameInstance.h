@@ -231,7 +231,41 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Log")
 	void AddLogHistoryEntry(const FString& Message, ELogMessageType InLogType);
 
+	// --- イベント分岐システム ---
+	// UEventDistributorComponentの抽選で決まったEventID（DT_EventDefinitionsの行名）を受け取り、
+	// 対応する施設（WarpID）へワープさせてイベントを開始する。WarpDataTableと同じ「単一の参照をここに設定する」方式。
+
+	/** イベント定義（DT_EventDefinitions）のデータテーブル */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event")
+	UDataTable* EventDefinitionDataTable;
+
+	/** 現在イベント進行中か（各トリガーが二重にイベントを発生させないためのガードにも使う） */
+	UPROPERTY(BlueprintReadOnly, Category = "Event")
+	bool bHasActiveEvent = false;
+
+	/** 進行中のイベントID（DT_EventDefinitionsの行名） */
+	UPROPERTY(BlueprintReadOnly, Category = "Event")
+	FName ActiveEventID;
+
+	/** EventDistributorComponentの抽選で決まったEventIDを渡し、対応する施設（WarpID）へワープしてイベントを開始する。
+	 *  ClearCondition=TimeElapsed/Bothの場合はTimeLimitSeconds後に自動でResolveActiveEvent(true)を呼ぶ */
+	UFUNCTION(BlueprintCallable, Category = "Event")
+	void StartEvent(FName EventID, class ACharacter* PlayerCharacter);
+
+	/** 施設側のクリア判定（インタラクト等）、または制限時間切れから呼ばれる。bSuccess=trueなら成立、falseなら不成立として
+	 *  対応するアクション群（SuccessActions/FailureActions）を実行し、ReturnWarpIDへ戻す */
+	UFUNCTION(BlueprintCallable, Category = "Event")
+	void ResolveActiveEvent(bool bSuccess);
+
 private:
+	// 進行中イベントの制限時間タイマー、および対象プレイヤーの記憶（StartEvent/ResolveActiveEvent用）
+	FTimerHandle ActiveEventTimeLimitTimerHandle;
+	TWeakObjectPtr<class ACharacter> ActiveEventPlayer;
+
+	/** ActiveEventTimeLimitTimerHandleから呼ばれ、制限時間経過による成立（ResolveActiveEvent(true)）を行う */
+	void HandleActiveEventTimeUp();
+
+
 	// ★追加：暗転が終わるまで待機している「ワープID」と「プレイヤー」の記憶
 	FName ReservedWarpID;
 	TWeakObjectPtr<class ACharacter> ReservedPlayer;

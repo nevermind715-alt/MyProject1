@@ -8,6 +8,8 @@
 #include "SkinOverlayComponent.h"
 #include "GameFramework/PlayerController.h"
 #include "WallWarpLink.h"
+#include "GameplayActionLibrary.h"
+#include "RpgCharacterInterface.h"
 
 
 void UMyProject1GameInstance::Init()
@@ -337,6 +339,15 @@ void UMyProject1GameInstance::ExecuteWarpProcess()
 			{
 				PC->SetControlRotation(WarpData->DestinationTransform.GetRotation().Rotator());
 			}
+
+			// イベント分岐で敗北→同一レベル内の施設へワープしてきた場合、bIsDeadのまま行動不能にならないよう復帰させる
+			if (bHasActiveEvent)
+			{
+				if (AMyProject1Character* MyChar = Cast<AMyProject1Character>(ReservedPlayer.Get()))
+				{
+					MyChar->Revive(1.0f);
+				}
+			}
 		}
 		// 明転と入力復帰は、この関数の呼び出し元であるHandleWarpFadeOutCompleteが
 		// WarpFadeInDuration秒後に自動的に処理する（同じマップ/別マップどちらの場合も共通）
@@ -663,6 +674,74 @@ void UMyProject1GameInstance::AddLogHistoryEntry(const FString& Message, ELogMes
 	while (LogHistory.Num() > MaxLogHistoryEntries)
 	{
 		LogHistory.RemoveAt(0);
+	}
+}
+
+// ----------------------------------------------------
+// イベント分岐システム
+// ----------------------------------------------------
+void UMyProject1GameInstance::StartEvent(FName EventID, ACharacter* PlayerCharacter)
+{
+	if (!PlayerCharacter || !EventDefinitionDataTable || EventID.IsNone() || bHasActiveEvent) return;
+
+	FEventDefinition* Definition = EventDefinitionDataTable->FindRow<FEventDefinition>(EventID, TEXT("StartEvent"));
+	if (!Definition || Definition->WarpID.IsNone()) return;
+
+	bHasActiveEvent = true;
+	ActiveEventID = EventID;
+	ActiveEventPlayer = PlayerCharacter;
+
+	// 成立条件に制限時間が絡む場合、ここで自動成立タイマーを仕掛けておく（Interactのみの成立はこのタイマーを使わない）
+	if (Definition->ClearCondition != EEventClearCondition::Interact && Definition->TimeLimitSeconds > 0.0f)
+	{
+		GetTimerManager().SetTimer(ActiveEventTimeLimitTimerHandle, this,
+			&UMyProject1GameInstance::HandleActiveEventTimeUp, Definition->TimeLimitSeconds, false);
+	}
+
+	// RequiredFlagのチェックは施設への強制送致には意味を持たないためバイパスする
+	RequestWarp(Definition->WarpID, PlayerCharacter, true);
+}
+
+void UMyProject1GameInstance::HandleActiveEventTimeUp()
+{
+	ResolveActiveEvent(true);
+}
+
+void UMyProject1GameInstance::ResolveActiveEvent(bool bSuccess)
+{
+	if (!bHasActiveEvent) return;
+
+	GetTimerManager().ClearTimer(ActiveEventTimeLimitTimerHandle);
+
+	FEventDefinition* Definition = EventDefinitionDataTable
+		? EventDefinitionDataTable->FindRow<FEventDefinition>(ActiveEventID, TEXT("ResolveActiveEvent"))
+		: nullptr;
+	ACharacter* PlayerChar = ActiveEventPlayer.Get();
+
+	if (Definition && PlayerChar)
+	{
+		if (IRpgCharacterInterface* RpgInterface = Cast<IRpgCharacterInterface>(PlayerChar))
+		{
+			const TArray<FEventAction>& Actions = bSuccess ? Definition->SuccessActions : Definition->FailureActions;
+			for (const FEventAction& Action : Actions)
+			{
+				UGameplayActionLibrary::ExecuteAction(RpgInterface, PlayerChar, nullptr, GetWorld(),
+					Action.ActionType, Action.ActionPayload, Action.ItemID, Action.ItemAmount);
+				UGameplayActionLibrary::ApplyStatChange(RpgInterface, nullptr,
+					Action.StatToChange, Action.StatTargetActor, Action.ExtraStatName, Action.StatChangeAmount);
+			}
+		}
+	}
+
+	const FName ReturnID = Definition ? Definition->ReturnWarpID : NAME_None;
+
+	bHasActiveEvent = false;
+	ActiveEventID = NAME_None;
+	ActiveEventPlayer.Reset();
+
+	if (!ReturnID.IsNone() && PlayerChar)
+	{
+		RequestWarp(ReturnID, PlayerChar, true);
 	}
 }
 

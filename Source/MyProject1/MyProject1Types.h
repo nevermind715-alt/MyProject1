@@ -897,7 +897,10 @@ enum class EDialogActionType : uint8
 	// AddItemと対。ItemID/ItemAmountで指定したアイテムをプレイヤーのインベントリから削除する
 	RemoveItem      UMETA(DisplayName = "アイテムを奪う（インベントリから削除）"),
 	// ActionPayloadに渡す金額（￥）を数値の文字列で入れる（例："500"）。プレイヤーの所持金に加算する（報酬の前金など）
-	AddGil          UMETA(DisplayName = "お金を渡す（ActionPayload=金額）")
+	AddGil          UMETA(DisplayName = "お金を渡す（ActionPayload=金額）"),
+	// ActionPayloadにEventDistributorComponentのEventPoolID（DT_EventPoolsの行名）を入れる。
+	// 話しかけている相手（CurrentNPC）のUEventDistributorComponentを探して抽選を開始する
+	TriggerEvent    UMETA(DisplayName = "イベント抽選を開始する（ActionPayload=EventPoolID）")
 };
 
 // --- 選択肢1つ分のデータ ---
@@ -1532,6 +1535,130 @@ struct FWarpDestinationInfo
 	// UIに表示する名前
 	UPROPERTY(BlueprintReadOnly, Category = "Warp")
 	FText DisplayName;
+};
+
+// ==========================================
+// ▼ イベント分岐システム（EventDistributorComponent用）▼
+// ==========================================
+// NPCとの会話（EDialogActionType::TriggerEvent）／QuestItemPointのインタラクト成功／戦闘敗北などをきっかけに、
+// 重み付き抽選で複数の候補（脱出イベント・救出イベント等）から1つを選び、対応する施設（DT_WarpDestinations）へ
+// ワープさせて成立を待つ。成立条件（時間経過／インタラクト）はFEventDefinition::ClearConditionで指定する。
+
+// イベントの分類（処理自体はSuccessActions/FailureActions側のデータで表現するため、enumは分類・表示用）
+UENUM(BlueprintType)
+enum class EEventType : uint8
+{
+	Escape  UMETA(DisplayName = "脱出"),
+	Rescue  UMETA(DisplayName = "救出"),
+	Custom  UMETA(DisplayName = "その他")
+};
+
+// イベントの成立条件
+UENUM(BlueprintType)
+enum class EEventClearCondition : uint8
+{
+	TimeElapsed UMETA(DisplayName = "制限時間の経過で成立"),
+	Interact    UMETA(DisplayName = "施設内のインタラクトで成立"),
+	Both        UMETA(DisplayName = "どちらか早い方で成立")
+};
+
+// 抽選プールの候補1件分（DT_EventPools用）
+USTRUCT(BlueprintType)
+struct FEventPoolEntry
+{
+	GENERATED_BODY()
+
+	// 抽選対象のイベント行名（DT_EventDefinitionsの行名）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event")
+	FName EventID;
+
+	// 相対的な重み（合計が100である必要はない。他候補との比率だけで抽選される）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event", meta = (ClampMin = "0.0"))
+	float Weight = 1.0f;
+
+	// 空欄でなければ、このフラグを持っている時だけ候補に含める
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event")
+	FName RequiredFlag;
+};
+
+// 抽選プール1つ分のデータ（DT_EventPools用）
+USTRUCT(BlueprintType)
+struct FEventPoolData : public FTableRowBase
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event")
+	TArray<FEventPoolEntry> Entries;
+};
+
+// イベント成立時／失敗時に実行する1アクション分のデータ（FDialogChoiceのアクション部分の簡易版）。
+// ActionTypeはEDialogActionTypeをそのまま流用し、実行はUGameplayActionLibrary::ExecuteAction/ApplyStatChangeが
+// DialogComponentと共通で行う
+USTRUCT(BlueprintType)
+struct FEventAction
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event")
+	EDialogActionType ActionType = EDialogActionType::None;
+
+	// アクションの引数（QuestIDの文字列やフラグ名など）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event")
+	FString ActionPayload;
+
+	// ActionType=AddItem/RemoveItem時に対象となるアイテムの行名
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event", meta = (EditCondition = "ActionType == EDialogActionType::AddItem || ActionType == EDialogActionType::RemoveItem"))
+	FName ItemID;
+
+	// ActionType=AddItem/RemoveItem時の個数
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event", meta = (EditCondition = "ActionType == EDialogActionType::AddItem || ActionType == EDialogActionType::RemoveItem", ClampMin = "1"))
+	int32 ItemAmount = 1;
+
+	// ActionTypeとは独立して、併用できるステータス変化（FDialogChoiceのStatToChangeと同じ扱い）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event")
+	ETargetStat StatToChange = ETargetStat::None;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event", meta = (EditCondition = "StatToChange != ETargetStat::None"))
+	EStatTargetActor StatTargetActor = EStatTargetActor::Player;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event", meta = (EditCondition = "StatToChange == ETargetStat::CustomExtraStat"))
+	FName ExtraStatName;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event")
+	float StatChangeAmount = 0.0f;
+};
+
+// イベント1つ分の実体データ（DT_EventDefinitions用）
+USTRUCT(BlueprintType)
+struct FEventDefinition : public FTableRowBase
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event")
+	EEventType EventType = EEventType::Escape;
+
+	// 飛ばす施設のWarpID（DT_WarpDestinationsの行名）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event")
+	FName WarpID;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event")
+	EEventClearCondition ClearCondition = EEventClearCondition::Interact;
+
+	// ClearCondition=TimeElapsed/Both時の制限時間（秒）。0以下なら無制限（＝実質Interactのみ）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event", meta = (EditCondition = "ClearCondition != EEventClearCondition::Interact"))
+	float TimeLimitSeconds = 0.0f;
+
+	// 成立（クリア）時に実行するアクション群
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event")
+	TArray<FEventAction> SuccessActions;
+
+	// 失敗時に実行するアクション群（失敗の判定自体は施設側のBP等からResolveActiveEvent(false)を呼んで通知する）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event")
+	TArray<FEventAction> FailureActions;
+
+	// イベント終了後（成功・失敗どちらでも）に戻す先のWarpID（DT_WarpDestinationsの行名）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event")
+	FName ReturnWarpID;
 };
 
 // --- セーブ画面のスロット一覧UI用の軽量データ（C++からBPへ1スロット分の見出し情報を渡す用） ---

@@ -993,9 +993,16 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Combat")
 	bool IsDead() const override { return bIsDead; }
 
+	/** bIsDeadを解除し、行動可能な状態に戻す。イベント分岐（プレイヤーが敵に敗北→施設イベント）で、
+	 *  OnDeath(false)によりActor破棄はされずに死亡状態のまま施設へ届いたプレイヤーを、到着時に行動可能へ戻すために使う。
+	 *  通常の死亡からの蘇生（コンティニュー等）には未対応 */
+	UFUNCTION(BlueprintCallable, Category = "Combat")
+	void Revive(float RestoreHP = 1.0f);
+
 protected:
-	// 死亡処理
-	virtual void OnDeath();
+	// 死亡処理。bAllowDestroy=falseにすると、bDestroyOnDeathが有効でもActorの破棄予約（SetLifeSpan）を行わない
+	// （イベント分岐で敗北→施設へワープさせたいだけで、Actor自体は消したくない場合に使う）
+	virtual void OnDeath(bool bAllowDestroy = true);
 
 	// 死亡フラグ（AnimBPから読めるように UPROPERTY を追加！）
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")

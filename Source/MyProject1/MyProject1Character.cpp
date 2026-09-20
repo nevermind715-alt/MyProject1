@@ -38,6 +38,7 @@
 #include "WallWarpLink.h"
 #include "QuestItemPoint.h"
 #include "SleepPoint.h"
+#include "EventDistributorComponent.h"
 #include "RestraintBreakPoint.h"
 
 
@@ -300,6 +301,13 @@ void AMyProject1Character::BeginPlay()
 		{
 			GameInst->ApplyPendingWarp(this);
 			bRestoredFromSnapshot = GameInst->ApplyPendingCharacterLoad(this);
+
+			// イベント分岐で敗北→別レベルの施設へワープしてきた場合、直前（HP0）のスナップショットが
+			// そのまま復元されただけの状態になるため、到着時にHPを立て直す（bIsDeadは新規生成でfalseのまま）
+			if (GameInst->bHasActiveEvent)
+			{
+				Revive(1.0f);
+			}
 		}
 
 		// マップも太陽も準備完了したこのタイミングで、初回の時間を通知する ---
@@ -1169,6 +1177,23 @@ float AMyProject1Character::TakeDamage(float DamageAmount, FDamageEvent const& D
 			AMyProject1Character* Killer = Cast<AMyProject1Character>(EventInstigator->GetPawn());
 			if (Killer)
 			{
+				// プレイヤーが敵にHP0にされた場合：経験値・ドロップ・討伐クエストの対象にはせず、
+				// Killer（倒した敵）側にUEventDistributorComponentが設定されていれば、
+				// Actorを破棄せずにイベント分岐（脱出/救出イベント等）へ進ませる。
+				// 敵側に設定がなければ、意図しない挙動変更を避けるため従来通りの下の分岐へフォールスルーする
+				if (IsPlayerControlled())
+				{
+					if (UEventDistributorComponent* KillerEventComp = Killer->FindComponentByClass<UEventDistributorComponent>())
+					{
+						if (!KillerEventComp->EventPoolID.IsNone())
+						{
+							OnDeath(false);
+							KillerEventComp->TriggerEventPool(this);
+							return ActualDamage;
+						}
+					}
+				}
+
 				// --- 経験値の動的計算 ---
 				int32 BaseExp = this->MyStats.ExperienceReward; // データテーブル等の基本値 (例: 100)
 				int32 LevelDiff = this->MyStats.Level - Killer->MyStats.Level; // 敵Lv - 自分Lv
@@ -1269,7 +1294,7 @@ void AMyProject1Character::StopAutoAttack()
 	SetCurrentTarget(nullptr);
 }
 
-void AMyProject1Character::OnDeath()
+void AMyProject1Character::OnDeath(bool bAllowDestroy)
 {
 	if (bIsDead) return;
 	bIsDead = true; // 最初にフラグを立てる
@@ -1327,15 +1352,42 @@ void AMyProject1Character::OnDeath()
 		MusicComp->PlayDeathMusic();
 	}
 
-	if (bDestroyOnDeath)
+	if (bDestroyOnDeath && bAllowDestroy)
 	{
 		SetLifeSpan(DeathLifeSpan);
 	}
-	
+
 	if (OnDeathDelegate.IsBound())
 	{
 		OnDeathDelegate.Broadcast(this);
 	}
+}
+
+void AMyProject1Character::Revive(float RestoreHP)
+{
+	if (bIsDead)
+	{
+		bIsDead = false;
+
+		GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+		GetCharacterMovement()->SetMovementMode(MOVE_Walking);
+
+		// OnDeathで沈めたメッシュの高さを元に戻す
+		FVector RelLoc = GetMesh()->GetRelativeLocation();
+		RelLoc.Z += (HoverHeight > 0.0f) ? HoverHeight : 5.0f;
+		GetMesh()->SetRelativeLocation(RelLoc);
+	}
+
+	// クロスレベルワープ（OpenLevel）で再生成された直後は、別レベルへ移る直前（HP0の瞬間）の
+	// スナップショットがそのまま復元されるため、bIsDeadは既にfalseでもHPだけ0のままになる。
+	// その場合もここで確実に立て直す
+	MyStats.HP = FMath::Clamp(RestoreHP, 1.0f, MyStats.MaxHP);
+
+	if (OnHPChangedDelegate.IsBound())
+	{
+		OnHPChangedDelegate.Broadcast(MyStats.HP, MyStats.MaxHP);
+	}
+	NotifyStatsChanged();
 }
 
 

@@ -119,6 +119,33 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item Interact", meta = (EditCondition = "bOneTimeUse"))
 	FName UsedFlag;
 
+	// --- 成功率つき結果分岐（情報収集ポイント等、施設内で完結する成功/失敗判定向け） ---
+	// 通常の成功判定（Acquire/Absorb/InteractOnly）が成功した後に、さらにChanceSuccessPercentで
+	// 成功/失敗を追加抽選する。ワープやGameInstanceのイベント状態を新たに作らず、
+	// 「今アクティブなイベント」の枠内でその場完結の成功報酬／失敗退場を行うための仕組み。
+
+	/** trueにすると、この下の追加抽選（成功率）を有効にする。falseなら従来通り評価されない */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item Interact|Chance Outcome")
+	bool bUseChanceOutcome = false;
+
+	/** 追加抽選の成功率（0〜100%） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item Interact|Chance Outcome", meta = (EditCondition = "bUseChanceOutcome", ClampMin = "0.0", ClampMax = "100.0"))
+	float ChanceSuccessPercent = 100.0f;
+
+	/** 追加抽選に成功した時に実行するアクション（お金/フラグ付与など）。その場で完結し、施設からは出ない */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item Interact|Chance Outcome", meta = (EditCondition = "bUseChanceOutcome"))
+	TArray<FEventAction> ChanceSuccessActions;
+
+	/** trueなら、追加抽選に失敗した時にUMyProject1GameInstance::ResolveActiveEvent(false)を呼ぶ。
+	 *  このItemPointが置かれている施設イベント（FEventDefinition）のFailureActionsが実行され、
+	 *  ReturnWarpIDへ自動的に戻される（退場）。falseなら、代わりにChanceFailureActionsをその場で実行するだけで退場しない */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item Interact|Chance Outcome", meta = (EditCondition = "bUseChanceOutcome"))
+	bool bResolveActiveEventOnChanceFailure = true;
+
+	/** 追加抽選に失敗し、かつbResolveActiveEventOnChanceFailure=falseの時に実行するアクション */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item Interact|Chance Outcome", meta = (EditCondition = "bUseChanceOutcome && !bResolveActiveEventOnChanceFailure"))
+	TArray<FEventAction> ChanceFailureActions;
+
 	// --- 演出 ---
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item Interact|Audio")
 	class USoundBase* InteractSound = nullptr;

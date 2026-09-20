@@ -11,6 +11,8 @@
 #include "MyProject1HUD.h"
 #include "RpgCharacterInterface.h"
 #include "QuestNPCBase.h"
+#include "GameplayActionLibrary.h"
+#include "EventDistributorComponent.h"
 
 UDialogComponent::UDialogComponent()
 {
@@ -144,125 +146,23 @@ void UDialogComponent::ExecuteActionCore(EDialogActionType ActionType, const FSt
 		}
 	}
 
-	switch (ActionType)
+	// ActionTypeごとの実行本体はUGameplayActionLibrary（イベント分岐システムと共通）に委譲する
+	UGameplayActionLibrary::ExecuteAction(RpgInterface, GetOwner(), CurrentNPC, GetWorld(), ActionType, ActionPayload, ItemID, ItemAmount);
+
+	if (ActionType == EDialogActionType::TriggerEvent)
 	{
-	case EDialogActionType::AcceptQuest:
-		if (UQuestComponent* QuestComp = RpgInterface->GetQuestComponent())
-			QuestComp->AcceptQuest(FName(*ActionPayload));
-		break;
-
-	case EDialogActionType::ReportQuest:
-		if (UQuestComponent* QuestComp = RpgInterface->GetQuestComponent())
-			QuestComp->ReportQuest(FName(*ActionPayload));
-		break;
-
-	case EDialogActionType::CancelQuest:
-		if (UQuestComponent* QuestComp = RpgInterface->GetQuestComponent())
-			QuestComp->CancelQuest(FName(*ActionPayload));
-		break;
-
-	case EDialogActionType::TalkProgress:
-		if (UQuestComponent* QuestComp = RpgInterface->GetQuestComponent())
+		// ActionPayloadに設定されたEventPoolIDで、話しかけている相手（CurrentNPC）のイベント抽選を開始する
+		if (CurrentNPC)
 		{
-			// 話しかけた相手（NPC）の識別はActorのTags（詳細パネルで設定）を使う。親クラスを問わず使えるようにするため
-			QuestComp->UpdateTalkObjective(FName(*ActionPayload), CurrentNPC);
-		}
-		break;
-
-	case EDialogActionType::AddFlag:
-		RpgInterface->AddFlag(FName(*ActionPayload));
-		break;
-
-	case EDialogActionType::RemoveFlag:
-		RpgInterface->RemoveFlag(FName(*ActionPayload));
-		break;
-
-	case EDialogActionType::Warp:
-		if (UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetWorld()->GetGameInstance()))
-		{
-			FName WarpIDToUse = FName(*ActionPayload);
-
-			if (ActionPayload.IsEmpty() || WarpIDToUse.IsNone())
+			if (UEventDistributorComponent* EventComp = CurrentNPC->FindComponentByClass<UEventDistributorComponent>())
 			{
-				if (AWarpPortal* Portal = Cast<AWarpPortal>(CurrentNPC))
-				{
-					WarpIDToUse = Portal->TargetWarpID;
-				}
-			}
-
-			if (!WarpIDToUse.IsNone())
-			{
-				// ワープ関数はACharacterを要求するため、OwnerをACharacterにキャストして渡す
-				if (ACharacter* OwnerChar = Cast<ACharacter>(GetOwner()))
-				{
-					GameInst->RequestWarp(WarpIDToUse, OwnerChar);
-				}
-			}
-			else
-			{
-				UE_LOG(LogTemp, Warning, TEXT("ワープIDが設定されていません！"));
+				EventComp->TriggerEventPool(Cast<AMyProject1Character>(GetOwner()));
 			}
 		}
-		break;
-
-	case EDialogActionType::RequestRankUp:
-		// ActionPayloadに設定先の等級（EAdventurerRankの行名。例："Rank4"）を入れて使う
-		RpgInterface->SetAdventurerRank(FName(*ActionPayload));
-		break;
-
-	case EDialogActionType::AddItem:
-		// ItemID/ItemAmountで指定したアイテムをプレイヤーのインベントリに追加する（渡す）。
-		// カバンが満杯で入り切らない場合はAddItem側がfalseを返すが、ここでは通知は出さない
-		if (!ItemID.IsNone() && ItemAmount > 0)
-		{
-			if (UInventoryComponent* Inv = GetOwner()->FindComponentByClass<UInventoryComponent>())
-				Inv->AddItem(ItemID, ItemAmount);
-		}
-		break;
-
-	case EDialogActionType::RemoveItem:
-		// ItemID/ItemAmountで指定したアイテムをプレイヤーのインベントリから削除する（奪う）。
-		// UInventoryComponent::RemoveItem自体はログを出さない（ポーション消費など内部利用で無言にするため）ので、
-		// 会話でのアイテム受け渡し時だけここでログを出す（AddItem側はAddItem内でログが出るのと対になる）
-		if (!ItemID.IsNone() && ItemAmount > 0)
-		{
-			if (UInventoryComponent* Inv = GetOwner()->FindComponentByClass<UInventoryComponent>())
-			{
-				if (Inv->RemoveItem(ItemID, ItemAmount))
-				{
-					FItemData ItemInfo;
-					const FString ItemName = Inv->GetItemDataBP(ItemID, ItemInfo) ? ItemInfo.Name : ItemID.ToString();
-					const FString LogMsg = (ItemAmount == 1)
-						? FString::Printf(TEXT("%sを渡した。"), *ItemName)
-						: FString::Printf(TEXT("%sを%d個渡した。"), *ItemName, ItemAmount);
-					RpgInterface->OnReceiveLogMessage(LogMsg, ELogMessageType::System);
-				}
-			}
-		}
-		break;
-
-	case EDialogActionType::AddGil:
-		// ActionPayloadに入れた金額（￥）の数値文字列をプレイヤーの所持金に加算する（報酬の前金など）。
-		// RemoveItemと同じく、渡した時だけここでシステムログを出す
-		{
-			const int32 GilAmount = FCString::Atoi(*ActionPayload);
-			if (GilAmount > 0)
-			{
-				if (UInventoryComponent* Inv = GetOwner()->FindComponentByClass<UInventoryComponent>())
-				{
-					Inv->AddGil(GilAmount);
-					RpgInterface->OnReceiveLogMessage(FString::Printf(TEXT("%d￥ 手に入れた。"), GilAmount), ELogMessageType::System);
-				}
-			}
-		}
-		break;
-
-	case EDialogActionType::Close:
+	}
+	else if (ActionType == EDialogActionType::Close)
+	{
 		CloseDialog();
-		break;
-
-	default:
-		break;
 	}
 
 	// GrantFlagと同じく、ActionType（Warpなど）と併用できる、ActionTypeとは独立したフラグ消去。
@@ -286,84 +186,8 @@ void UDialogComponent::ExecuteActionCore(EDialogActionType ActionType, const FSt
 		}
 	}
 
-	if (StatToChange != ETargetStat::None && StatChangeAmount != 0.0f)
-	{
-		float ChangeVal = StatChangeAmount;
-		FString StatName = TEXT("不明なステータス");
-
-		// StatTargetActor=NPCなら、話しかけている相手自身のMyStats（個体ごとのFavor/Hostility等）を書き換える。
-		// キャストに失敗した場合（NPCが未設定、IRpgCharacterInterface非対応など）はプレイヤー側にフォールバックする
-		IRpgCharacterInterface* StatOwnerInterface = RpgInterface;
-		if (StatTargetActor == EStatTargetActor::NPC)
-		{
-			if (IRpgCharacterInterface* NPCInterface = Cast<IRpgCharacterInterface>(CurrentNPC))
-			{
-				StatOwnerInterface = NPCInterface;
-			}
-		}
-
-		// 参照(&)で受け取るため、ここで書き換えると本体のステータスに直結します
-		FCharacterStats& Stats = StatOwnerInterface->GetCharacterStats();
-
-		switch (StatToChange)
-		{
-		case ETargetStat::Favor:
-			Stats.Favor += ChangeVal;
-			StatName = TEXT("好感度");
-			break;
-		case ETargetStat::Hostility:
-			Stats.Hostility += ChangeVal;
-			StatName = TEXT("敵対度");
-			break;
-		case ETargetStat::Fame:
-			Stats.Fame += ChangeVal;
-			StatName = TEXT("名声");
-			break;
-		case ETargetStat::Charm:
-			Stats.Charm += ChangeVal;
-			StatName = TEXT("魅力");
-			break;
-
-		case ETargetStat::Alcohol:
-			Stats.Alcohol += ChangeVal;
-			StatName = TEXT("酒量");
-			break;
-
-		case ETargetStat::CustomExtraStat:
-			if (!ExtraStatName.IsNone())
-			{
-				float* CurrentVal = Stats.ExtraStats.Find(ExtraStatName);
-
-				if (CurrentVal)
-				{
-					*CurrentVal += ChangeVal;
-					StatName = ExtraStatName.ToString();
-				}
-				else
-				{
-					UE_LOG(LogTemp, Warning, TEXT("【Dialog Error】 ExtraStat '%s' が登録されていません！"), *ExtraStatName.ToString());
-					ChangeVal = 0.0f;
-				}
-			}
-			else
-			{
-				ChangeVal = 0.0f;
-			}
-			break;
-		default:
-			break;
-		}
-
-		if (ChangeVal != 0.0f)
-		{
-			FString Sign = (ChangeVal > 0) ? TEXT("上がった") : TEXT("下がった");
-			FString LogMsg = FString::Printf(TEXT("%sが %.0f %s。"), *StatName, FMath::Abs(ChangeVal), *Sign);
-
-			// ログもUI通知もインターフェース経由
-			RpgInterface->OnReceiveLogMessage(LogMsg, ELogMessageType::System);
-			RpgInterface->NotifyStatsChanged();
-		}
-	}
+	// StatToChangeによるステータス変化本体もUGameplayActionLibraryに委譲する（ActionTypeとは独立して併用可能）
+	UGameplayActionLibrary::ApplyStatChange(RpgInterface, CurrentNPC, StatToChange, StatTargetActor, ExtraStatName, StatChangeAmount);
 }
 
 void UDialogComponent::CloseDialog()

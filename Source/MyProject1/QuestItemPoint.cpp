@@ -7,6 +7,10 @@
 #include "InventoryComponent.h"
 #include "QuestComponent.h"
 #include "Kismet/GameplayStatics.h"
+#include "EventDistributorComponent.h"
+#include "GameplayActionLibrary.h"
+#include "RpgCharacterInterface.h"
+#include "MyProject1GameInstance.h"
 
 // 日本語文字化け・コンパイルエラー対策
 #pragma execution_character_set("utf-8")
@@ -215,6 +219,46 @@ void AQuestItemPoint::TryInteract(AMyProject1Character* Interactor)
 		return;
 	}
 
+	// 成功率つき追加抽選（情報収集ポイント等）。通常の成功判定を通った後にもう一段判定する
+	if (bUseChanceOutcome)
+	{
+		IRpgCharacterInterface* RpgInterface = Cast<IRpgCharacterInterface>(Interactor);
+		const bool bChanceSuccess = FMath::FRandRange(0.0f, 100.0f) <= ChanceSuccessPercent;
+
+		if (bChanceSuccess)
+		{
+			if (RpgInterface)
+			{
+				for (const FEventAction& Action : ChanceSuccessActions)
+				{
+					UGameplayActionLibrary::ExecuteAction(RpgInterface, Interactor, this, GetWorld(), Action.ActionType, Action.ActionPayload, Action.ItemID, Action.ItemAmount);
+					UGameplayActionLibrary::ApplyStatChange(RpgInterface, this, Action.StatToChange, Action.StatTargetActor, Action.ExtraStatName, Action.StatChangeAmount);
+				}
+			}
+		}
+		else
+		{
+			if (bResolveActiveEventOnChanceFailure)
+			{
+				if (UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetWorld()->GetGameInstance()))
+				{
+					GameInst->ResolveActiveEvent(false);
+				}
+			}
+			else if (RpgInterface)
+			{
+				for (const FEventAction& Action : ChanceFailureActions)
+				{
+					UGameplayActionLibrary::ExecuteAction(RpgInterface, Interactor, this, GetWorld(), Action.ActionType, Action.ActionPayload, Action.ItemID, Action.ItemAmount);
+					UGameplayActionLibrary::ApplyStatChange(RpgInterface, this, Action.StatToChange, Action.StatTargetActor, Action.ExtraStatName, Action.StatChangeAmount);
+				}
+			}
+
+			// 追加抽選に失敗した場合はここで終了し、この下の成功ログ・クエスト連携・使用済み処理は行わない
+			return;
+		}
+	}
+
 	if (!SuccessLogText.IsEmpty())
 	{
 		Interactor->OnReceiveLogMessage(SuccessLogText, SuccessLogType);
@@ -228,6 +272,12 @@ void AQuestItemPoint::TryInteract(AMyProject1Character* Interactor)
 		{
 			QuestComp->UpdateTalkObjective(TalkProgressQuestID, this);
 		}
+	}
+
+	// イベント分岐システム：このポイント自身にUEventDistributorComponentが付いていれば、インタラクト成功時に抽選を開始する
+	if (UEventDistributorComponent* EventComp = FindComponentByClass<UEventDistributorComponent>())
+	{
+		EventComp->TriggerEventPool(Interactor);
 	}
 
 	if (InteractSound)
