@@ -54,6 +54,8 @@ void UEventDistributorComponent::TriggerEventPool(AMyProject1Character* PlayerCh
 
 	if (UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(PlayerCharacter->GetGameInstance()))
 	{
-		GameInst->StartEvent(ChosenEventID, PlayerCharacter);
+		// GetOwner()：このコンポーネントが付いているNPC/QuestItemPoint/敵Actor。
+		// FAnimEventStep::PlayTarget=NPC時の再生対象として使われる（StartEvent参照）
+		GameInst->StartEvent(ChosenEventID, PlayerCharacter, GetOwner());
 	}
 }

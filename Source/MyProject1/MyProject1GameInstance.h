@@ -7,9 +7,14 @@
 #include "MyProject1GameInstance.generated.h"
 
 
+class UAnimMontage;
+
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnWarpFadeOutRequested);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_FiveParams(FOnInGameTimeChanged, int32, Year, int32, Month, int32, Day, int32, Hour, int32, Minute);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnDayChangedSignature);
+
+// PlayAnimSequenceEventの完了通知。bCompletedNormally=trueは全ステップ再生完了、falseは対象/アセット不備などで開始できなかった場合
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnAnimSequenceEventFinished, bool, bCompletedNormally);
 
 UCLASS()
 class MYPROJECT1_API UMyProject1GameInstance : public UGameInstance
@@ -248,22 +253,143 @@ public:
 	FName ActiveEventID;
 
 	/** EventDistributorComponentの抽選で決まったEventIDを渡し、対応する施設（WarpID）へワープしてイベントを開始する。
-	 *  ClearCondition=TimeElapsed/Bothの場合はTimeLimitSeconds後に自動でResolveActiveEvent(true)を呼ぶ */
+	 *  ClearCondition=TimeElapsed/Bothの場合はTimeLimitSeconds後に自動でResolveActiveEvent(true)を呼ぶ。
+	 *  ClearCondition=AnimationSequenceの場合は暗転明け後にAnimEventIDのステップ再生を開始し、完走で自動成立する。
+	 *  EventContextActorはTriggerEventPoolを呼び出したOwnerActor（NPC/敵など）。FAnimEventStep::PlayTarget=NPC時の再生対象になる */
 	UFUNCTION(BlueprintCallable, Category = "Event")
-	void StartEvent(FName EventID, class ACharacter* PlayerCharacter);
+	void StartEvent(FName EventID, class ACharacter* PlayerCharacter, class AActor* EventContextActor = nullptr);
 
 	/** 施設側のクリア判定（インタラクト等）、または制限時間切れから呼ばれる。bSuccess=trueなら成立、falseなら不成立として
 	 *  対応するアクション群（SuccessActions/FailureActions）を実行し、ReturnWarpIDへ戻す */
 	UFUNCTION(BlueprintCallable, Category = "Event")
 	void ResolveActiveEvent(bool bSuccess);
 
+	// --- アニメーションシーケンス再生（イベント分岐システムとは独立） ---
+	// DT_AnimSequences（行名=個別ID、Tagでカテゴリ分類）とDT_AnimEvents（行名=AnimEventID、Steps列）の2テーブルで管理する。
+	// PlayAnimSequenceEventはbHasActiveEvent等のイベント状態を一切見ないため、会話アクションやQuestItemPointのインタラクトなど
+	// イベントを経由しない箇所からも単体で呼び出せる。イベント分岐システム側（ClearCondition=AnimationSequence）は
+	// このPlayAnimSequenceEventを呼ぶ薄いラッパー（BeginAnimEventSequenceIfNeeded）になっている。
+
+	/** アニメーション本体（DT_AnimSequences）のデータテーブル。行名は個別ID、Tagでカテゴリ分類する */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent")
+	UDataTable* AnimSequenceDataTable;
+
+	/** アニメーションイベント（DT_AnimEvents）のデータテーブル。行名がAnimEventIDになる */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent")
+	UDataTable* AnimEventDataTable;
+
+	/** PlayAnimSequenceEventの完了通知（全ステップ再生完了、または開始できず即失敗のどちらでもBroadcastされる） */
+	UPROPERTY(BlueprintAssignable, Category = "AnimEvent")
+	FOnAnimSequenceEventFinished OnAnimSequenceEventFinished;
+
+	/** AnimEventID（DT_AnimEventsの行名）のStepsを先頭から順に再生する。イベント分岐システムを経由せず単体で呼び出せる。
+	 *  PrimaryCharacterはFAnimEventStep::PlayTarget=Player時の再生対象。SecondaryContextActorはPlayTarget=NPC時の再生対象
+	 *  （例：会話中のNPCや、EventDistributorComponentが付いているOwnerActor）。完了時にOnAnimSequenceEventFinishedをBroadcastする。
+	 *  bFadeInBeforeStart=trueなら、Step0の再生前にもステップ切り替えと同じ暗転を挟む。
+	 *  イベント分岐システム経由（BeginAnimEventSequenceIfNeeded）は既にワープ暗転明け直後なのでfalseのまま呼ぶ想定。
+	 *  会話・QuestItemPointなどワープを経由しない直接呼び出しはtrueを渡すことで開始時にも暗転させられる */
+	UFUNCTION(BlueprintCallable, Category = "AnimEvent")
+	void PlayAnimSequenceEvent(FName AnimEventID, class ACharacter* PrimaryCharacter, class AActor* SecondaryContextActor = nullptr, bool bFadeInBeforeStart = false);
+
 private:
 	// 進行中イベントの制限時間タイマー、および対象プレイヤーの記憶（StartEvent/ResolveActiveEvent用）
 	FTimerHandle ActiveEventTimeLimitTimerHandle;
 	TWeakObjectPtr<class ACharacter> ActiveEventPlayer;
 
+	// StartEventに渡されたEventContextActor（TriggerEventPoolを呼んだOwnerActor）の記憶。FAnimEventStep::PlayTarget=NPC用
+	TWeakObjectPtr<class AActor> ActiveEventContextActor;
+
 	/** ActiveEventTimeLimitTimerHandleから呼ばれ、制限時間経過による成立（ResolveActiveEvent(true)）を行う */
 	void HandleActiveEventTimeUp();
+
+	// 進行中イベントがClearCondition=AnimationSequenceの場合に、既にPlayAnimSequenceEventを開始済みか
+	// （BeginAnimEventSequenceIfNeededの二重起動ガード。アニメーション再生自体の進行状態ではない）
+	bool bAnimEventSequenceStarted = false;
+
+	/** HandleWarpFadeInCompleteから呼ばれる。進行中イベントのClearConditionがAnimationSequenceで、
+	 *  まだ再生を開始していない場合のみPlayAnimSequenceEventを開始し、完了通知（OnAnimSequenceEventFinished）を
+	 *  HandleAnimSequenceEventFinishedForActiveEventで受けてResolveActiveEvent(true)へつなぐ */
+	void BeginAnimEventSequenceIfNeeded();
+
+	/** OnAnimSequenceEventFinishedのハンドラ。bHasActiveEvent中にBeginAnimEventSequenceIfNeeded経由で開始された
+	 *  再生が完了した時だけResolveActiveEvent(true)を呼ぶ（単体でのPlayAnimSequenceEvent呼び出し時は何もしない） */
+	UFUNCTION()
+	void HandleAnimSequenceEventFinishedForActiveEvent(bool bCompletedNormally);
+
+	// --- アニメーションシーケンス再生（PlayAnimSequenceEvent）自体の進行状態。イベント分岐システムの状態とは独立 ---
+	FName CurrentAnimEventID;
+	TWeakObjectPtr<class ACharacter> AnimEventPrimaryCharacter;
+	TWeakObjectPtr<class AActor> AnimEventSecondaryContextActor;
+	int32 CurrentAnimEventStepIndex = INDEX_NONE;
+	bool bAnimEventStepLooping = false;
+	FTimerHandle AnimEventStepDurationTimerHandle;
+
+	// 現在のステップで実際に再生中のモンタージュ（PlayAnimEventStepで抽選した1本）。
+	// Montage_Stopで打ち切った古いステップのモンタージュから遅延して届くOnMontageEndedを、
+	// HandleAnimEventStepMontageEndedが新しいステップの状態と誤って結びつけないための照合に使う
+	TWeakObjectPtr<class UAnimMontage> CurrentAnimEventMontage;
+
+	// PlayAnimSequenceEventがFAnimEventDefinition::EventBGMでBGMをオーバーライドしたか
+	// （trueの場合のみ、全ステップ完了時にAMyProject1Character::MusicComp->ExitRoomMusic()で元のBGMへ戻す）
+	bool bAnimEventOverrodeMusic = false;
+
+	// PlayAnimSequenceEvent開始時点でのPrimary/SecondaryのMesh相対Transform（FAnimSequenceEntry::MeshLocationOffset/
+	// MeshRotationOffset適用前の基準値）。各ステップ開始時はこの基準値+Offsetを都度設定し、全ステップ完了時にこの値へ戻す
+	FVector AnimEventPrimaryBaseMeshLocation = FVector::ZeroVector;
+	FRotator AnimEventPrimaryBaseMeshRotation = FRotator::ZeroRotator;
+	FVector AnimEventSecondaryBaseMeshLocation = FVector::ZeroVector;
+	FRotator AnimEventSecondaryBaseMeshRotation = FRotator::ZeroRotator;
+
+	// ステップ切り替え時の暗転演出（試験実装）。ワープと同じOnWarpFadeOutRequestedをUIへBroadcastし、
+	// WarpFadeOutDuration秒後（画面が真っ暗になったタイミング）でPendingAnimEventNextStepIndexへ切り替える
+	int32 PendingAnimEventNextStepIndex = INDEX_NONE;
+	FTimerHandle AnimEventStepTransitionTimerHandle;
+
+	// 非ループステップ用：Montage自体の残り再生時間がWarpFadeOutDuration秒を切ったタイミングで暗転を
+	// 開始するためのタイマー。Montage_SetBlendingOutDelegate（Montage自身の短いBlendOutTime基準）だと、
+	// 画面が完全に暗くなるまでの時間（WarpFadeOutDuration）の方が長い場合に暗転完了前にIdleが透けて見えるため、
+	// 「暗転にちょうどWarpFadeOutDuration秒かかる」ことを見越して、その分だけ早く暗転を開始する
+	FTimerHandle AnimEventStepFadeLeadTimerHandle;
+
+	/** AnimEventStepFadeLeadTimerHandleから呼ばれ、Montageの残りがWarpFadeOutDuration秒を切った
+	 *  タイミングで次のステップへの暗転（TransitionToAnimEventStep）を開始する。ループ中、または
+	 *  既に他経路（BlendingOut/End）で暗転済みの場合は何もしない */
+	UFUNCTION()
+	void HandleAnimEventStepFadeLeadTimeUp();
+
+	/** 現在のステップ再生を終えて次のステップへ進む際に、直接PlayAnimEventStepを呼ぶ代わりに使う。
+	 *  OnWarpFadeOutRequestedをBroadcastしてから、WarpFadeOutDuration秒後にPlayAnimEventStep(NextStepIndex)を呼ぶ */
+	void TransitionToAnimEventStep(int32 NextStepIndex);
+
+	/** AnimEventStepTransitionTimerHandleから呼ばれ、暗転済みのタイミングで次のステップの再生を開始する */
+	void HandleAnimEventStepTransitionFadeComplete();
+
+	/** AnimEventDataTableのStepsをStepIndexから再生する。範囲外（=全ステップ再生完了）ならOnAnimSequenceEventFinished(true)をBroadcastする */
+	void PlayAnimEventStep(int32 StepIndex);
+
+	/** bLoop=trueのステップでAnimEventStepDurationTimerHandleから呼ばれる。タイマー自体はStep.Durationから
+	 *  WarpFadeOutDuration分を差し引いた時点で発火するようセットされており、ここではまだモンタージュを止めず
+	 *  次のステップへの暗転（TransitionToAnimEventStep）を開始するだけにする。実際にモンタージュを止めるのは
+	 *  暗転が完全に終わった後（HandleAnimEventStepTransitionFadeComplete）。これによりトータルの再生時間は
+	 *  Step.Durationのまま、打ち切り自体は暗転で隠された状態で行われる */
+	void HandleAnimEventStepDurationTimeUp();
+
+	/** Montage_SetEndDelegateで張った動的デリゲート。bLoop=trueの場合はループの継ぎ目の再生し直しを
+	 *  HandleAnimEventStepMontageBlendingOut側に任せるため何もせず、bLoop=falseの場合のみ次のステップへ進む */
+	UFUNCTION()
+	void HandleAnimEventStepMontageEnded(UAnimMontage* Montage, bool bInterrupted);
+
+	/** Montage_SetBlendingOutDelegateで張った動的デリゲート。bLoop=true中、Montageが自然終了して
+	 *  ブレンドアウトを開始した瞬間（＝ウェイトがまだ高いうち）に同じモンタージュを再生し直すことで、
+	 *  HandleAnimEventStepMontageEnded（ブレンドアウト完了＝Idleに一度戻ってから発火）を使うより
+	 *  ループの継ぎ目でIdleへ一瞬戻って見える現象を防ぐ。bInterrupted=true（Duration経過等による
+	 *  明示的なMontage_Stop）の場合は再生し直さない */
+	UFUNCTION()
+	void HandleAnimEventStepMontageBlendingOut(UAnimMontage* Montage, bool bInterrupted);
+
+	/** TargetのAnimInstanceでMontageを再生し、End/BlendingOutの両デリゲートを結び直す共通処理。
+	 *  PlayAnimEventStepでの初回再生と、HandleAnimEventStepMontageBlendingOutでのループ再生し直しの両方から呼ぶ */
+	void PlayAnimEventStepMontage(class UAnimInstance* AnimInst, UAnimMontage* Montage);
 
 
 	// ★追加：暗転が終わるまで待機している「ワープID」と「プレイヤー」の記憶

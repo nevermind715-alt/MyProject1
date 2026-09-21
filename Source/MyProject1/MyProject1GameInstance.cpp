@@ -10,6 +10,10 @@
 #include "WallWarpLink.h"
 #include "GameplayActionLibrary.h"
 #include "RpgCharacterInterface.h"
+#include "Animation/AnimInstance.h"
+#include "Animation/AnimMontage.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "MusicControlComponent.h"
 
 
 void UMyProject1GameInstance::Init()
@@ -117,7 +121,9 @@ int32 UMyProject1GameInstance::GetDaysInMonth(int32 Year, int32 Month)
 // ----------------------------------------------------
 void UMyProject1GameInstance::RequestWarp(FName WarpID, ACharacter* PlayerCharacter, bool bBypassRequiredFlag)
 {
-	if (!PlayerCharacter || !WarpDataTable || WarpID.IsNone()) return;
+	if (!PlayerCharacter) { UE_LOG(LogTemp, Warning, TEXT("RequestWarp: PlayerCharacter is null")); return; }
+	if (!WarpDataTable) { UE_LOG(LogTemp, Warning, TEXT("RequestWarp: WarpDataTable is not set on GameInstance")); return; }
+	if (WarpID.IsNone()) { UE_LOG(LogTemp, Warning, TEXT("RequestWarp: WarpID is None")); return; }
 
 	FWarpDestination* WarpData = WarpDataTable->FindRow<FWarpDestination>(WarpID, TEXT("WarpContext"));
 	if (!WarpData)
@@ -255,6 +261,8 @@ void UMyProject1GameInstance::HandleWarpFadeInComplete()
 		}
 	}
 	InputDisabledCharacter.Reset();
+
+	BeginAnimEventSequenceIfNeeded();
 }
 
 // ----------------------------------------------------
@@ -680,19 +688,26 @@ void UMyProject1GameInstance::AddLogHistoryEntry(const FString& Message, ELogMes
 // ----------------------------------------------------
 // イベント分岐システム
 // ----------------------------------------------------
-void UMyProject1GameInstance::StartEvent(FName EventID, ACharacter* PlayerCharacter)
+void UMyProject1GameInstance::StartEvent(FName EventID, ACharacter* PlayerCharacter, AActor* EventContextActor)
 {
-	if (!PlayerCharacter || !EventDefinitionDataTable || EventID.IsNone() || bHasActiveEvent) return;
+	if (!PlayerCharacter) { UE_LOG(LogTemp, Warning, TEXT("StartEvent: PlayerCharacter is null")); return; }
+	if (!EventDefinitionDataTable) { UE_LOG(LogTemp, Warning, TEXT("StartEvent: EventDefinitionDataTable is not set on GameInstance")); return; }
+	if (EventID.IsNone()) { UE_LOG(LogTemp, Warning, TEXT("StartEvent: EventID is None")); return; }
+	if (bHasActiveEvent) { UE_LOG(LogTemp, Warning, TEXT("StartEvent: bHasActiveEvent is already true (ActiveEventID=%s)"), *ActiveEventID.ToString()); return; }
 
 	FEventDefinition* Definition = EventDefinitionDataTable->FindRow<FEventDefinition>(EventID, TEXT("StartEvent"));
-	if (!Definition || Definition->WarpID.IsNone()) return;
+	if (!Definition) { UE_LOG(LogTemp, Warning, TEXT("StartEvent: EventID '%s' not found in EventDefinitionDataTable"), *EventID.ToString()); return; }
+	if (Definition->WarpID.IsNone()) { UE_LOG(LogTemp, Warning, TEXT("StartEvent: EventID '%s' has no WarpID set"), *EventID.ToString()); return; }
 
 	bHasActiveEvent = true;
 	ActiveEventID = EventID;
 	ActiveEventPlayer = PlayerCharacter;
+	ActiveEventContextActor = EventContextActor;
+	bAnimEventSequenceStarted = false;
 
-	// 成立条件に制限時間が絡む場合、ここで自動成立タイマーを仕掛けておく（Interactのみの成立はこのタイマーを使わない）
-	if (Definition->ClearCondition != EEventClearCondition::Interact && Definition->TimeLimitSeconds > 0.0f)
+	// 成立条件に制限時間が絡む場合、ここで自動成立タイマーを仕掛けておく（Interact/AnimationSequenceの成立はこのタイマーを使わない）
+	if ((Definition->ClearCondition == EEventClearCondition::TimeElapsed || Definition->ClearCondition == EEventClearCondition::Both)
+		&& Definition->TimeLimitSeconds > 0.0f)
 	{
 		GetTimerManager().SetTimer(ActiveEventTimeLimitTimerHandle, this,
 			&UMyProject1GameInstance::HandleActiveEventTimeUp, Definition->TimeLimitSeconds, false);
@@ -712,6 +727,16 @@ void UMyProject1GameInstance::ResolveActiveEvent(bool bSuccess)
 	if (!bHasActiveEvent) return;
 
 	GetTimerManager().ClearTimer(ActiveEventTimeLimitTimerHandle);
+	GetTimerManager().ClearTimer(AnimEventStepDurationTimerHandle);
+	GetTimerManager().ClearTimer(AnimEventStepTransitionTimerHandle);
+	CurrentAnimEventStepIndex = INDEX_NONE;
+	bAnimEventStepLooping = false;
+	bAnimEventSequenceStarted = false;
+	CurrentAnimEventID = NAME_None;
+	AnimEventPrimaryCharacter.Reset();
+	AnimEventSecondaryContextActor.Reset();
+	CurrentAnimEventMontage.Reset();
+	PendingAnimEventNextStepIndex = INDEX_NONE;
 
 	FEventDefinition* Definition = EventDefinitionDataTable
 		? EventDefinitionDataTable->FindRow<FEventDefinition>(ActiveEventID, TEXT("ResolveActiveEvent"))
@@ -738,10 +763,418 @@ void UMyProject1GameInstance::ResolveActiveEvent(bool bSuccess)
 	bHasActiveEvent = false;
 	ActiveEventID = NAME_None;
 	ActiveEventPlayer.Reset();
+	ActiveEventContextActor.Reset();
 
 	if (!ReturnID.IsNone() && PlayerChar)
 	{
 		RequestWarp(ReturnID, PlayerChar, true);
 	}
+}
+
+// ----------------------------------------------------
+// アニメーションシーケンス再生（PlayAnimSequenceEvent。イベント分岐システムとは独立。GameInstance.h参照）
+// ----------------------------------------------------
+
+// FAnimEventStep::PlayTargetに応じた再生対象キャラクターを解決する共通処理
+static ACharacter* ResolveAnimEventTargetCharacter(const FAnimEventStep& Step, const TWeakObjectPtr<ACharacter>& PrimaryCharacter, const TWeakObjectPtr<AActor>& SecondaryContextActor)
+{
+	if (Step.PlayTarget == EStatTargetActor::NPC)
+	{
+		return Cast<ACharacter>(SecondaryContextActor.Get());
+	}
+	return PrimaryCharacter.Get();
+}
+
+// AnimSequenceDataTable内でFAnimSequenceEntry::TagがTagと一致する行を集め、その中から1つをランダムに選ぶ
+// （「パンチ1」「パンチ2」のような同じカテゴリ内の複数バリエーションから抽選するための処理。Montage本体だけでなくLine/bIsPlayerLineも使うため、行そのものを返す）
+static const FAnimSequenceEntry* PickRandomAnimSequenceEntryForTag(UDataTable* AnimSequenceDataTable, FName Tag)
+{
+	if (!AnimSequenceDataTable || Tag.IsNone()) return nullptr;
+
+	TArray<const FAnimSequenceEntry*> Candidates;
+	for (const FName& RowName : AnimSequenceDataTable->GetRowNames())
+	{
+		if (const FAnimSequenceEntry* Entry = AnimSequenceDataTable->FindRow<FAnimSequenceEntry>(RowName, TEXT("PickRandomAnimSequenceEntryForTag")))
+		{
+			if (Entry->Tag == Tag && Entry->Montage)
+			{
+				Candidates.Add(Entry);
+			}
+		}
+	}
+
+	if (Candidates.Num() == 0) return nullptr;
+	return Candidates[FMath::RandHelper(Candidates.Num())];
+}
+
+void UMyProject1GameInstance::PlayAnimSequenceEvent(FName AnimEventID, ACharacter* PrimaryCharacter, AActor* SecondaryContextActor, bool bFadeInBeforeStart)
+{
+	if (!PrimaryCharacter || AnimEventID.IsNone() || !AnimEventDataTable)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("PlayAnimSequenceEvent: invalid arguments or AnimEventDataTable not set (AnimEventID=%s)"), *AnimEventID.ToString());
+		OnAnimSequenceEventFinished.Broadcast(false);
+		return;
+	}
+
+	FAnimEventDefinition* AnimEvent = AnimEventDataTable->FindRow<FAnimEventDefinition>(AnimEventID, TEXT("PlayAnimSequenceEvent"));
+	if (!AnimEvent || AnimEvent->Steps.Num() == 0)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("PlayAnimSequenceEvent: AnimEventID '%s' not found in AnimEventDataTable, or has no Steps"), *AnimEventID.ToString());
+		OnAnimSequenceEventFinished.Broadcast(false);
+		return;
+	}
+
+	CurrentAnimEventID = AnimEventID;
+	AnimEventPrimaryCharacter = PrimaryCharacter;
+	AnimEventSecondaryContextActor = SecondaryContextActor;
+
+	// FAnimSequenceEntry::MeshLocationOffset/MeshRotationOffset適用前の基準値をキャッシュしておく。
+	// 各ステップはこの基準値+Offsetを都度設定するため、途中で値がズレていかない
+	if (USkeletalMeshComponent* PrimaryMesh = PrimaryCharacter->GetMesh())
+	{
+		AnimEventPrimaryBaseMeshLocation = PrimaryMesh->GetRelativeLocation();
+		AnimEventPrimaryBaseMeshRotation = PrimaryMesh->GetRelativeRotation();
+	}
+	if (ACharacter* SecondaryCharacter = Cast<ACharacter>(SecondaryContextActor))
+	{
+		if (USkeletalMeshComponent* SecondaryMesh = SecondaryCharacter->GetMesh())
+		{
+			AnimEventSecondaryBaseMeshLocation = SecondaryMesh->GetRelativeLocation();
+			AnimEventSecondaryBaseMeshRotation = SecondaryMesh->GetRelativeRotation();
+		}
+	}
+
+	// 再生中はマウスのカメラ操作以外（移動・アクション等）をロックする。
+	// AMyProject1Character::DoLookはbIsInputLockedを見ないため、カメラ操作だけは引き続き可能
+	bAnimEventOverrodeMusic = false;
+	if (AMyProject1Character* MyPrimaryCharacter = Cast<AMyProject1Character>(PrimaryCharacter))
+	{
+		MyPrimaryCharacter->SetInputLocked(true);
+
+		// EventBGMが設定されていればイベント中だけBGMをオーバーライドする（未設定ならフィールド/部屋BGMのまま何もしない）
+		if (!AnimEvent->EventBGM.IsNull() && MyPrimaryCharacter->MusicComp)
+		{
+			bAnimEventOverrodeMusic = true;
+			MyPrimaryCharacter->MusicComp->EnterRoomMusic(AnimEvent->EventBGM);
+		}
+	}
+
+	if (bFadeInBeforeStart)
+	{
+		// ワープを経由しない直接呼び出し（会話等）用。ステップ切り替えと同じ暗転を開始前にも挟む
+		TransitionToAnimEventStep(0);
+	}
+	else
+	{
+		PlayAnimEventStep(0);
+	}
+}
+
+void UMyProject1GameInstance::PlayAnimEventStep(int32 StepIndex)
+{
+	GetTimerManager().ClearTimer(AnimEventStepDurationTimerHandle);
+	GetTimerManager().ClearTimer(AnimEventStepFadeLeadTimerHandle);
+	bAnimEventStepLooping = false;
+
+	FAnimEventDefinition* AnimEvent = AnimEventDataTable
+		? AnimEventDataTable->FindRow<FAnimEventDefinition>(CurrentAnimEventID, TEXT("PlayAnimEventStep"))
+		: nullptr;
+
+	if (!AnimEvent || !AnimEvent->Steps.IsValidIndex(StepIndex))
+	{
+		// 全ステップ再生完了：入力ロックを解除し、EventBGMでオーバーライドしていれば元のBGMに戻してから状態をクリアする
+		if (AMyProject1Character* MyPrimaryCharacter = Cast<AMyProject1Character>(AnimEventPrimaryCharacter.Get()))
+		{
+			MyPrimaryCharacter->SetInputLocked(false);
+
+			if (bAnimEventOverrodeMusic && MyPrimaryCharacter->MusicComp)
+			{
+				MyPrimaryCharacter->MusicComp->ExitRoomMusic();
+			}
+		}
+
+		// MeshLocationOffset/MeshRotationOffsetで動かした分を、キャッシュしておいた基準値へ戻す
+		if (ACharacter* PrimaryCharacter = AnimEventPrimaryCharacter.Get())
+		{
+			if (USkeletalMeshComponent* PrimaryMesh = PrimaryCharacter->GetMesh())
+			{
+				PrimaryMesh->SetRelativeLocation(AnimEventPrimaryBaseMeshLocation);
+				PrimaryMesh->SetRelativeRotation(AnimEventPrimaryBaseMeshRotation);
+			}
+		}
+		if (ACharacter* SecondaryCharacter = Cast<ACharacter>(AnimEventSecondaryContextActor.Get()))
+		{
+			if (USkeletalMeshComponent* SecondaryMesh = SecondaryCharacter->GetMesh())
+			{
+				SecondaryMesh->SetRelativeLocation(AnimEventSecondaryBaseMeshLocation);
+				SecondaryMesh->SetRelativeRotation(AnimEventSecondaryBaseMeshRotation);
+			}
+		}
+
+		bAnimEventOverrodeMusic = false;
+		CurrentAnimEventStepIndex = INDEX_NONE;
+		CurrentAnimEventID = NAME_None;
+		AnimEventPrimaryCharacter.Reset();
+		AnimEventSecondaryContextActor.Reset();
+		CurrentAnimEventMontage.Reset();
+		OnAnimSequenceEventFinished.Broadcast(true);
+		return;
+	}
+
+	CurrentAnimEventStepIndex = StepIndex;
+	const FAnimEventStep& Step = AnimEvent->Steps[StepIndex];
+
+	ACharacter* TargetCharacter = ResolveAnimEventTargetCharacter(Step, AnimEventPrimaryCharacter, AnimEventSecondaryContextActor);
+
+	// このステップの再生開始時に、同じTagを持つ候補（パンチ1/パンチ2等）から1回だけ抽選する。
+	// bLoop中に終了→再生を繰り返す間は、HandleAnimEventStepMontageEndedがここで選ばれたMontageをそのまま再生し続ける（再抽選しない）
+	const FAnimSequenceEntry* SelectedEntry = PickRandomAnimSequenceEntryForTag(AnimSequenceDataTable, Step.Tag);
+	UAnimMontage* Montage = SelectedEntry ? SelectedEntry->Montage : nullptr;
+
+	UAnimInstance* AnimInst = (TargetCharacter && TargetCharacter->GetMesh()) ? TargetCharacter->GetMesh()->GetAnimInstance() : nullptr;
+
+	if (!Montage || !AnimInst)
+	{
+		// 再生対象・アセットのいずれかが見つからない場合は、このステップを飛ばして次へ進む
+		PlayAnimEventStep(StepIndex + 1);
+		return;
+	}
+
+	CurrentAnimEventMontage = Montage;
+
+	// SelectedEntryのMeshLocationOffset/MeshRotationOffsetを、キャッシュしておいた基準値に加算して適用する。
+	// PlayTargetがNPC（Secondary）かPlayer（Primary）かで参照する基準値を切り替える
+	if (USkeletalMeshComponent* TargetMesh = TargetCharacter->GetMesh())
+	{
+		const bool bIsSecondaryTarget = (Step.PlayTarget == EStatTargetActor::NPC);
+		const FVector& BaseLocation = bIsSecondaryTarget ? AnimEventSecondaryBaseMeshLocation : AnimEventPrimaryBaseMeshLocation;
+		const FRotator& BaseRotation = bIsSecondaryTarget ? AnimEventSecondaryBaseMeshRotation : AnimEventPrimaryBaseMeshRotation;
+		TargetMesh->SetRelativeLocation(BaseLocation + SelectedEntry->MeshLocationOffset);
+		TargetMesh->SetRelativeRotation(BaseRotation + SelectedEntry->MeshRotationOffset);
+	}
+
+	PlayAnimEventStepMontage(AnimInst, Montage);
+
+	// セリフが設定されていれば、再生開始と同時にログへ出す（bIsPlayerLine=trueならプレイヤー名付き、falseなら名前なし）
+	if (!SelectedEntry->Line.IsEmpty())
+	{
+		FString LogMsg;
+		if (SelectedEntry->bIsPlayerLine)
+		{
+			AMyProject1Character* MyPrimaryCharacter = Cast<AMyProject1Character>(AnimEventPrimaryCharacter.Get());
+			FString PlayerName = (MyPrimaryCharacter && !MyPrimaryCharacter->MyStats.NPCName.IsEmpty())
+				? MyPrimaryCharacter->MyStats.NPCName : TEXT("???");
+			LogMsg = FString::Printf(TEXT("%s : %s"), *PlayerName, *SelectedEntry->Line.ToString());
+		}
+		else
+		{
+			LogMsg = SelectedEntry->Line.ToString();
+		}
+
+		if (IRpgCharacterInterface* RpgInterface = Cast<IRpgCharacterInterface>(TargetCharacter))
+		{
+			RpgInterface->OnReceiveLogMessage(LogMsg, ELogMessageType::Dialogue);
+		}
+	}
+
+	if (Step.bLoop && Step.Duration > 0.0f)
+	{
+		bAnimEventStepLooping = true;
+
+		// Durationいっぱいまでループさせてから暗転を始めると、暗転が完了しきる前にMontageを打ち切ることになり
+		// Idleが透けて見えてしまう。暗転にかかる時間（WarpFadeOutDuration）を差し引いた時点で暗転を開始し、
+		// その間もループを継続、暗転が完全に終わったタイミング（HandleAnimEventStepTransitionFadeComplete）で
+		// 打ち切ることで、トータルの再生時間はDurationのまま、打ち切り自体は暗転で隠せる
+		const float LoopFadeLeadTime = FMath::Max(Step.Duration - WarpFadeOutDuration, 0.0f);
+		GetTimerManager().SetTimer(AnimEventStepDurationTimerHandle, this,
+			&UMyProject1GameInstance::HandleAnimEventStepDurationTimeUp, LoopFadeLeadTime, false);
+	}
+	else
+	{
+		// 単発ステップ：Montage自体の残り時間がWarpFadeOutDuration秒を切るタイミングで暗転を開始する。
+		// こうすることで、Montageが自然終了してIdleへ戻るのとほぼ同時に画面が完全に暗くなり、
+		// 暗転が完了しきる前にIdleが透けて見える現象を防ぐ
+		const float MontageLength = Montage->GetPlayLength();
+		const float FadeLeadTime = FMath::Max(MontageLength - WarpFadeOutDuration, 0.0f);
+		GetTimerManager().SetTimer(AnimEventStepFadeLeadTimerHandle, this,
+			&UMyProject1GameInstance::HandleAnimEventStepFadeLeadTimeUp, FadeLeadTime, false);
+	}
+}
+
+void UMyProject1GameInstance::HandleAnimEventStepDurationTimeUp()
+{
+	if (CurrentAnimEventStepIndex == INDEX_NONE) return;
+
+	// ここではまだモンタージュを止めない。次のステップへの暗転を開始するだけにして、
+	// 実際の打ち切りは暗転が完全に終わった後（HandleAnimEventStepTransitionFadeComplete）まで遅らせる。
+	// こうしないと、暗転が完了しきる前にIdleへ戻る瞬間が透けて見えてしまう
+	TransitionToAnimEventStep(CurrentAnimEventStepIndex + 1);
+}
+
+void UMyProject1GameInstance::HandleAnimEventStepMontageEnded(UAnimMontage* Montage, bool bInterrupted)
+{
+	if (CurrentAnimEventStepIndex == INDEX_NONE) return;
+
+	// Montage_Stopで打ち切った古いステップのモンタージュから遅延して届く終了通知は、
+	// 既に次のステップへ進んだ後の状態（bAnimEventStepLooping・タイマー）と誤って結びついてしまうため、
+	// 「今のステップで実際に再生しているモンタージュ」と一致しないものは無視する
+	if (Montage != CurrentAnimEventMontage.Get()) return;
+
+	if (bAnimEventStepLooping)
+	{
+		// ループの継ぎ目の再生し直しはHandleAnimEventStepMontageBlendingOut（ブレンドアウト開始時点）が
+		// 既に行っている。ここで発火するEndは、その時点で再生し直した新しいインスタンスに対して
+		// 役目を終えた「古いインスタンス」がブレンドアウトを完了した通知にすぎないため、何もしない
+		return;
+	}
+
+	// 通常はHandleAnimEventStepMontageBlendingOut（ブレンドアウト開始時点）が既に次のステップへの
+	// 暗転を始めている（PendingAnimEventNextStepIndexが立っている）。ここに来るのは、何らかの理由で
+	// BlendingOut側が発火しなかった場合の保険
+	if (PendingAnimEventNextStepIndex == INDEX_NONE)
+	{
+		TransitionToAnimEventStep(CurrentAnimEventStepIndex + 1);
+	}
+}
+
+void UMyProject1GameInstance::HandleAnimEventStepMontageBlendingOut(UAnimMontage* Montage, bool bInterrupted)
+{
+	// bInterrupted=trueはDuration経過（HandleAnimEventStepDurationTimeUp）等による明示的なMontage_Stop由来。
+	// ループ・暗転のどちらも、その打ち切り処理側が既に次のステップへ進めるので、ここでは何もしない
+	if (bInterrupted) return;
+	if (CurrentAnimEventStepIndex == INDEX_NONE) return;
+	if (Montage != CurrentAnimEventMontage.Get()) return;
+
+	if (bAnimEventStepLooping)
+	{
+		// bAnimEventStepLoopingがtrueの間は、Duration用タイマーが既に発火済み（＝暗転中）でも
+		// 同じモンタージュを再生し直してループを継続する。実際に打ち切るのは暗転が完全に終わった
+		// タイミング（HandleAnimEventStepTransitionFadeComplete、そこでbAnimEventStepLoopingをfalseにする）
+		// なので、この関数がそれより後に呼ばれることはない
+		FAnimEventDefinition* AnimEvent = AnimEventDataTable
+			? AnimEventDataTable->FindRow<FAnimEventDefinition>(CurrentAnimEventID, TEXT("HandleAnimEventStepMontageBlendingOut"))
+			: nullptr;
+
+		if (!AnimEvent || !AnimEvent->Steps.IsValidIndex(CurrentAnimEventStepIndex)) return;
+
+		const FAnimEventStep& Step = AnimEvent->Steps[CurrentAnimEventStepIndex];
+		ACharacter* TargetCharacter = ResolveAnimEventTargetCharacter(Step, AnimEventPrimaryCharacter, AnimEventSecondaryContextActor);
+		UAnimInstance* AnimInst = (TargetCharacter && TargetCharacter->GetMesh()) ? TargetCharacter->GetMesh()->GetAnimInstance() : nullptr;
+
+		if (AnimInst && Montage)
+		{
+			// ブレンドアウトが完了しきる前（まだウェイトが高いうち）に次の再生を仕込むことで、
+			// 完全にIdleへ戻ってから再生し直す場合よりもループの継ぎ目を目立たなくする
+			// （新旧2つのMontageインスタンスが同時に存在し、クロスフェードする形になる）
+			PlayAnimEventStepMontage(AnimInst, Montage);
+		}
+		return;
+	}
+
+	// ループなしステップ：ブレンドアウトが完了してIdleへ戻りきる前（HandleAnimEventStepMontageEndedの
+	// 発火より早いタイミング）で暗転を始めることで、暗転が始まる前にIdleへ一瞬戻って見える現象を防ぐ
+	if (PendingAnimEventNextStepIndex == INDEX_NONE)
+	{
+		TransitionToAnimEventStep(CurrentAnimEventStepIndex + 1);
+	}
+}
+
+void UMyProject1GameInstance::PlayAnimEventStepMontage(UAnimInstance* AnimInst, UAnimMontage* Montage)
+{
+	AnimInst->Montage_Play(Montage);
+
+	FOnMontageEnded EndDelegate;
+	EndDelegate.BindUFunction(this, FName(TEXT("HandleAnimEventStepMontageEnded")));
+	AnimInst->Montage_SetEndDelegate(EndDelegate, Montage);
+
+	FOnMontageBlendingOutStarted BlendingOutDelegate;
+	BlendingOutDelegate.BindUFunction(this, FName(TEXT("HandleAnimEventStepMontageBlendingOut")));
+	AnimInst->Montage_SetBlendingOutDelegate(BlendingOutDelegate, Montage);
+}
+
+void UMyProject1GameInstance::HandleAnimEventStepFadeLeadTimeUp()
+{
+	if (CurrentAnimEventStepIndex == INDEX_NONE) return;
+	if (bAnimEventStepLooping) return; // ループ中はDurationタイマー側が進行を管理するため対象外
+	if (PendingAnimEventNextStepIndex != INDEX_NONE) return; // 既に他経路で暗転済みなら何もしない
+
+	TransitionToAnimEventStep(CurrentAnimEventStepIndex + 1);
+}
+
+void UMyProject1GameInstance::TransitionToAnimEventStep(int32 NextStepIndex)
+{
+	PendingAnimEventNextStepIndex = NextStepIndex;
+
+	// ワープと同じ暗転合図をUIへ送る（試験実装）。WBP_LoadingScreen側が暗転→維持→明転を自走してくれる想定
+	OnWarpFadeOutRequested.Broadcast();
+
+	GetTimerManager().SetTimer(AnimEventStepTransitionTimerHandle, this,
+		&UMyProject1GameInstance::HandleAnimEventStepTransitionFadeComplete, WarpFadeOutDuration, false);
+}
+
+void UMyProject1GameInstance::HandleAnimEventStepTransitionFadeComplete()
+{
+	const int32 NextStepIndex = PendingAnimEventNextStepIndex;
+	PendingAnimEventNextStepIndex = INDEX_NONE;
+
+	// ループ中のステップから抜ける場合は、暗転が完全に終わった今のタイミングでモンタージュを打ち切る。
+	// Montageを明示して打ち切ることで、直後にPlayAnimEventStepが再生する次のモンタージュを巻き込まない
+	if (bAnimEventStepLooping)
+	{
+		FAnimEventDefinition* AnimEvent = AnimEventDataTable
+			? AnimEventDataTable->FindRow<FAnimEventDefinition>(CurrentAnimEventID, TEXT("HandleAnimEventStepTransitionFadeComplete"))
+			: nullptr;
+
+		if (AnimEvent && AnimEvent->Steps.IsValidIndex(CurrentAnimEventStepIndex))
+		{
+			const FAnimEventStep& Step = AnimEvent->Steps[CurrentAnimEventStepIndex];
+			ACharacter* TargetCharacter = ResolveAnimEventTargetCharacter(Step, AnimEventPrimaryCharacter, AnimEventSecondaryContextActor);
+			if (UAnimInstance* AnimInst = (TargetCharacter && TargetCharacter->GetMesh()) ? TargetCharacter->GetMesh()->GetAnimInstance() : nullptr)
+			{
+				AnimInst->Montage_Stop(0.1f, CurrentAnimEventMontage.Get());
+			}
+		}
+
+		bAnimEventStepLooping = false;
+	}
+
+	PlayAnimEventStep(NextStepIndex);
+}
+
+// ----------------------------------------------------
+// イベント分岐システム側の統合：ClearCondition=AnimationSequence
+// ----------------------------------------------------
+void UMyProject1GameInstance::BeginAnimEventSequenceIfNeeded()
+{
+	if (!bHasActiveEvent || bAnimEventSequenceStarted || !EventDefinitionDataTable) return;
+
+	FEventDefinition* Definition = EventDefinitionDataTable->FindRow<FEventDefinition>(ActiveEventID, TEXT("BeginAnimEventSequenceIfNeeded"));
+	if (!Definition || Definition->ClearCondition != EEventClearCondition::AnimationSequence) return;
+
+	bAnimEventSequenceStarted = true;
+
+	if (Definition->AnimEventID.IsNone())
+	{
+		// アニメーションイベントが未設定なら、演出なしでそのまま成立させる（安全策）
+		ResolveActiveEvent(true);
+		return;
+	}
+
+	if (!OnAnimSequenceEventFinished.IsAlreadyBound(this, &UMyProject1GameInstance::HandleAnimSequenceEventFinishedForActiveEvent))
+	{
+		OnAnimSequenceEventFinished.AddDynamic(this, &UMyProject1GameInstance::HandleAnimSequenceEventFinishedForActiveEvent);
+	}
+
+	PlayAnimSequenceEvent(Definition->AnimEventID, ActiveEventPlayer.Get(), ActiveEventContextActor.Get());
+}
+
+void UMyProject1GameInstance::HandleAnimSequenceEventFinishedForActiveEvent(bool bCompletedNormally)
+{
+	// bAnimEventSequenceStartedは「進行中イベント経由でPlayAnimSequenceEventを開始した」場合だけtrueになる。
+	// 単体でのPlayAnimSequenceEvent呼び出し（会話・QuestItemPoint等、イベントを経由しない再生）の完了時は
+	// bHasActiveEventがfalse、もしくはこのフラグがfalseのままなので何もしない
+	if (!bHasActiveEvent || !bAnimEventSequenceStarted) return;
+
+	ResolveActiveEvent(true);
 }
 

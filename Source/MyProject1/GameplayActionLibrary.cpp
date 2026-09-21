@@ -152,6 +152,22 @@ void UGameplayActionLibrary::ExecuteAction(IRpgCharacterInterface* RpgInterface,
 		// ダイアログUIを閉じる処理は呼び出し側（DialogComponent）が個別に行う。ここでは何もしない
 		break;
 
+	case EDialogActionType::PlayAnimSequence:
+		// ActionPayloadにDT_AnimEventsの行名（AnimEventID）を入れる。イベント抽選・ワープを経由せず直接再生する。
+		// ContextActor（話しかけている相手のNPC）はFAnimEventStep::PlayTarget=NPC時の再生対象になる
+		if (World)
+		{
+			if (UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(World->GetGameInstance()))
+			{
+				if (ACharacter* OwnerChar = Cast<ACharacter>(OwnerActor))
+				{
+					// ワープを経由しない直接呼び出しのため、開始前にも暗転を挟む（bFadeInBeforeStart=true）
+					GameInst->PlayAnimSequenceEvent(FName(*ActionPayload), OwnerChar, ContextActor, true);
+				}
+			}
+		}
+		break;
+
 	default:
 		break;
 	}

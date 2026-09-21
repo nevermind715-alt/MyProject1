@@ -900,7 +900,11 @@ enum class EDialogActionType : uint8
 	AddGil          UMETA(DisplayName = "お金を渡す（ActionPayload=金額）"),
 	// ActionPayloadにEventDistributorComponentのEventPoolID（DT_EventPoolsの行名）を入れる。
 	// 話しかけている相手（CurrentNPC）のUEventDistributorComponentを探して抽選を開始する
-	TriggerEvent    UMETA(DisplayName = "イベント抽選を開始する（ActionPayload=EventPoolID）")
+	TriggerEvent    UMETA(DisplayName = "イベント抽選を開始する（ActionPayload=EventPoolID）"),
+	// ActionPayloadにDT_AnimEventsの行名（AnimEventID）を入れる。イベント抽選・ワープを一切経由せず、
+	// その場でUMyProject1GameInstance::PlayAnimSequenceEventを直接呼ぶ。話しかけている相手（CurrentNPC）が
+	// FAnimEventStep::PlayTarget=NPC時の再生対象になる
+	PlayAnimSequence UMETA(DisplayName = "アニメーションシーケンスを再生する（ActionPayload=AnimEventID）")
 };
 
 // --- 選択肢1つ分のデータ ---
@@ -1559,7 +1563,8 @@ enum class EEventClearCondition : uint8
 {
 	TimeElapsed UMETA(DisplayName = "制限時間の経過で成立"),
 	Interact    UMETA(DisplayName = "施設内のインタラクトで成立"),
-	Both        UMETA(DisplayName = "どちらか早い方で成立")
+	Both        UMETA(DisplayName = "どちらか早い方で成立"),
+	AnimationSequence UMETA(DisplayName = "アニメーションシーケンス完走で成立")
 };
 
 // 抽選プールの候補1件分（DT_EventPools用）
@@ -1659,6 +1664,92 @@ struct FEventDefinition : public FTableRowBase
 	// イベント終了後（成功・失敗どちらでも）に戻す先のWarpID（DT_WarpDestinationsの行名）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event")
 	FName ReturnWarpID;
+
+	// ClearCondition=AnimationSequence時に再生するアニメーションイベント（DT_AnimEventsの行名）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event", meta = (EditCondition = "ClearCondition == EEventClearCondition::AnimationSequence"))
+	FName AnimEventID;
+};
+
+// ==========================================
+// ▼ アニメーションイベント再生（EEventClearCondition::AnimationSequence用）▼
+// ==========================================
+// DT_AnimSequences（行名=Tag）とDT_AnimEvents（行名=AnimEventID）の2テーブルで管理する。
+// FEventDefinition::AnimEventIDで参照されたDT_AnimEventsの行のStepsを先頭から順に再生し、
+// 全ステップ再生完了でUMyProject1GameInstance::ResolveActiveEvent(true)が自動的に呼ばれる
+// （BeginAnimEventSequenceIfNeeded/PlayAnimEventStep参照）。
+
+// アニメーション1本分のデータ（DT_AnimSequences用）。
+// 行名は「Punch01」「Punch02」のような個別ID。Tagは「PunchBare」のようなカテゴリ分類で、
+// 同じTagを持つ複数行がバリエーション候補になる（PlayAnimEventStepが抽選で1つ選ぶ）
+USTRUCT(BlueprintType)
+struct FAnimSequenceEntry : public FTableRowBase
+{
+	GENERATED_BODY()
+
+	// カテゴリ分類用のTag（例："PunchBare"＝素手の殴打）。同じTagを持つ行同士がバリエーション候補として扱われる
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent")
+	FName Tag;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent")
+	class UAnimMontage* Montage = nullptr;
+
+	// このMontage再生中、対象キャラのMesh相対位置（RelativeLocation）に加算するオフセット。
+	// 元の姿勢用オフセットを基準に加算するため、この値は「立ちポーズからのズレ量」だけを入れればよい
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent")
+	FVector MeshLocationOffset = FVector::ZeroVector;
+
+	// このMontage再生中、対象キャラのMesh相対回転（RelativeRotation）に加算するオフセット
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent")
+	FRotator MeshRotationOffset = FRotator::ZeroRotator;
+
+	// このアニメーション再生開始と同時にログへ表示するセリフ（空欄なら何も表示しない）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent")
+	FText Line;
+
+	// true: ログに「プレイヤー名 : セリフ」の形で表示する。false（デフォルト）: 名前を付けずセリフだけ表示する
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent")
+	bool bIsPlayerLine = false;
+};
+
+// アニメーションイベントの再生ステップ1件分
+USTRUCT(BlueprintType)
+struct FAnimEventStep
+{
+	GENERATED_BODY()
+
+	// 再生するアニメーションのカテゴリ（DT_AnimSequencesのTag）。
+	// 同じTagを持つ行が複数あれば、このステップの再生開始時にその中から1つをランダムに選ぶ
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent")
+	FName Tag;
+
+	// 再生対象。NPCを選んだ場合はEventDistributorComponentが付いているActor
+	// （TriggerEventPoolを呼び出したイベント起点のActor。会話中のCurrentNPCとは無関係）を指す
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent")
+	EStatTargetActor PlayTarget = EStatTargetActor::Player;
+
+	// bLoop=trueの場合、この秒数だけモンタージュを繰り返し再生してから次のステップへ進む
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent", meta = (EditCondition = "bLoop"))
+	float Duration = 0.0f;
+
+	// true: Duration秒間ループ再生する（例：A・Bのループ待機演出）
+	// false: モンタージュを1回再生し、再生終了と同時に次のステップへ進む（例：C・FINALの単発モーション）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent")
+	bool bLoop = false;
+};
+
+// アニメーションイベント1つ分の実体データ（DT_AnimEvents用）
+USTRUCT(BlueprintType)
+struct FAnimEventDefinition : public FTableRowBase
+{
+	GENERATED_BODY()
+
+	// 先頭から順に再生するステップ列
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent")
+	TArray<FAnimEventStep> Steps;
+
+	// イベント再生中に流すBGM（未設定なら何もオーバーライドせず、フィールド/部屋BGMがそのまま流れ続ける）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent")
+	TSoftObjectPtr<class USoundBase> EventBGM;
 };
 
 // --- セーブ画面のスロット一覧UI用の軽量データ（C++からBPへ1スロット分の見出し情報を渡す用） ---
