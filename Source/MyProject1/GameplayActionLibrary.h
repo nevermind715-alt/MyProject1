@@ -20,9 +20,12 @@ class MYPROJECT1_API UGameplayActionLibrary : public UBlueprintFunctionLibrary
 public:
 	/** ActionTypeのswitch本体。EDialogActionType::Closeはダイアログ専用（会話UIを閉じる）のためここでは何もしない。
 	 *  呼び出し側がActionType==Closeを個別に判定して対応すること（DialogComponent::ExecuteActionCoreを参照）。
-	 *  ContextActorは、TalkProgressの対象特定・Warpの起点ポータル（AWarpPortal）判定に使う（不要ならnullptr可）。 */
+	 *  ContextActorは、TalkProgressの対象特定・Warpの起点ポータル（AWarpPortal）判定・
+	 *  ActionType=PlayAnimSequenceRow時のNPC側再生対象に使う（不要ならnullptr可）。
+	 *  AnimSequenceRowPlayTargetはActionType=PlayAnimSequenceRow専用（FDialogChoice::AnimSequenceRowPlayTarget参照）。 */
 	static void ExecuteAction(IRpgCharacterInterface* RpgInterface, AActor* OwnerActor, AActor* ContextActor, UWorld* World,
-		EDialogActionType ActionType, const FString& ActionPayload, FName ItemID, int32 ItemAmount);
+		EDialogActionType ActionType, const FString& ActionPayload, FName ItemID, int32 ItemAmount,
+		EStatTargetActor AnimSequenceRowPlayTarget = EStatTargetActor::Player);
 
 	/** StatToChange/StatChangeAmountによるステータス変化本体。ActionTypeとは独立しており、両方が設定されていれば
 	 *  ExecuteActionと併用して両方適用される（FDialogChoice/FEventActionの元々の仕様と同じ）。

@@ -75,8 +75,10 @@ private:
 	// 現在の会話データ
 	FDialogData CurrentDialogData;
 
-	// アクションの実行本体（Choice経由でもセリフ単体経由でも共通で使う）
-	void ExecuteActionCore(EDialogActionType ActionType, const FString& ActionPayload, FName GrantFlag, bool bFadeOnGrantFlag, FName FlagToRemove, bool bFadeOnRemoveFlag, ETargetStat StatToChange, EStatTargetActor StatTargetActor, FName ExtraStatName, float StatChangeAmount, FName ItemID, int32 ItemAmount, bool bAdvanceDailySequence);
+	// アクションの実行本体（Choice経由でもセリフ単体経由でも共通で使う）。
+	// AnimSequenceRowPlayTargetはActionType=PlayAnimSequenceRow専用（セリフ単体経由の場合はFDialogChoiceを経由しないため、
+	// 呼び出し側でEStatTargetActor::Playerを渡す＝現状セリフ単体からはPlayAnimSequenceRowのNPC再生を指定できない）
+	void ExecuteActionCore(EDialogActionType ActionType, const FString& ActionPayload, FName GrantFlag, bool bFadeOnGrantFlag, FName FlagToRemove, bool bFadeOnRemoveFlag, ETargetStat StatToChange, EStatTargetActor StatTargetActor, FName ExtraStatName, float StatChangeAmount, FName ItemID, int32 ItemAmount, bool bAdvanceDailySequence, EStatTargetActor AnimSequenceRowPlayTarget = EStatTargetActor::Player);
 
 	// --- 逐次表示システム用の変数と関数 ---
 

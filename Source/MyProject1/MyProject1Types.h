@@ -904,7 +904,11 @@ enum class EDialogActionType : uint8
 	// ActionPayloadにDT_AnimEventsの行名（AnimEventID）を入れる。イベント抽選・ワープを一切経由せず、
 	// その場でUMyProject1GameInstance::PlayAnimSequenceEventを直接呼ぶ。話しかけている相手（CurrentNPC）が
 	// FAnimEventStep::PlayTarget=NPC時の再生対象になる
-	PlayAnimSequence UMETA(DisplayName = "アニメーションシーケンスを再生する（ActionPayload=AnimEventID）")
+	PlayAnimSequence UMETA(DisplayName = "アニメーションシーケンスを再生する（ActionPayload=AnimEventID）"),
+	// ActionPayloadにDT_AnimSequencesの行名を直接入れる。DT_AnimEvents・Tag抽選・BGM切替・暗転演出を一切経由せず、
+	// その場でUMyProject1GameInstance::PlayAnimSequenceRowDirectを直接呼ぶ。行のExtraPairingsも同時に再生されるため、
+	// Player/NPC/追加参加者の位置関係（MeshLocationOffset/MeshRotationOffset）をまとめて確認する調整用途を想定している
+	PlayAnimSequenceRow UMETA(DisplayName = "アニメーション1行を直接再生する（調整確認用。ActionPayload=DT_AnimSequencesの行名）")
 };
 
 // --- 選択肢1つ分のデータ ---
@@ -935,6 +939,12 @@ struct FDialogChoice
 	// アクションの引数（QuestIDの文字列や、好感度の増減数値など）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog")
 	FString ActionPayload;
+
+	// ActionType=PlayAnimSequenceRow時、ActionPayloadで指定したDT_AnimSequences行のMontageを
+	// Player/NPCどちらで再生するか（既存のFAnimEventStep::PlayTargetと同じ意味）。
+	// 行のExtraPairingsは、このPlayTargetの設定に関わらず常に同時に再生される
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (EditCondition = "ActionType == EDialogActionType::PlayAnimSequenceRow"))
+	EStatTargetActor AnimSequenceRowPlayTarget = EStatTargetActor::Player;
 
 	// ActionType=AddItem/RemoveItem時に対象となるアイテムの行名（DT_ItemData等の行名）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (EditCondition = "ActionType == EDialogActionType::AddItem || ActionType == EDialogActionType::RemoveItem"))
@@ -1678,6 +1688,58 @@ struct FEventDefinition : public FTableRowBase
 // 全ステップ再生完了でUMyProject1GameInstance::ResolveActiveEvent(true)が自動的に呼ばれる
 // （BeginAnimEventSequenceIfNeeded/PlayAnimEventStep参照）。
 
+// あるアニメーション行（FAnimSequenceEntry）が選ばれた時に、そのメイン参加者と同時に
+// 別のアニメーションを再生する追加参加者1体分の設定（喧嘩・群舞等、複数NPCが同時に絡む演出用）。
+// 参加者はこのためだけに一時スポーンされるAAnimEventActor（AI・Collisionを持たない表示専用Character）であり、
+// フィールド上の実在NPCとは無関係。イベント終了時（全Step完了・強制終了どちらも）にGameInstance側で自動破棄される。
+// Mesh・Montageともに1件のPairingにつき固定（Tagによる抽選は行わない）。バリエーションが欲しい場合は
+// DT_AnimSequences側に単体用・複数人用の行を複数用意し、行単位で異なるExtraPairingsを設定することで実現する
+USTRUCT(BlueprintType)
+struct FAnimEventPairing
+{
+	GENERATED_BODY()
+
+	// この追加参加者を識別するID。同じAnimEvent内の複数Stepで同じIDを使うと、初登場時にスポーンした
+	// アクターをそのまま使い回す（Stepをまたいで消えたり作り直されたりしない）。空欄なら再生をスキップする
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent")
+	FName ParticipantID;
+
+	// スポーンするメッシュ・AnimBP（このParticipantIDが初めて登場するStepでのみ参照される）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent")
+	TSoftObjectPtr<class USkeletalMesh> Mesh;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent")
+	TSubclassOf<class UAnimInstance> AnimClass;
+
+	// スポーン位置・回転（AnimEventPrimaryCharacter＝プレイヤーのワールドTransformからの相対値。初登場時のみ参照される）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent")
+	FVector SpawnRelativeLocation = FVector::ZeroVector;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent")
+	FRotator SpawnRelativeRotation = FRotator::ZeroRotator;
+
+	// このPairingで再生するモンタージュ（NPC用スケルトン向け。メイン参加者側のTag抽選プールとは別に、
+	// ここで直接指定する。メイン対象のMontageと共通のスケルトンである必要はない）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent")
+	class UAnimMontage* Montage = nullptr;
+
+	// このMontage再生中、Mesh相対位置に加算するオフセット（立ちポーズからのズレ量）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent")
+	FVector MeshLocationOffset = FVector::ZeroVector;
+
+	// このMontage再生中、Mesh相対回転に加算するオフセット
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent")
+	FRotator MeshRotationOffset = FRotator::ZeroRotator;
+
+	// このアニメーション再生開始と同時にログへ表示するセリフ（空欄なら何も表示しない）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent")
+	FText Line;
+
+	// true: ログに「プレイヤー名 : セリフ」の形で表示する。false（デフォルト）: 名前を付けずセリフだけ表示する
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent")
+	bool bIsPlayerLine = false;
+};
+
 // アニメーション1本分のデータ（DT_AnimSequences用）。
 // 行名は「Punch01」「Punch02」のような個別ID。Tagは「PunchBare」のようなカテゴリ分類で、
 // 同じTagを持つ複数行がバリエーション候補になる（PlayAnimEventStepが抽選で1つ選ぶ）
@@ -1709,6 +1771,41 @@ struct FAnimSequenceEntry : public FTableRowBase
 	// true: ログに「プレイヤー名 : セリフ」の形で表示する。false（デフォルト）: 名前を付けずセリフだけ表示する
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent")
 	bool bIsPlayerLine = false;
+
+	// この行が選ばれた時、メイン参加者と同時に別アニメーションを再生する追加参加者（喧嘩の2対1等）。
+	// 空なら従来通りメイン参加者1体だけの再生。同じTagを持つ行ごとに個別設定できるため、
+	// 例えば"Wave"というTagに「1人で手を振る行（空）」と「3人で手を振る行（ここに2件設定）」を
+	// 両方用意しておけば、抽選で単体演出と乱闘的な複数人演出がランダムに出せる
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent")
+	TArray<FAnimEventPairing> ExtraPairings;
+
+	// この行の再生中（Player側のみ）、Player Character基準の相対位置に一時表示する小道具のスタティックメッシュ
+	// （椅子に座るモーション用等）。未設定（None）なら何もスポーンしない。座り系以外の行では空欄のままでよい
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent")
+	TSoftObjectPtr<class UStaticMesh> PropMesh;
+
+	// PropMeshのスポーン位置（Player CharacterのActorTransformからの相対値。ExtraPairings::SpawnRelativeLocationと同じ考え方）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent")
+	FVector PropRelativeLocation = FVector::ZeroVector;
+
+	// PropMeshのスポーン回転（Player CharacterのActorTransformからの相対値）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent")
+	FRotator PropRelativeRotation = FRotator::ZeroRotator;
+};
+
+// --- DT_AnimSequences一覧UI用の軽量データ（デバッグメニュー等、C++からBPへ一覧を渡す用。FWarpDestinationInfoと同じ用途） ---
+USTRUCT(BlueprintType)
+struct FAnimSequenceRowInfo
+{
+	GENERATED_BODY()
+
+	// DT_AnimSequencesの行名（PlayAnimSequenceRowDirectへ渡すRowName）
+	UPROPERTY(BlueprintReadOnly, Category = "AnimEvent")
+	FName RowName;
+
+	// 行が属するTag（同じTagの行をグループ表示したい場合の参考情報）
+	UPROPERTY(BlueprintReadOnly, Category = "AnimEvent")
+	FName Tag;
 };
 
 // アニメーションイベントの再生ステップ1件分

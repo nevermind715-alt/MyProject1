@@ -329,6 +329,24 @@ private:
 	// HandleAnimEventStepMontageEndedが新しいステップの状態と誤って結びつけないための照合に使う
 	TWeakObjectPtr<class UAnimMontage> CurrentAnimEventMontage;
 
+	// FAnimEventPairing::ParticipantID → そのIDのためにスポーンした表示専用Character（AAnimEventActor）。
+	// AnimEventの開始時は空。抽選で選ばれたFAnimSequenceEntry::ExtraPairingsにそのIDが初登場したStepで
+	// スポーンし、全Step完了・イベント強制終了のどちらでもDestroyAnimEventExtraActorsで破棄してクリアする
+	TMap<FName, TWeakObjectPtr<class AAnimEventActor>> AnimEventExtraActors;
+
+	// 各Extra参加者のスポーン時点でのMesh相対Transform（AnimEventExtraActorsと同じKey）。
+	// Primary/Secondaryと同じ「基準値＋FAnimSequenceEntryのOffset」方式に揃えるための基準値
+	TMap<FName, FVector> AnimEventExtraBaseMeshLocations;
+	TMap<FName, FRotator> AnimEventExtraBaseMeshRotations;
+
+	// 現在のステップで各Extra参加者が実際に再生中のモンタージュ（AnimEventExtraActorsと同じKey）。
+	// CurrentAnimEventMontageのExtra参加者版
+	TMap<FName, TWeakObjectPtr<class UAnimMontage>> CurrentAnimEventExtraMontages;
+
+	// FAnimSequenceEntry::PropMeshでスポーンした小道具（椅子等、Player側のみ）。
+	// 行の再生開始時にSpawnOrUpdateAnimSequencePropでスポーン/更新し、DestroyAnimEventExtraActorsで一緒に破棄する
+	TWeakObjectPtr<class AStaticMeshActor> CurrentAnimSequencePropActor;
+
 	// PlayAnimSequenceEventがFAnimEventDefinition::EventBGMでBGMをオーバーライドしたか
 	// （trueの場合のみ、全ステップ完了時にAMyProject1Character::MusicComp->ExitRoomMusic()で元のBGMへ戻す）
 	bool bAnimEventOverrodeMusic = false;
@@ -390,6 +408,90 @@ private:
 	/** TargetのAnimInstanceでMontageを再生し、End/BlendingOutの両デリゲートを結び直す共通処理。
 	 *  PlayAnimEventStepでの初回再生と、HandleAnimEventStepMontageBlendingOutでのループ再生し直しの両方から呼ぶ */
 	void PlayAnimEventStepMontage(class UAnimInstance* AnimInst, UAnimMontage* Montage);
+
+	/** Pairing.ParticipantIDのAAnimEventActorが未スポーンならAnimEventPrimaryCharacter基準の位置・回転でスポーンする。
+	 *  スポーン済みならそれを返し、AnimEventPrimaryCharacter不在等で失敗した場合はnullptrを返す */
+	class AAnimEventActor* GetOrSpawnAnimEventExtraActor(const FAnimEventPairing& Pairing);
+
+	/** 抽選で選ばれたFAnimSequenceEntry::ExtraPairingsの1件分を再生する
+	 *  （未登場ならスポーン→Tagから抽選→オフセット適用→モンタージュ再生→セリフ表示）。
+	 *  再生できればそのモンタージュの長さを、Tag未設定・アセット不備等で再生できなければ負値を返す。
+	 *  bLoopUntilStopped=true（PlayAnimSequenceRowDirect専用）の場合、Stepシステムのデリゲートの代わりに
+	 *  HandleAnimSequenceRowDirectExtraMontageBlendingOutを使い、明示的に止める（Destroy）までループし続ける */
+	float PlayAnimEventPairing(const FAnimEventPairing& Pairing, bool bLoopUntilStopped = false);
+
+	/** AnimEventExtraActorsに残っている全Extra参加者と、CurrentAnimSequencePropActorを破棄してクリアする。
+	 *  全Step再生完了時、およびResolveActiveEventによるイベント強制終了時（アニメ再生中の時間切れ等）の両方から呼ぶ */
+	void DestroyAnimEventExtraActors();
+
+	/** Entry.PropMeshが設定されていれば、PrimaryCharacter基準のPropRelativeLocation/Rotationへ
+	 *  CurrentAnimSequencePropActorをスポーン（未スポーンの場合）またはメッシュ差し替え・位置更新する。
+	 *  PropMesh未設定なら何もしない。PlayAnimEventStep・PlayAnimSequenceRowDirectの両方（Player再生時のみ）から呼ぶ */
+	void SpawnOrUpdateAnimSequenceProp(const FAnimSequenceEntry& Entry);
+
+	/** Montageがメイン参加者（CurrentAnimEventMontage）またはExtra参加者（CurrentAnimEventExtraMontages）のいずれかで
+	 *  現在再生中として記録されているかを判定する。End/BlendingOutデリゲートが古いステップの残骸を誤って処理しないためのガード */
+	bool IsTrackedAnimEventMontage(UAnimMontage* Montage) const;
+
+	/** IsTrackedAnimEventMontageで一致したMontageについて、それを再生しているAnimInstanceを解決する
+	 *  （ループ継ぎ目の再生し直しで、どのキャラクターのAnimInstanceにMontage_Playし直すか決めるために使う） */
+	class UAnimInstance* ResolveAnimInstanceForTrackedMontage(UAnimMontage* Montage) const;
+
+	// --- DT_AnimSequencesの1行を直接再生するテスト用機能（位置調整確認用。DT_AnimEvents/Steps/Tag抽選/
+	// BGM切替/暗転演出は一切経由しない）。PlayAnimSequenceEvent系の状態（AnimEventPrimaryCharacter等）を
+	// 一部共有するため、DT_AnimEventsのStepが進行中（CurrentAnimEventStepIndex != INDEX_NONE）の間は使えない ---
+public:
+	/** DT_AnimSequencesの指定行（RowName）のMontageを、PlayTargetで指定したPrimary(Player)/Secondary(NPC)側で
+	 *  再生する。位置調整中はポーズを保てるよう、明示的に止める（StopAnimSequenceRowDirect）までループし続ける。
+	 *  行のExtraPairingsも通常のイベント再生と同じ処理で同時にスポーン・再生するため（こちらは1回のみ）、
+	 *  Player/NPC/追加参加者のMeshLocationOffset/MeshRotationOffsetによる位置関係をまとめて確認できる。
+	 *  再生中に呼び直すと、前回のテスト再生（Extra参加者・位置オフセット）を片付けてから再生し直す */
+	UFUNCTION(BlueprintCallable, Category = "AnimEvent")
+	void PlayAnimSequenceRowDirect(FName RowName, class ACharacter* PrimaryCharacter, class AActor* SecondaryContextActor, EStatTargetActor PlayTarget);
+
+	/** PlayAnimSequenceRowDirectでの再生中に、メイン対象のMeshLocationOffset/MeshRotationOffsetを
+	 *  その場で加算調整する（現在値に累積）。BP側でキー入力に割り当てて使うことを想定。
+	 *  再生中でなければ何もしない。調整後の値を画面にデバッグ表示する */
+	UFUNCTION(BlueprintCallable, Category = "AnimEvent")
+	void NudgeAnimSequenceRowDirectOffset(FVector LocationDelta, FRotator RotationDelta);
+
+	/** DT_AnimSequencesの全行を、UI表示用の軽量データ一覧として取得する
+	 *  （デバッグメニュー等がBP側で一覧を組み立てる際に使う。GetAllWarpDestinationsと同じ用途） */
+	UFUNCTION(BlueprintCallable, Category = "AnimEvent")
+	TArray<FAnimSequenceRowInfo> GetAllAnimSequenceRows() const;
+
+private:
+	/** PlayAnimSequenceRowDirectで動かしたPrimary/Secondaryのメッシュ位置を基準値へ戻し、ループ再生中の
+	 *  モンタージュを止め、スポーンしたExtra参加者を破棄する。次のPlayAnimSequenceRowDirect呼び出し時の
+	 *  後片付けと、PlayAnimSequenceEventが割り込む場合の両方から呼ぶ */
+	void StopAnimSequenceRowDirect();
+
+	/** PlayAnimSequenceRowDirectで再生したメイン対象のモンタージュのBlendingOutデリゲート。
+	 *  位置調整中はポーズを保つため、ブレンドアウトが完了しきる前（bInterrupted=false）に
+	 *  同じモンタージュを再生し直してループを継続する。StopAnimSequenceRowDirectによる明示的な
+	 *  Montage_Stop（bInterrupted=true）の場合はループし直さない */
+	UFUNCTION()
+	void HandleAnimSequenceRowDirectMontageBlendingOut(UAnimMontage* Montage, bool bInterrupted);
+
+	/** PlayAnimEventPairing(bLoopUntilStopped=true)で再生したExtra参加者のモンタージュのBlendingOutデリゲート。
+	 *  HandleAnimSequenceRowDirectMontageBlendingOutのExtra参加者版で、同じ理屈でループし続ける。
+	 *  対象のExtra参加者はStopAnimSequenceRowDirect（DestroyAnimEventExtraActors）でActorごと破棄されるため、
+	 *  破棄後はResolveAnimInstanceForTrackedMontageがnullptrを返して自然にループが止まる */
+	UFUNCTION()
+	void HandleAnimSequenceRowDirectExtraMontageBlendingOut(UAnimMontage* Montage, bool bInterrupted);
+
+	// PlayAnimSequenceRowDirectで現在ループ再生中のメイン対象モンタージュ。
+	// 有効な間＝テスト再生中の判定にも使う（PlayAnimSequenceEventとの状態競合ガード、Nudgeの有効判定）
+	TWeakObjectPtr<class UAnimMontage> CurrentAnimSequenceRowDirectMontage;
+
+	// CurrentAnimSequenceRowDirectMontageをPrimary(Player)/Secondary(NPC)のどちらで再生しているか
+	// （Nudge・ループ再生し直しの際にどちらのメッシュ・基準値を使うか判定するため）
+	EStatTargetActor CurrentAnimSequenceRowDirectPlayTarget = EStatTargetActor::Player;
+
+	// NudgeAnimSequenceRowDirectOffsetで累積調整中の値（初期値はFAnimSequenceEntry::MeshLocationOffset/
+	// MeshRotationOffset）。基準値（AnimEventPrimary/SecondaryBaseMeshLocation/Rotation）に加算して適用する
+	FVector CurrentAnimSequenceRowDirectLocationOffset = FVector::ZeroVector;
+	FRotator CurrentAnimSequenceRowDirectRotationOffset = FRotator::ZeroRotator;
 
 
 	// ★追加：暗転が終わるまで待機している「ワープID」と「プレイヤー」の記憶

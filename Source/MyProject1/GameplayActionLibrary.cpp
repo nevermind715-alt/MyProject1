@@ -11,7 +11,8 @@
 #pragma execution_character_set("utf-8")
 
 void UGameplayActionLibrary::ExecuteAction(IRpgCharacterInterface* RpgInterface, AActor* OwnerActor, AActor* ContextActor, UWorld* World,
-	EDialogActionType ActionType, const FString& ActionPayload, FName ItemID, int32 ItemAmount)
+	EDialogActionType ActionType, const FString& ActionPayload, FName ItemID, int32 ItemAmount,
+	EStatTargetActor AnimSequenceRowPlayTarget)
 {
 	if (!RpgInterface) return;
 
@@ -163,6 +164,21 @@ void UGameplayActionLibrary::ExecuteAction(IRpgCharacterInterface* RpgInterface,
 				{
 					// ワープを経由しない直接呼び出しのため、開始前にも暗転を挟む（bFadeInBeforeStart=true）
 					GameInst->PlayAnimSequenceEvent(FName(*ActionPayload), OwnerChar, ContextActor, true);
+				}
+			}
+		}
+		break;
+
+	case EDialogActionType::PlayAnimSequenceRow:
+		// ActionPayloadにDT_AnimSequencesの行名を直接入れる。DT_AnimEvents・Tag抽選・BGM切替・暗転演出を経由せず、
+		// 行のExtraPairingsも含めて1行分をそのまま再生する（位置調整の確認用）
+		if (World)
+		{
+			if (UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(World->GetGameInstance()))
+			{
+				if (ACharacter* OwnerChar = Cast<ACharacter>(OwnerActor))
+				{
+					GameInst->PlayAnimSequenceRowDirect(FName(*ActionPayload), OwnerChar, ContextActor, AnimSequenceRowPlayTarget);
 				}
 			}
 		}

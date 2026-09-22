@@ -396,6 +396,21 @@ void AMyProject1Character::SetupPlayerInputComponent(UInputComponent* PlayerInpu
 			EnhancedInputComponent->BindAction(WaitAction, ETriggerEvent::Started, this, &AMyProject1Character::OnWaitKeyPressed);
 		}
 
+		// 矢印キー(DebugNudgeLocationAction)・Delete/PageDown(DebugNudgeRotateAction)・Home/End(DebugNudgeHeightAction)：
+		// PlayAnimSequenceRowDirect再生中の位置調整デバッグ用
+		if (DebugNudgeLocationAction)
+		{
+			EnhancedInputComponent->BindAction(DebugNudgeLocationAction, ETriggerEvent::Triggered, this, &AMyProject1Character::OnDebugNudgeLocation);
+		}
+		if (DebugNudgeRotateAction)
+		{
+			EnhancedInputComponent->BindAction(DebugNudgeRotateAction, ETriggerEvent::Triggered, this, &AMyProject1Character::OnDebugNudgeRotate);
+		}
+		if (DebugNudgeHeightAction)
+		{
+			EnhancedInputComponent->BindAction(DebugNudgeHeightAction, ETriggerEvent::Triggered, this, &AMyProject1Character::OnDebugNudgeHeight);
+		}
+
 	}
 
 
@@ -610,6 +625,39 @@ void AMyProject1Character::Look(const FInputActionValue& Value)
 
 	// route the input
 	DoLook(LookAxisVector.X, LookAxisVector.Y);
+}
+
+void AMyProject1Character::OnDebugNudgeLocation(const FInputActionValue& Value)
+{
+	const FVector2D AxisValue = Value.Get<FVector2D>();
+	if (AxisValue.IsNearlyZero()) return;
+
+	if (UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetGameInstance()))
+	{
+		GameInst->NudgeAnimSequenceRowDirectOffset(FVector(AxisValue.X, AxisValue.Y, 0.0f) * DebugNudgeLocationStep, FRotator::ZeroRotator);
+	}
+}
+
+void AMyProject1Character::OnDebugNudgeRotate(const FInputActionValue& Value)
+{
+	const float AxisValue = Value.Get<float>();
+	if (AxisValue == 0.0f) return;
+
+	if (UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetGameInstance()))
+	{
+		GameInst->NudgeAnimSequenceRowDirectOffset(FVector::ZeroVector, FRotator(0.0f, AxisValue * DebugNudgeRotateStep, 0.0f));
+	}
+}
+
+void AMyProject1Character::OnDebugNudgeHeight(const FInputActionValue& Value)
+{
+	const float AxisValue = Value.Get<float>();
+	if (AxisValue == 0.0f) return;
+
+	if (UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetGameInstance()))
+	{
+		GameInst->NudgeAnimSequenceRowDirectOffset(FVector(0.0f, 0.0f, AxisValue * DebugNudgeHeightStep), FRotator::ZeroRotator);
+	}
 }
 
 void AMyProject1Character::DoMove(float Right, float Forward)

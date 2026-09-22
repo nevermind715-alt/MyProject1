@@ -95,6 +95,35 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Input")
 	class UInputAction* WaitAction;
 
+	// --- PlayAnimSequenceRowDirect再生中の位置調整デバッグ用
+	// （矢印キーで水平オフセット、Delete/PageDownで左右回転、Home/Endで高さ） ---
+	// 通常の移動・カメラ操作（MoveAction/LookAction）と別キーにすることで、位置調整中に意図しない
+	// キャラ移動・カメラ回転が混ざらないようにしている（矢印キーはIMC側でMoveActionから外して使う想定）
+
+	/** 水平方向（X/Y）オフセット調整用の入力アクション。Axis2D。矢印キーの上下→Y、左右→Xを想定 */
+	UPROPERTY(EditAnywhere, Category = "Input|Debug")
+	class UInputAction* DebugNudgeLocationAction;
+
+	/** 左右回転（Yaw）調整用の入力アクション。Axis1D。Delete=マイナス方向、PageDown=プラス方向を想定 */
+	UPROPERTY(EditAnywhere, Category = "Input|Debug")
+	class UInputAction* DebugNudgeRotateAction;
+
+	/** 高さ（Z）調整用の入力アクション。Axis1D。Home=プラス方向、End=マイナス方向を想定 */
+	UPROPERTY(EditAnywhere, Category = "Input|Debug")
+	class UInputAction* DebugNudgeHeightAction;
+
+	/** DebugNudgeLocationAction 1単位あたりの水平移動量 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input|Debug")
+	float DebugNudgeLocationStep = 1.0f;
+
+	/** DebugNudgeRotateAction 1単位あたりのYaw回転量（度） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input|Debug")
+	float DebugNudgeRotateStep = 1.0f;
+
+	/** DebugNudgeHeightAction 1単位あたりの高さ移動量 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input|Debug")
+	float DebugNudgeHeightStep = 1.0f;
+
 	/** 非戦闘時のHP自動回復の間隔（秒） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Regeneration")
 	float AutoRecoveryInterval = 5.0f;
@@ -427,6 +456,14 @@ public:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Cinematic")
 	bool bIsInCutscene = false;
+
+	/** trueの間、本体ABPのControl Rig（足元IKトレース）を無効化する。
+	 *  PlayAnimSequenceEvent（イベントアニム）再生中は、接地しない/横に曲がる等の
+	 *  アニメが混在するため、IKトレースがAnkle/Toe Offsetの補正と噛み合わずズレる問題への対処。
+	 *  ABP_PlayerAnim側のControl Rigノード「Should Do IKTrace」に
+	 *  「NOT(Is Falling) AND NOT(bSuppressFootIKTrace)」の形で反映させる想定（Blueprint側の配線が別途必要）。 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Cinematic")
+	bool bSuppressFootIKTrace = false;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input")
 	UInputAction* ToggleMenuAction;
@@ -857,6 +894,18 @@ protected:
 
 	/** Called for looking input */
 	void Look(const FInputActionValue& Value);
+
+	/** DebugNudgeLocationAction（矢印キー）：PlayAnimSequenceRowDirect再生中のメッシュ位置オフセット（水平）を
+	 *  その場で加算調整する。再生中でなければGameInstance側で無視される */
+	void OnDebugNudgeLocation(const FInputActionValue& Value);
+
+	/** DebugNudgeRotateAction（Delete/PageDown）：PlayAnimSequenceRowDirect再生中のメッシュ回転オフセットを
+	 *  その場で加算調整する。再生中でなければGameInstance側で無視される */
+	void OnDebugNudgeRotate(const FInputActionValue& Value);
+
+	/** DebugNudgeHeightAction（Home/End）：PlayAnimSequenceRowDirect再生中のメッシュ位置オフセット（高さ）を
+	 *  その場で加算調整する。再生中でなければGameInstance側で無視される */
+	void OnDebugNudgeHeight(const FInputActionValue& Value);
 
 	/** ゲーム開始時に呼ばれる */
 	virtual void BeginPlay() override;
