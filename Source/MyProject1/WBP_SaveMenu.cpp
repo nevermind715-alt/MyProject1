@@ -140,7 +140,22 @@ void UWBP_SaveMenu::ExecuteLoadFromSlot(const FString& SlotName)
 	UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetGameInstance());
 	if (!GameInst || !GameInst->DoesSaveGameExist(SlotName)) return;
 
-	// LoadSavedGame内でOpenLevelされるため、この画面の後始末はレベル遷移に任せてよい
+	// LoadSavedGame内で即座にOpenLevelされる。開いたままのSaveMenu/CommandMenuを閉じずに
+	// レベル遷移すると、ポーズ状態・入力モード・マウスカーソル表示が中途半端なまま新レベルへ
+	// 持ち越され、「メインメニューが消えて操作が混ざる」不具合になるため、遷移前に正規の手順で閉じる
+	if (APlayerController* PC = GetOwningPlayer())
+	{
+		if (AMyProject1HUD* HUD = PC->GetHUD<AMyProject1HUD>())
+		{
+			// このセーブ画面を通常の閉じ方で閉じる（ポーズ解除・プレイヤー入力再開を含む）
+			HUD->ToggleSaveMenu();
+
+			// 背後のメインメニュー（CommandMenu）が開いたままなら、それも閉じてゲーム操作に戻す
+			HUD->ForceCloseCommandMenuForInteract();
+		}
+	}
+
+	// この画面自体の後始末は上記で完了しているため、あとはレベル遷移に任せてよい
 	GameInst->LoadSavedGame(SlotName);
 }
 

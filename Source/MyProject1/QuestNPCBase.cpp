@@ -363,6 +363,15 @@ void AQuestNPCBase::BeginDialogRow(UDialogComponent* PlayerDialogComp, IRpgChara
 	}
 }
 
+void AQuestNPCBase::StopReturnTurnImmediately()
+{
+	if (TurnMode != ETurnMode::ReturnAfterTalk) return;
+
+	SetActorRotation(TurnFixedTarget);
+	bHasPreTalkRotation = false;
+	FinishTurn();
+}
+
 void AQuestNPCBase::OnTalkDialogClosed()
 {
 	// 購読を解除する（次回の会話でまた購読し直す）
@@ -373,6 +382,22 @@ void AQuestNPCBase::OnTalkDialogClosed()
 	TalkDialogCompBound.Reset();
 
 	if (!bHasPreTalkRotation) return;
+
+	// 会話終了と同時にPlayAnimSequence（NPCとの位置合わせアニメ）が始まる選択肢の場合、
+	// ExecuteActionCore→PlayAnimSequenceEventが先に呼ばれ、その中でNPCの現在向きを基準値としてキャッシュしている。
+	// また、TriggerEvent（EventDistributorComponent経由）の場合はStartEventが先に呼ばれ、ワープの暗転を
+	// 挟んでからPlayAnimSequenceEventが基準値をキャッシュするため、この時点ではまだIsAnimEventSecondaryContextActor
+	// はtrueにならないが、ActiveEventContextActor（StartEvent時点で既にセット済み）と比較すれば先んじて判定できる。
+	// ここで向き戻しを開始すると、基準値キャッシュ後もTickTurnが動き続けてAnimEvent中に向きがズレてしまうため、
+	// 自分がこれからAnimEventのNPC側対象になる場合は、現在の向きのまま確定させ向き戻し自体を行わない
+	if (UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetGameInstance()))
+	{
+		if (GameInst->IsAnimEventSecondaryContextActor(this) || GameInst->IsActiveEventContextActorPendingAnimationSequence(this))
+		{
+			bHasPreTalkRotation = false;
+			return;
+		}
+	}
 
 	// 会話開始前の向きへ、向き直りと同じ一定速度（TurnToPlayerSpeedDegPerSec）で戻す。
 	// ほぼ戻っている場合はタイマーを起こさず即確定する

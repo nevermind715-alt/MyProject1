@@ -1,5 +1,6 @@
 ﻿#include "MyProject1GameInstance.h"
 #include "Kismet/GameplayStatics.h"
+#include "Components/AudioComponent.h"
 #include "GameFramework/Character.h"
 #include "MyProject1Character.h"
 #include "MyProject1SaveGame.h"
@@ -13,12 +14,18 @@
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Components/CapsuleComponent.h"
+#include "GameFramework/CharacterMovementComponent.h"
 #include "MusicControlComponent.h"
 #include "AnimEventActor.h"
+#include "QuestNPCBase.h"
+#include "AIController.h"
+#include "BrainComponent.h"
 #include "Engine/SkeletalMesh.h"
 #include "Engine/StaticMeshActor.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
+#include "DialogComponent.h"
 
 
 void UMyProject1GameInstance::Init()
@@ -219,6 +226,37 @@ void UMyProject1GameInstance::RequestFadeThenWallWarp(AWallWarpLink* SourceLink,
 }
 
 // ----------------------------------------------------
+// 1.6.5. UDialogComponent（ActionType=ShowTextDuringFade）用の「暗転を挟んだナレーション表示」の要求
+// ----------------------------------------------------
+void UMyProject1GameInstance::RequestFadeThenShowNarration(UDialogComponent* NarrationComponent, ACharacter* TargetCharacter)
+{
+	if (!NarrationComponent || !TargetCharacter) return;
+
+	ReservedNarrationComponent = NarrationComponent;
+
+	BeginWarpFade(TargetCharacter);
+}
+
+// ----------------------------------------------------
+// 1.6.6. ナレーション全行読了後、UDialogComponentから呼ばれる明転再開の要求
+// ----------------------------------------------------
+void UMyProject1GameInstance::ResumeFadeInAfterNarration(UDialogComponent* NarrationComponent, FName NextDialogID)
+{
+	// HandleWarpFadeOutCompleteが保留していたFadeInタイマーを、ここで初めて開始する
+	if (!bWaitingForNarrationCompletion) return;
+	bWaitingForNarrationCompletion = false;
+
+	ReservedNarrationResumeComponent = NarrationComponent;
+	ReservedNarrationResumeNextDialogID = NextDialogID;
+
+	// WBP_LoadingScreen側へ「暗転アニメーション終了時に止めていた自動明転を、今開始してよい」と合図する
+	OnNarrationReadyToFadeIn.Broadcast();
+
+	GetTimerManager().SetTimer(WarpFadeInTimerHandle, this,
+		&UMyProject1GameInstance::HandleWarpFadeInComplete, WarpFadeInDuration, false);
+}
+
+// ----------------------------------------------------
 // 1.7. 暗転演出の共通処理（入力停止→暗転タイマー予約→UIへ合図）
 // ----------------------------------------------------
 void UMyProject1GameInstance::BeginWarpFade(ACharacter* TargetCharacter)
@@ -249,6 +287,13 @@ void UMyProject1GameInstance::HandleWarpFadeOutComplete()
 {
 	ExecuteWarpProcess();
 
+	// ShowTextDuringFadeのナレーション表示中は、プレイヤーが全行読み終えるまで明転させない。
+	// ResumeFadeInAfterNarrationが呼ばれた時点で改めてこのタイマーをセットする
+	if (bWaitingForNarrationCompletion)
+	{
+		return;
+	}
+
 	GetTimerManager().SetTimer(WarpFadeInTimerHandle, this,
 		&UMyProject1GameInstance::HandleWarpFadeInComplete, WarpFadeInDuration, false);
 }
@@ -266,6 +311,18 @@ void UMyProject1GameInstance::HandleWarpFadeInComplete()
 		}
 	}
 	InputDisabledCharacter.Reset();
+
+	// ShowTextDuringFadeのナレーション読了後の明転であれば、通常のBeginAnimEventSequenceIfNeededではなく
+	// DialogComponent側にNextDialogIDへの会話継続（またはCloseDialog）を委ねる
+	if (UDialogComponent* NarrationComponent = ReservedNarrationResumeComponent.Get())
+	{
+		FName NextDialogID = ReservedNarrationResumeNextDialogID;
+		ReservedNarrationResumeComponent.Reset();
+		ReservedNarrationResumeNextDialogID = NAME_None;
+
+		NarrationComponent->ResumeAfterFadeNarration(NextDialogID);
+		return;
+	}
 
 	BeginAnimEventSequenceIfNeeded();
 }
@@ -316,6 +373,18 @@ void UMyProject1GameInstance::ExecuteWarpProcess()
 
 		ReservedFlagToGrant = NAME_None;
 		ReservedFlagGrantTarget.Reset();
+		return;
+	}
+
+	// ShowTextDuringFadeのナレーション予約があれば、こちらで完結させる（RequestFadeThenShowNarration用）。
+	// 通常のRequestFadeThen〇〇と異なり、ここではFadeInタイマーをまだ動かさない
+	// （bWaitingForNarrationCompletionにより、HandleWarpFadeOutCompleteが自動セットを保留する）
+	if (UDialogComponent* NarrationComponent = ReservedNarrationComponent.Get())
+	{
+		ReservedNarrationComponent.Reset();
+		bWaitingForNarrationCompletion = true;
+
+		NarrationComponent->BeginFadeNarration();
 		return;
 	}
 
@@ -635,7 +704,11 @@ bool UMyProject1GameInstance::ApplyPendingCharacterLoad(AMyProject1Character* Ch
 	UMyProject1SaveGame* Loaded = PendingLoadSaveGame;
 
 	// ステータス
+	// ExtraStatDisplayNamesはゲームプレイで変化する値ではなく、Blueprint側で決める固定のログ表示ラベルなので、
+	// セーブデータ（古いセーブには存在しない/未設定）で上書きせず、ロード前のキャラクター設定を維持する
+	const TMap<FName, FString> PreservedExtraStatDisplayNames = Character->MyStats.ExtraStatDisplayNames;
 	Character->MyStats = Loaded->PlayerStats;
+	Character->MyStats.ExtraStatDisplayNames = PreservedExtraStatDisplayNames;
 
 	// 所持品
 	if (UInventoryComponent* Inv = Character->FindComponentByClass<UInventoryComponent>())
@@ -693,7 +766,7 @@ void UMyProject1GameInstance::AddLogHistoryEntry(const FString& Message, ELogMes
 // ----------------------------------------------------
 // イベント分岐システム
 // ----------------------------------------------------
-void UMyProject1GameInstance::StartEvent(FName EventID, ACharacter* PlayerCharacter, AActor* EventContextActor)
+void UMyProject1GameInstance::StartEvent(FName EventID, ACharacter* PlayerCharacter, AActor* EventContextActor, TSoftObjectPtr<USkeletalMesh> ExtraParticipantMeshOverride, bool bHideContextActorDuringAnimEvent)
 {
 	if (!PlayerCharacter) { UE_LOG(LogTemp, Warning, TEXT("StartEvent: PlayerCharacter is null")); return; }
 	if (!EventDefinitionDataTable) { UE_LOG(LogTemp, Warning, TEXT("StartEvent: EventDefinitionDataTable is not set on GameInstance")); return; }
@@ -708,7 +781,28 @@ void UMyProject1GameInstance::StartEvent(FName EventID, ACharacter* PlayerCharac
 	ActiveEventID = EventID;
 	ActiveEventPlayer = PlayerCharacter;
 	ActiveEventContextActor = EventContextActor;
+	ActiveEventExtraMeshOverride = ExtraParticipantMeshOverride;
+	bActiveEventHideContextActorDuringAnimEvent = bHideContextActorDuringAnimEvent;
 	bAnimEventSequenceStarted = false;
+
+	// ClearCondition=AnimationSequenceの場合、暗転明け後のPlayAnimSequenceEventでEventContextActor（NPC）の
+	// 基準値をキャッシュするが、それより前（ワープの暗転待ち中）にAIの通常巡回で動いてしまうと、
+	// キャッシュ時点で既に立ち位置がズレてしまう。ここで先んじてAIロジックを止めておく
+	// （PlayAnimSequenceEvent側でも同じ処理をするため冪等、再開はResolveActiveEvent/PlayAnimEventStep完了時）
+	if (Definition->ClearCondition == EEventClearCondition::AnimationSequence)
+	{
+		if (ACharacter* ContextCharacter = Cast<ACharacter>(EventContextActor))
+		{
+			if (AAIController* ContextAI = Cast<AAIController>(ContextCharacter->GetController()))
+			{
+				ContextAI->StopMovement();
+				if (UBrainComponent* Brain = ContextAI->GetBrainComponent())
+				{
+					Brain->PauseLogic(TEXT("AnimSequenceEvent"));
+				}
+			}
+		}
+	}
 
 	// 成立条件に制限時間が絡む場合、ここで自動成立タイマーを仕掛けておく（Interact/AnimationSequenceの成立はこのタイマーを使わない）
 	if ((Definition->ClearCondition == EEventClearCondition::TimeElapsed || Definition->ClearCondition == EEventClearCondition::Both)
@@ -732,20 +826,10 @@ void UMyProject1GameInstance::ResolveActiveEvent(bool bSuccess)
 	if (!bHasActiveEvent) return;
 
 	GetTimerManager().ClearTimer(ActiveEventTimeLimitTimerHandle);
-	GetTimerManager().ClearTimer(AnimEventStepDurationTimerHandle);
-	GetTimerManager().ClearTimer(AnimEventStepTransitionTimerHandle);
-	CurrentAnimEventStepIndex = INDEX_NONE;
-	bAnimEventStepLooping = false;
-	bAnimEventSequenceStarted = false;
-	CurrentAnimEventID = NAME_None;
 
-	AnimEventPrimaryCharacter.Reset();
-	AnimEventSecondaryContextActor.Reset();
-	CurrentAnimEventMontage.Reset();
-	PendingAnimEventNextStepIndex = INDEX_NONE;
-
-	// アニメ再生中に時間切れ等で強制終了した場合の保険（通常は全Step完了時のPlayAnimEventStepが破棄する）
-	DestroyAnimEventExtraActors();
+	// AnimEvent（ClearCondition=AnimationSequence）が全Step完了を待たずに強制終了された場合の保険。
+	// PlayAnimEventStep側の後片付けが動かないため、ここで明示的に中断・後片付けする
+	AbortCurrentAnimEventStepChain();
 
 	FEventDefinition* Definition = EventDefinitionDataTable
 		? EventDefinitionDataTable->FindRow<FEventDefinition>(ActiveEventID, TEXT("ResolveActiveEvent"))
@@ -773,6 +857,7 @@ void UMyProject1GameInstance::ResolveActiveEvent(bool bSuccess)
 	ActiveEventID = NAME_None;
 	ActiveEventPlayer.Reset();
 	ActiveEventContextActor.Reset();
+	ActiveEventExtraMeshOverride.Reset();
 
 	if (!ReturnID.IsNone() && PlayerChar)
 	{
@@ -795,7 +880,7 @@ static ACharacter* ResolveAnimEventTargetCharacter(EStatTargetActor PlayTarget, 
 	return PrimaryCharacter.Get();
 }
 
-// AnimSequenceDataTable内でFAnimSequenceEntry::TagがTagと一致する行を集め、その中から1つをランダムに選ぶ
+// AnimSequenceDataTable内でFAnimSequenceEntry::TagsにTagが含まれる行を集め、その中から1つをランダムに選ぶ
 // （「パンチ1」「パンチ2」のような同じカテゴリ内の複数バリエーションから抽選するための処理。Montage本体だけでなくLine/bIsPlayerLineも使うため、行そのものを返す）
 static const FAnimSequenceEntry* PickRandomAnimSequenceEntryForTag(UDataTable* AnimSequenceDataTable, FName Tag)
 {
@@ -806,7 +891,7 @@ static const FAnimSequenceEntry* PickRandomAnimSequenceEntryForTag(UDataTable* A
 	{
 		if (const FAnimSequenceEntry* Entry = AnimSequenceDataTable->FindRow<FAnimSequenceEntry>(RowName, TEXT("PickRandomAnimSequenceEntryForTag")))
 		{
-			if (Entry->Tag == Tag && Entry->Montage)
+			if (Entry->Tags.Contains(Tag) && Entry->Montage)
 			{
 				Candidates.Add(Entry);
 			}
@@ -817,7 +902,7 @@ static const FAnimSequenceEntry* PickRandomAnimSequenceEntryForTag(UDataTable* A
 	return Candidates[FMath::RandHelper(Candidates.Num())];
 }
 
-void UMyProject1GameInstance::PlayAnimSequenceEvent(FName AnimEventID, ACharacter* PrimaryCharacter, AActor* SecondaryContextActor, bool bFadeInBeforeStart)
+void UMyProject1GameInstance::PlayAnimSequenceEvent(FName AnimEventID, ACharacter* PrimaryCharacter, AActor* SecondaryContextActor, bool bFadeInBeforeStart, TSoftObjectPtr<USkeletalMesh> ExtraParticipantMeshOverride, bool bHideSecondaryContextActorDuringAnim)
 {
 	if (!PrimaryCharacter || AnimEventID.IsNone() || !AnimEventDataTable)
 	{
@@ -831,6 +916,15 @@ void UMyProject1GameInstance::PlayAnimSequenceEvent(FName AnimEventID, ACharacte
 	if (CurrentAnimSequenceRowDirectMontage.IsValid())
 	{
 		StopAnimSequenceRowDirect();
+	}
+
+	// 前回呼び出しのStepチェーンが全Step完了を待たずに残っている状態で呼ばれた場合（会話の連続トリガー等）、
+	// 後片付け（DestroyAnimEventExtraActors）を経ずにAnimEventPrimaryCharacter等を上書きしてしまうと、
+	// 前回スポーンしたExtra参加者（AnimEventExtraActors）が新しいMesh・SpawnRelativeLocationを反映せず
+	// そのまま使い回されてしまう（Tポーズ・位置ズレの原因になる）。新しいイベントを始める前に必ず打ち切る
+	if (CurrentAnimEventStepIndex != INDEX_NONE)
+	{
+		AbortCurrentAnimEventStepChain();
 	}
 
 	FAnimEventDefinition* AnimEvent = AnimEventDataTable->FindRow<FAnimEventDefinition>(AnimEventID, TEXT("PlayAnimSequenceEvent"));
@@ -852,30 +946,110 @@ void UMyProject1GameInstance::PlayAnimSequenceEvent(FName AnimEventID, ACharacte
 		AnimEventPrimaryBaseMeshLocation = PrimaryMesh->GetRelativeLocation();
 		AnimEventPrimaryBaseMeshRotation = PrimaryMesh->GetRelativeRotation();
 	}
+	// 再生開始直前のワールドTransformを固定基準として保存する（GetAnimSequenceLockedTransform参照）。
+	// AMyProject1Character::Tickがこれを見て毎フレーム同じ位置・向きへ固定し直すため、ターゲット追従回転等の
+	// 他のTickロジックが割り込んでも再生中はズレない
+	AnimEventPrimaryLockedActorLocation = PrimaryCharacter->GetActorLocation();
+	AnimEventPrimaryLockedActorRotation = PrimaryCharacter->GetActorRotation();
 	if (ACharacter* SecondaryCharacter = Cast<ACharacter>(SecondaryContextActor))
 	{
+		// 会話終了直後は、AQuestNPCBase側の「向き直り前の向きへ戻す」TickTurn（ETurnMode::ReturnAfterTalk）が
+		// まだ回転中の場合がある。これを止めないまま基準値をキャッシュすると、AnimEvent再生中もNPCのActor向きが
+		// 変わり続けてOffsetがズレるため、キャッシュ前に必ず打ち切る
+		if (AQuestNPCBase* QuestNPC = Cast<AQuestNPCBase>(SecondaryCharacter))
+		{
+			QuestNPC->StopReturnTurnImmediately();
+		}
+
+		// NPCのBehaviorTree（巡回・待機時の向き変更等）がAnimEvent再生中も動き続けると、
+		// Offsetで合わせた位置関係とは無関係にNPC自身のActorが移動・回転してズレていくため、
+		// 基準値をキャッシュする前に必ずAIロジックを止める（全ステップ完了時に再開する）
+		if (AAIController* SecondaryAI = Cast<AAIController>(SecondaryCharacter->GetController()))
+		{
+			SecondaryAI->StopMovement();
+			if (UBrainComponent* Brain = SecondaryAI->GetBrainComponent())
+			{
+				Brain->PauseLogic(TEXT("AnimSequenceEvent"));
+			}
+		}
+
 		if (USkeletalMeshComponent* SecondaryMesh = SecondaryCharacter->GetMesh())
 		{
 			AnimEventSecondaryBaseMeshLocation = SecondaryMesh->GetRelativeLocation();
 			AnimEventSecondaryBaseMeshRotation = SecondaryMesh->GetRelativeRotation();
 		}
+		AnimEventSecondaryLockedActorLocation = SecondaryCharacter->GetActorLocation();
+		AnimEventSecondaryLockedActorRotation = SecondaryCharacter->GetActorRotation();
 	}
 
-	// 再生中はマウスのカメラ操作以外（移動・アクション等）をロックする。
-	// AMyProject1Character::DoLookはbIsInputLockedを見ないため、カメラ操作だけは引き続き可能
+	// このAnimEventID再生中にスポーンするExtra参加者（FAnimSequenceEntry::ExtraPairings）のメッシュ差し替え設定。
+	// GetOrSpawnAnimEventExtraActorがスポーン時に参照し、全ステップ完了・強制終了時にリセットする
+	CurrentAnimEventExtraMeshOverride = ExtraParticipantMeshOverride;
+
+	// bHideSecondaryContextActorDuringAnim=trueなら、ExtraPairingsで話しかけた相手と同じ見た目を演じる
+	// AAnimEventActorと、フィールドに立っている本体（SecondaryContextActor自身）が重なって「分身」に見えないよう、
+	// 再生中だけ本体を非表示にする（再表示はDestroyAnimEventExtraActors側で行う）
+	if (bHideSecondaryContextActorDuringAnim)
+	{
+		if (ACharacter* SecondaryCharacterToHide = Cast<ACharacter>(SecondaryContextActor))
+		{
+			SecondaryCharacterToHide->SetActorHiddenInGame(true);
+			AnimEventHiddenSecondaryNPC = SecondaryCharacterToHide;
+		}
+	}
+
+	// 再生中はマウスのカメラ操作以外（移動・アクション等）をロックする。専用フラグ（bAnimEventInputLocked）を使うため、
+	// 会話終了処理（CloseDialog）等がbIsInputLockedをfalseに戻しても影響を受けない。
+	// AMyProject1Character::DoLookはこのフラグを見ないため、カメラ操作だけは引き続き可能
 	bAnimEventOverrodeMusic = false;
 	if (AMyProject1Character* MyPrimaryCharacter = Cast<AMyProject1Character>(PrimaryCharacter))
 	{
-		MyPrimaryCharacter->SetInputLocked(true);
+		MyPrimaryCharacter->SetAnimEventInputLocked(true);
 
-		// イベントアニム再生中は足元IKトレースを止める（接地しないアニメでAnkle/Toe Offsetの補正とズレるため）
-		MyPrimaryCharacter->bSuppressFootIKTrace = true;
-
-		// EventBGMが設定されていればイベント中だけBGMをオーバーライドする（未設定ならフィールド/部屋BGMのまま何もしない）
+		// EventBGMが設定されていればイベント中だけBGMをオーバーライドする（未設定ならフィールド/部屋BGMのまま何もしない）。
+		// EnterOverrideMusicは、既に本物のRoomMusicVolume内にいた場合でもその状態を記憶し、
+		// 終了時（ExitOverrideMusic）に正しく戻せるようにする
 		if (!AnimEvent->EventBGM.IsNull() && MyPrimaryCharacter->MusicComp)
 		{
 			bAnimEventOverrodeMusic = true;
-			MyPrimaryCharacter->MusicComp->EnterRoomMusic(AnimEvent->EventBGM);
+			MyPrimaryCharacter->MusicComp->EnterOverrideMusic(AnimEvent->EventBGM);
+		}
+	}
+
+	// 再生中はPrimary/Secondary（NPC）のCapsule同士が、Offsetで近づいた位置関係のまま重なることがあるため、
+	// CharacterMovementComponentによる押し出し（Depenetration）で位置がズレないよう、Pawnチャンネルへの
+	// 応答だけを一時的にIgnoreにする（Capsule自体のコリジョンは切らないため、地面判定・MovementModeは維持される）。
+	// 全ステップ完了時（PlayAnimEventStep）に元の応答へ戻す
+	if (UCapsuleComponent* PrimaryCapsule = PrimaryCharacter->GetCapsuleComponent())
+	{
+		AnimEventPrimaryOriginalPawnResponse = PrimaryCapsule->GetCollisionResponseToChannel(ECC_Pawn);
+		PrimaryCapsule->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
+	}
+	if (ACharacter* SecondaryCharacterForCollision = Cast<ACharacter>(SecondaryContextActor))
+	{
+		if (UCapsuleComponent* SecondaryCapsule = SecondaryCharacterForCollision->GetCapsuleComponent())
+		{
+			AnimEventSecondaryOriginalPawnResponse = SecondaryCapsule->GetCollisionResponseToChannel(ECC_Pawn);
+			SecondaryCapsule->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
+		}
+	}
+
+	// アニメーション再生だけが目的で、その間キャラクターが移動する必要はないため、重力・床判定・RootMotionに
+	// よる位置ズレ/めり込みを防ぐ目的でCharacterMovementComponent自体を一時停止する（MOVE_None。
+	// DisableMovementと同じ標準的な停止方法）。全ステップ完了・強制終了時に元のMovementModeへ戻す
+	if (UCharacterMovementComponent* PrimaryMovement = PrimaryCharacter->GetCharacterMovement())
+	{
+		AnimEventPrimaryOriginalMovementMode = PrimaryMovement->MovementMode;
+		AnimEventPrimaryOriginalCustomMovementMode = PrimaryMovement->CustomMovementMode;
+		PrimaryMovement->SetMovementMode(MOVE_None);
+	}
+	if (ACharacter* SecondaryCharacterForMovement = Cast<ACharacter>(SecondaryContextActor))
+	{
+		if (UCharacterMovementComponent* SecondaryMovement = SecondaryCharacterForMovement->GetCharacterMovement())
+		{
+			AnimEventSecondaryOriginalMovementMode = SecondaryMovement->MovementMode;
+			AnimEventSecondaryOriginalCustomMovementMode = SecondaryMovement->CustomMovementMode;
+			SecondaryMovement->SetMovementMode(MOVE_None);
 		}
 	}
 
@@ -888,6 +1062,48 @@ void UMyProject1GameInstance::PlayAnimSequenceEvent(FName AnimEventID, ACharacte
 	{
 		PlayAnimEventStep(0);
 	}
+}
+
+bool UMyProject1GameInstance::IsPlayingAnimSequenceEventFor(const ACharacter* Character) const
+{
+	return Character && AnimEventPrimaryCharacter.Get() == Character;
+}
+
+bool UMyProject1GameInstance::IsAnimEventSecondaryContextActor(const AActor* Actor) const
+{
+	return Actor && AnimEventSecondaryContextActor.Get() == Actor;
+}
+
+bool UMyProject1GameInstance::IsActiveEventPendingAnimationSequence() const
+{
+	if (!bHasActiveEvent || !EventDefinitionDataTable) return false;
+
+	FEventDefinition* Definition = EventDefinitionDataTable->FindRow<FEventDefinition>(ActiveEventID, TEXT("IsActiveEventPendingAnimationSequence"));
+	return Definition && Definition->ClearCondition == EEventClearCondition::AnimationSequence;
+}
+
+bool UMyProject1GameInstance::IsActiveEventContextActorPendingAnimationSequence(const AActor* Actor) const
+{
+	return Actor && ActiveEventContextActor.Get() == Actor && IsActiveEventPendingAnimationSequence();
+}
+
+bool UMyProject1GameInstance::GetAnimSequenceLockedTransform(const AActor* Actor, FVector& OutLocation, FRotator& OutRotation) const
+{
+	if (!Actor) return false;
+
+	if (AnimEventPrimaryCharacter.Get() == Actor)
+	{
+		OutLocation = AnimEventPrimaryLockedActorLocation;
+		OutRotation = AnimEventPrimaryLockedActorRotation;
+		return true;
+	}
+	if (AnimEventSecondaryContextActor.Get() == Actor)
+	{
+		OutLocation = AnimEventSecondaryLockedActorLocation;
+		OutRotation = AnimEventSecondaryLockedActorRotation;
+		return true;
+	}
+	return false;
 }
 
 void UMyProject1GameInstance::PlayAnimEventStep(int32 StepIndex)
@@ -905,12 +1121,11 @@ void UMyProject1GameInstance::PlayAnimEventStep(int32 StepIndex)
 		// 全ステップ再生完了：入力ロックを解除し、EventBGMでオーバーライドしていれば元のBGMに戻してから状態をクリアする
 		if (AMyProject1Character* MyPrimaryCharacter = Cast<AMyProject1Character>(AnimEventPrimaryCharacter.Get()))
 		{
-			MyPrimaryCharacter->SetInputLocked(false);
-			MyPrimaryCharacter->bSuppressFootIKTrace = false;
+			MyPrimaryCharacter->SetAnimEventInputLocked(false);
 
 			if (bAnimEventOverrodeMusic && MyPrimaryCharacter->MusicComp)
 			{
-				MyPrimaryCharacter->MusicComp->ExitRoomMusic();
+				MyPrimaryCharacter->MusicComp->ExitOverrideMusic();
 			}
 		}
 
@@ -922,6 +1137,16 @@ void UMyProject1GameInstance::PlayAnimEventStep(int32 StepIndex)
 				PrimaryMesh->SetRelativeLocation(AnimEventPrimaryBaseMeshLocation);
 				PrimaryMesh->SetRelativeRotation(AnimEventPrimaryBaseMeshRotation);
 			}
+			// 再生開始時にIgnoreにしたPawn応答を元に戻す
+			if (UCapsuleComponent* PrimaryCapsule = PrimaryCharacter->GetCapsuleComponent())
+			{
+				PrimaryCapsule->SetCollisionResponseToChannel(ECC_Pawn, AnimEventPrimaryOriginalPawnResponse);
+			}
+			// 再生開始時にMOVE_Noneで止めたMovementModeを元に戻す
+			if (UCharacterMovementComponent* PrimaryMovement = PrimaryCharacter->GetCharacterMovement())
+			{
+				PrimaryMovement->SetMovementMode(AnimEventPrimaryOriginalMovementMode, AnimEventPrimaryOriginalCustomMovementMode);
+			}
 		}
 		if (ACharacter* SecondaryCharacter = Cast<ACharacter>(AnimEventSecondaryContextActor.Get()))
 		{
@@ -930,12 +1155,29 @@ void UMyProject1GameInstance::PlayAnimEventStep(int32 StepIndex)
 				SecondaryMesh->SetRelativeLocation(AnimEventSecondaryBaseMeshLocation);
 				SecondaryMesh->SetRelativeRotation(AnimEventSecondaryBaseMeshRotation);
 			}
+			if (UCapsuleComponent* SecondaryCapsule = SecondaryCharacter->GetCapsuleComponent())
+			{
+				SecondaryCapsule->SetCollisionResponseToChannel(ECC_Pawn, AnimEventSecondaryOriginalPawnResponse);
+			}
+			if (UCharacterMovementComponent* SecondaryMovement = SecondaryCharacter->GetCharacterMovement())
+			{
+				SecondaryMovement->SetMovementMode(AnimEventSecondaryOriginalMovementMode, AnimEventSecondaryOriginalCustomMovementMode);
+			}
+			// 再生開始時に止めたNPCのAIロジック（BehaviorTree）を再開する
+			if (AAIController* SecondaryAI = Cast<AAIController>(SecondaryCharacter->GetController()))
+			{
+				if (UBrainComponent* Brain = SecondaryAI->GetBrainComponent())
+				{
+					Brain->ResumeLogic(TEXT("AnimSequenceEvent"));
+				}
+			}
 		}
 
 		// Extra参加者用にスポーンしたAAnimEventActorを全て破棄する
 		DestroyAnimEventExtraActors();
 
 		bAnimEventOverrodeMusic = false;
+		CurrentAnimEventExtraMeshOverride.Reset();
 		CurrentAnimEventStepIndex = INDEX_NONE;
 		CurrentAnimEventID = NAME_None;
 		AnimEventPrimaryCharacter.Reset();
@@ -954,6 +1196,8 @@ void UMyProject1GameInstance::PlayAnimEventStep(int32 StepIndex)
 	// bLoop中に終了→再生を繰り返す間は、HandleAnimEventStepMontageEndedがここで選ばれたMontageをそのまま再生し続ける（再抽選しない）
 	const FAnimSequenceEntry* SelectedEntry = PickRandomAnimSequenceEntryForTag(AnimSequenceDataTable, Step.Tag);
 	UAnimMontage* Montage = SelectedEntry ? SelectedEntry->Montage : nullptr;
+
+	SyncAnimEventEquipmentVisibility(TargetCharacter, SelectedEntry && SelectedEntry->bHideAllEquipmentDuringPlay);
 
 	UAnimInstance* AnimInst = (TargetCharacter && TargetCharacter->GetMesh()) ? TargetCharacter->GetMesh()->GetAnimInstance() : nullptr;
 
@@ -986,6 +1230,23 @@ void UMyProject1GameInstance::PlayAnimEventStep(int32 StepIndex)
 		}
 
 		PlayAnimEventStepMontage(AnimInst, Montage);
+
+		// FAnimSequenceEntry::Soundの再生。前ステップと同じSoundWaveなら再生し直さず継続し、
+		// 異なる場合（None⇔設定済みを含む）のみ前のサウンドを止めてから切り替える
+		if (SelectedEntry->Sound != CurrentAnimEventSound.Get())
+		{
+			if (UAudioComponent* PrevAudio = CurrentAnimEventAudioComponent.Get())
+			{
+				PrevAudio->Stop();
+			}
+			CurrentAnimEventAudioComponent = nullptr;
+
+			if (SelectedEntry->Sound)
+			{
+				CurrentAnimEventAudioComponent = UGameplayStatics::SpawnSoundAtLocation(this, SelectedEntry->Sound, TargetCharacter->GetActorLocation());
+			}
+			CurrentAnimEventSound = SelectedEntry->Sound;
+		}
 
 		// セリフが設定されていれば、再生開始と同時にログへ出す（bIsPlayerLine=trueならプレイヤー名付き、falseなら名前なし）
 		if (!SelectedEntry->Line.IsEmpty())
@@ -1070,17 +1331,34 @@ AAnimEventActor* UMyProject1GameInstance::GetOrSpawnAnimEventExtraActor(const FA
 {
 	if (Pairing.ParticipantID.IsNone()) return nullptr;
 
+	ACharacter* PrimaryCharacter = AnimEventPrimaryCharacter.Get();
+	if (!PrimaryCharacter) return nullptr;
+
+	// SpawnRelativeLocation/Rotation・Meshは、同じParticipantIDでもStepごとに異なる場合がある
+	// （例：Step0は立ち姿勢、Step1は横たわる姿勢など）。既にスポーン済みでも、SpawnOrUpdateAnimSequenceProp
+	// と同じ「スポーンor更新」方式で、呼ばれるたびに今回のPairingの内容へ更新し直す
+	const FTransform RelativeTransform(Pairing.SpawnRelativeRotation, Pairing.SpawnRelativeLocation);
+	const FTransform SpawnTransform = RelativeTransform * PrimaryCharacter->GetActorTransform();
+
+	// CurrentAnimEventExtraMeshOverrideが設定されていれば、DT_AnimSequences側のPairing.Meshより優先する
+	// （DT_Dialogs::AnimSequenceNPCMeshOverride経由。同じAnimEventIDを複数種のNPC見た目で使い回すための機能）
+	const TSoftObjectPtr<USkeletalMesh>& MeshToUse = !CurrentAnimEventExtraMeshOverride.IsNull() ? CurrentAnimEventExtraMeshOverride : Pairing.Mesh;
+
 	if (AAnimEventActor* Existing = AnimEventExtraActors.FindRef(Pairing.ParticipantID).Get())
 	{
+		Existing->SetActorTransform(SpawnTransform);
+		if (USkeletalMeshComponent* ExistingMesh = Existing->GetMesh())
+		{
+			if (USkeletalMesh* LoadedMesh = MeshToUse.LoadSynchronous())
+			{
+				ExistingMesh->SetSkeletalMesh(LoadedMesh);
+			}
+		}
 		return Existing;
 	}
 
-	ACharacter* PrimaryCharacter = AnimEventPrimaryCharacter.Get();
 	UWorld* World = GetWorld();
-	if (!PrimaryCharacter || !World) return nullptr;
-
-	const FTransform RelativeTransform(Pairing.SpawnRelativeRotation, Pairing.SpawnRelativeLocation);
-	const FTransform SpawnTransform = RelativeTransform * PrimaryCharacter->GetActorTransform();
+	if (!World) return nullptr;
 
 	FActorSpawnParameters SpawnParams;
 	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
@@ -1090,18 +1368,10 @@ AAnimEventActor* UMyProject1GameInstance::GetOrSpawnAnimEventExtraActor(const FA
 
 	if (USkeletalMeshComponent* NewMesh = NewActor->GetMesh())
 	{
-		if (USkeletalMesh* LoadedMesh = Pairing.Mesh.LoadSynchronous())
+		if (USkeletalMesh* LoadedMesh = MeshToUse.LoadSynchronous())
 		{
 			NewMesh->SetSkeletalMesh(LoadedMesh);
 		}
-		if (Pairing.AnimClass)
-		{
-			NewMesh->SetAnimInstanceClass(Pairing.AnimClass);
-		}
-
-		// Primary/Secondaryと同じ「基準値＋Offset」方式に揃えるため、スポーン直後のMesh相対Transformを基準値としてキャッシュする
-		AnimEventExtraBaseMeshLocations.Add(Pairing.ParticipantID, NewMesh->GetRelativeLocation());
-		AnimEventExtraBaseMeshRotations.Add(Pairing.ParticipantID, NewMesh->GetRelativeRotation());
 	}
 
 	AnimEventExtraActors.Add(Pairing.ParticipantID, NewActor);
@@ -1119,16 +1389,16 @@ float UMyProject1GameInstance::PlayAnimEventPairing(const FAnimEventPairing& Pai
 	UAnimMontage* Montage = Pairing.Montage;
 
 	USkeletalMeshComponent* TargetMesh = ExtraActor->GetMesh();
-	UAnimInstance* AnimInst = TargetMesh ? TargetMesh->GetAnimInstance() : nullptr;
+	if (!Montage || !TargetMesh) return -1.0f;
 
-	if (!Montage || !AnimInst || !TargetMesh) return -1.0f;
+	// mapに置いたSkeletalMeshComponentにAnimation Sequenceを直接セットして再生するのと同じ仕組み。
+	// PlayAnimationはAnimationMode切替・SingleNodeInstance生成・Slotノード登録までまとめて行うため、
+	// ABP（AnimClass）を用意せずにMontageを再生できる
+	TargetMesh->PlayAnimation(Montage, false);
+	UAnimInstance* AnimInst = TargetMesh->GetAnimInstance();
+	if (!AnimInst) return -1.0f;
 
 	CurrentAnimEventExtraMontages.Add(Pairing.ParticipantID, Montage);
-
-	const FVector BaseLocation = AnimEventExtraBaseMeshLocations.FindRef(Pairing.ParticipantID);
-	const FRotator BaseRotation = AnimEventExtraBaseMeshRotations.FindRef(Pairing.ParticipantID);
-	TargetMesh->SetRelativeLocation(BaseLocation + Pairing.MeshLocationOffset);
-	TargetMesh->SetRelativeRotation(BaseRotation + Pairing.MeshRotationOffset);
 
 	PlayAnimEventStepMontage(AnimInst, Montage);
 
@@ -1170,6 +1440,14 @@ float UMyProject1GameInstance::PlayAnimEventPairing(const FAnimEventPairing& Pai
 // AnimEventExtraActorsに残っている全Extra参加者と、CurrentAnimSequencePropActorを破棄してクリアする
 void UMyProject1GameInstance::DestroyAnimEventExtraActors()
 {
+	// FAnimSequenceEntry::Soundで再生中のサウンドを停止する（全Step完了・強制終了どちらの後片付けからも呼ばれる）
+	if (UAudioComponent* CurrentAudio = CurrentAnimEventAudioComponent.Get())
+	{
+		CurrentAudio->Stop();
+	}
+	CurrentAnimEventAudioComponent = nullptr;
+	CurrentAnimEventSound = nullptr;
+
 	for (const TPair<FName, TWeakObjectPtr<AAnimEventActor>>& Pair : AnimEventExtraActors)
 	{
 		if (AAnimEventActor* ExtraActor = Pair.Value.Get())
@@ -1178,8 +1456,6 @@ void UMyProject1GameInstance::DestroyAnimEventExtraActors()
 		}
 	}
 	AnimEventExtraActors.Reset();
-	AnimEventExtraBaseMeshLocations.Reset();
-	AnimEventExtraBaseMeshRotations.Reset();
 	CurrentAnimEventExtraMontages.Reset();
 
 	if (AStaticMeshActor* PropActor = CurrentAnimSequencePropActor.Get())
@@ -1187,6 +1463,123 @@ void UMyProject1GameInstance::DestroyAnimEventExtraActors()
 		PropActor->Destroy();
 	}
 	CurrentAnimSequencePropActor.Reset();
+
+	// PlayAnimSequenceEventがbHideSecondaryContextActorDuringAnim=trueで非表示にしたSecondaryContextActorを再表示する
+	if (ACharacter* HiddenNPC = AnimEventHiddenSecondaryNPC.Get())
+	{
+		HiddenNPC->SetActorHiddenInGame(false);
+	}
+	AnimEventHiddenSecondaryNPC.Reset();
+
+	// SyncAnimEventEquipmentVisibilityがFAnimSequenceEntry::bHideAllEquipmentDuringPlay=trueで非表示にした装備を再表示する
+	if (ACharacter* HiddenEquipChar = AnimEventHiddenEquipmentCharacter.Get())
+	{
+		if (AMyProject1Character* MyHiddenEquipChar = Cast<AMyProject1Character>(HiddenEquipChar))
+		{
+			MyHiddenEquipChar->SetAllEquipmentComponentsVisible(true);
+		}
+	}
+	AnimEventHiddenEquipmentCharacter.Reset();
+}
+
+// FAnimSequenceEntry::bHideAllEquipmentDuringPlayに従って、TargetCharacterの装備表示状態を同期する（GameInstance.h参照）
+void UMyProject1GameInstance::SyncAnimEventEquipmentVisibility(ACharacter* TargetCharacter, bool bWantHidden)
+{
+	ACharacter* CurrentlyHidden = AnimEventHiddenEquipmentCharacter.Get();
+
+	// 対象が切り替わった、または非表示不要になった場合は、前回非表示にしたキャラクターを先に再表示する
+	if (CurrentlyHidden && (CurrentlyHidden != TargetCharacter || !bWantHidden))
+	{
+		if (AMyProject1Character* MyCurrentlyHidden = Cast<AMyProject1Character>(CurrentlyHidden))
+		{
+			MyCurrentlyHidden->SetAllEquipmentComponentsVisible(true);
+		}
+		AnimEventHiddenEquipmentCharacter.Reset();
+	}
+
+	if (bWantHidden && TargetCharacter && AnimEventHiddenEquipmentCharacter.Get() != TargetCharacter)
+	{
+		if (AMyProject1Character* MyTargetCharacter = Cast<AMyProject1Character>(TargetCharacter))
+		{
+			MyTargetCharacter->SetAllEquipmentComponentsVisible(false);
+			AnimEventHiddenEquipmentCharacter = TargetCharacter;
+		}
+	}
+}
+
+// 進行中のAnimSequenceEvent（PlayAnimEventStepのStepチェーン）を、全Step完了を待たずに強制的に中断する。
+// ResolveActiveEventの強制終了パスと、PlayAnimSequenceEventの再入防止（前回のStepチェーンが終わっていないまま
+// 新しいイベントが呼ばれた場合、古いExtra参加者が新しいMesh・位置設定を受けずに使い回されてしまうのを防ぐ）から呼ぶ
+void UMyProject1GameInstance::AbortCurrentAnimEventStepChain()
+{
+	GetTimerManager().ClearTimer(AnimEventStepDurationTimerHandle);
+	GetTimerManager().ClearTimer(AnimEventStepTransitionTimerHandle);
+	CurrentAnimEventStepIndex = INDEX_NONE;
+	bAnimEventStepLooping = false;
+	bAnimEventSequenceStarted = false;
+	CurrentAnimEventID = NAME_None;
+	PendingAnimEventNextStepIndex = INDEX_NONE;
+	CurrentAnimEventExtraMeshOverride.Reset();
+
+	// PlayAnimEventStep側の後片付けが動かないため、止めた入力ロック・NPCのAIロジックをここで明示的に戻す。
+	// あわせて、Mesh位置Offset・Capsuleの一時的なコリジョン応答・MovementModeも正常完了時と同じ内容へ戻す
+	// （ここを戻さないまま次のPlayAnimSequenceEventが基準位置を再キャッシュすると、Offset分が基準値に
+	// 混入して位置がズレ続ける原因になるため）
+	if (ACharacter* PrimaryCharacter = AnimEventPrimaryCharacter.Get())
+	{
+		if (AMyProject1Character* MyPrimaryCharacter = Cast<AMyProject1Character>(PrimaryCharacter))
+		{
+			MyPrimaryCharacter->SetAnimEventInputLocked(false);
+
+			// EventBGMでオーバーライドしていた場合、正常完了時（PlayAnimEventStep）と同じくBGM状態を戻す
+			if (bAnimEventOverrodeMusic && MyPrimaryCharacter->MusicComp)
+			{
+				MyPrimaryCharacter->MusicComp->ExitOverrideMusic();
+			}
+		}
+		if (USkeletalMeshComponent* PrimaryMesh = PrimaryCharacter->GetMesh())
+		{
+			PrimaryMesh->SetRelativeLocation(AnimEventPrimaryBaseMeshLocation);
+			PrimaryMesh->SetRelativeRotation(AnimEventPrimaryBaseMeshRotation);
+		}
+		if (UCapsuleComponent* PrimaryCapsule = PrimaryCharacter->GetCapsuleComponent())
+		{
+			PrimaryCapsule->SetCollisionResponseToChannel(ECC_Pawn, AnimEventPrimaryOriginalPawnResponse);
+		}
+		if (UCharacterMovementComponent* PrimaryMovement = PrimaryCharacter->GetCharacterMovement())
+		{
+			PrimaryMovement->SetMovementMode(AnimEventPrimaryOriginalMovementMode, AnimEventPrimaryOriginalCustomMovementMode);
+		}
+	}
+	if (ACharacter* SecondaryCharacter = Cast<ACharacter>(AnimEventSecondaryContextActor.Get()))
+	{
+		if (AAIController* SecondaryAI = Cast<AAIController>(SecondaryCharacter->GetController()))
+		{
+			if (UBrainComponent* Brain = SecondaryAI->GetBrainComponent())
+			{
+				Brain->ResumeLogic(TEXT("AnimSequenceEvent"));
+			}
+		}
+		if (USkeletalMeshComponent* SecondaryMesh = SecondaryCharacter->GetMesh())
+		{
+			SecondaryMesh->SetRelativeLocation(AnimEventSecondaryBaseMeshLocation);
+			SecondaryMesh->SetRelativeRotation(AnimEventSecondaryBaseMeshRotation);
+		}
+		if (UCapsuleComponent* SecondaryCapsule = SecondaryCharacter->GetCapsuleComponent())
+		{
+			SecondaryCapsule->SetCollisionResponseToChannel(ECC_Pawn, AnimEventSecondaryOriginalPawnResponse);
+		}
+		if (UCharacterMovementComponent* SecondaryMovement = SecondaryCharacter->GetCharacterMovement())
+		{
+			SecondaryMovement->SetMovementMode(AnimEventSecondaryOriginalMovementMode, AnimEventSecondaryOriginalCustomMovementMode);
+		}
+	}
+
+	AnimEventPrimaryCharacter.Reset();
+	AnimEventSecondaryContextActor.Reset();
+	CurrentAnimEventMontage.Reset();
+
+	DestroyAnimEventExtraActors();
 }
 
 // Entry.PropMeshが設定されていれば、AnimEventPrimaryCharacter（Player）基準のPropRelativeLocation/Rotationへ
@@ -1194,7 +1587,17 @@ void UMyProject1GameInstance::DestroyAnimEventExtraActors()
 // PropMesh未設定なら何もしない（Player再生時のみ呼ばれる想定。NPC側では呼ばない）
 void UMyProject1GameInstance::SpawnOrUpdateAnimSequenceProp(const FAnimSequenceEntry& Entry)
 {
-	if (Entry.PropMesh.IsNull()) return;
+	if (Entry.PropMesh.IsNull())
+	{
+		// 前のStepでPropMesh付きの行がスポーンしたPropが、今回のStepではPropMesh未設定で不要になった場合、
+		// 消し忘れて次のStep（さらにはイベント完了まで）残り続けないよう、ここで破棄する
+		if (AStaticMeshActor* StaleProp = CurrentAnimSequencePropActor.Get())
+		{
+			StaleProp->Destroy();
+			CurrentAnimSequencePropActor.Reset();
+		}
+		return;
+	}
 
 	ACharacter* PrimaryCharacter = AnimEventPrimaryCharacter.Get();
 	UWorld* World = GetWorld();
@@ -1273,12 +1676,49 @@ void UMyProject1GameInstance::PlayAnimSequenceRowDirect(FName RowName, ACharacte
 		AnimEventPrimaryBaseMeshLocation = PrimaryMesh->GetRelativeLocation();
 		AnimEventPrimaryBaseMeshRotation = PrimaryMesh->GetRelativeRotation();
 	}
+	// PlayAnimSequenceEventと同じく、再生開始直前のワールドTransformを固定基準として保存する
+	AnimEventPrimaryLockedActorLocation = PrimaryCharacter->GetActorLocation();
+	AnimEventPrimaryLockedActorRotation = PrimaryCharacter->GetActorRotation();
 	if (ACharacter* SecondaryCharacter = Cast<ACharacter>(SecondaryContextActor))
 	{
+		if (AQuestNPCBase* QuestNPC = Cast<AQuestNPCBase>(SecondaryCharacter))
+		{
+			QuestNPC->StopReturnTurnImmediately();
+		}
+
+		if (AAIController* SecondaryAI = Cast<AAIController>(SecondaryCharacter->GetController()))
+		{
+			SecondaryAI->StopMovement();
+			if (UBrainComponent* Brain = SecondaryAI->GetBrainComponent())
+			{
+				Brain->PauseLogic(TEXT("AnimSequenceRowDirect"));
+			}
+		}
+
 		if (USkeletalMeshComponent* SecondaryMesh = SecondaryCharacter->GetMesh())
 		{
 			AnimEventSecondaryBaseMeshLocation = SecondaryMesh->GetRelativeLocation();
 			AnimEventSecondaryBaseMeshRotation = SecondaryMesh->GetRelativeRotation();
+		}
+		AnimEventSecondaryLockedActorLocation = SecondaryCharacter->GetActorLocation();
+		AnimEventSecondaryLockedActorRotation = SecondaryCharacter->GetActorRotation();
+	}
+
+	// PlayAnimSequenceEventと同じ理由（重力・床判定・RootMotionによる位置ズレ/めり込み防止）で、
+	// テスト再生中もCharacterMovementComponentを一時停止する（MOVE_None）。StopAnimSequenceRowDirectで元へ戻す
+	if (UCharacterMovementComponent* PrimaryMovement = PrimaryCharacter->GetCharacterMovement())
+	{
+		AnimEventPrimaryOriginalMovementMode = PrimaryMovement->MovementMode;
+		AnimEventPrimaryOriginalCustomMovementMode = PrimaryMovement->CustomMovementMode;
+		PrimaryMovement->SetMovementMode(MOVE_None);
+	}
+	if (ACharacter* SecondaryCharacterForMovement = Cast<ACharacter>(SecondaryContextActor))
+	{
+		if (UCharacterMovementComponent* SecondaryMovement = SecondaryCharacterForMovement->GetCharacterMovement())
+		{
+			AnimEventSecondaryOriginalMovementMode = SecondaryMovement->MovementMode;
+			AnimEventSecondaryOriginalCustomMovementMode = SecondaryMovement->CustomMovementMode;
+			SecondaryMovement->SetMovementMode(MOVE_None);
 		}
 	}
 
@@ -1288,6 +1728,8 @@ void UMyProject1GameInstance::PlayAnimSequenceRowDirect(FName RowName, ACharacte
 	ACharacter* TargetCharacter = ResolveAnimEventTargetCharacter(PlayTarget, AnimEventPrimaryCharacter, AnimEventSecondaryContextActor);
 	USkeletalMeshComponent* TargetMesh = TargetCharacter ? TargetCharacter->GetMesh() : nullptr;
 	UAnimInstance* AnimInst = TargetMesh ? TargetMesh->GetAnimInstance() : nullptr;
+
+	SyncAnimEventEquipmentVisibility(TargetCharacter, Entry->bHideAllEquipmentDuringPlay);
 
 	if (Entry->Montage && TargetMesh && AnimInst)
 	{
@@ -1311,6 +1753,13 @@ void UMyProject1GameInstance::PlayAnimSequenceRowDirect(FName RowName, ACharacte
 
 		CurrentAnimSequenceRowDirectMontage = Entry->Montage;
 		AnimInst->Montage_Play(Entry->Montage);
+
+		// このMontage再生開始と同時に1回だけ再生するサウンド（FAnimSequenceEntry::Sound。未設定なら何もしない。
+		// 位置調整用の無限ループ再生（下記）では継ぎ目ごとに再生し直さない＝ここで最初の1回のみ鳴らす）
+		if (Entry->Sound)
+		{
+			UGameplayStatics::PlaySoundAtLocation(this, Entry->Sound, TargetCharacter->GetActorLocation());
+		}
 
 		// 位置調整のため、明示的に止める（StopAnimSequenceRowDirect）までループし続ける
 		FOnMontageBlendingOutStarted BlendingOutDelegate;
@@ -1414,6 +1863,11 @@ void UMyProject1GameInstance::StopAnimSequenceRowDirect()
 			PrimaryMesh->SetRelativeLocation(AnimEventPrimaryBaseMeshLocation);
 			PrimaryMesh->SetRelativeRotation(AnimEventPrimaryBaseMeshRotation);
 		}
+		// テスト再生開始時にMOVE_Noneで止めたMovementModeを元に戻す
+		if (UCharacterMovementComponent* PrimaryMovement = PrimaryCharacter->GetCharacterMovement())
+		{
+			PrimaryMovement->SetMovementMode(AnimEventPrimaryOriginalMovementMode, AnimEventPrimaryOriginalCustomMovementMode);
+		}
 	}
 	if (ACharacter* SecondaryCharacter = Cast<ACharacter>(AnimEventSecondaryContextActor.Get()))
 	{
@@ -1421,6 +1875,18 @@ void UMyProject1GameInstance::StopAnimSequenceRowDirect()
 		{
 			SecondaryMesh->SetRelativeLocation(AnimEventSecondaryBaseMeshLocation);
 			SecondaryMesh->SetRelativeRotation(AnimEventSecondaryBaseMeshRotation);
+		}
+		if (UCharacterMovementComponent* SecondaryMovement = SecondaryCharacter->GetCharacterMovement())
+		{
+			SecondaryMovement->SetMovementMode(AnimEventSecondaryOriginalMovementMode, AnimEventSecondaryOriginalCustomMovementMode);
+		}
+		// 再生開始時に止めたNPCのAIロジック（BehaviorTree）を再開する
+		if (AAIController* SecondaryAI = Cast<AAIController>(SecondaryCharacter->GetController()))
+		{
+			if (UBrainComponent* Brain = SecondaryAI->GetBrainComponent())
+			{
+				Brain->ResumeLogic(TEXT("AnimSequenceRowDirect"));
+			}
 		}
 	}
 
@@ -1454,7 +1920,7 @@ TArray<FAnimSequenceRowInfo> UMyProject1GameInstance::GetAllAnimSequenceRows() c
 
 		FAnimSequenceRowInfo Info;
 		Info.RowName = RowName;
-		Info.Tag = Row->Tag;
+		Info.Tags = Row->Tags;
 		Result.Add(Info);
 	}
 	return Result;
@@ -1661,7 +2127,7 @@ void UMyProject1GameInstance::BeginAnimEventSequenceIfNeeded()
 		OnAnimSequenceEventFinished.AddDynamic(this, &UMyProject1GameInstance::HandleAnimSequenceEventFinishedForActiveEvent);
 	}
 
-	PlayAnimSequenceEvent(Definition->AnimEventID, ActiveEventPlayer.Get(), ActiveEventContextActor.Get());
+	PlayAnimSequenceEvent(Definition->AnimEventID, ActiveEventPlayer.Get(), ActiveEventContextActor.Get(), false, ActiveEventExtraMeshOverride, bActiveEventHideContextActorDuringAnimEvent);
 }
 
 void UMyProject1GameInstance::HandleAnimSequenceEventFinishedForActiveEvent(bool bCompletedNormally)

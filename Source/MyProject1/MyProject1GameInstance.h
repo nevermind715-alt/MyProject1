@@ -10,6 +10,10 @@
 class UAnimMontage;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnWarpFadeOutRequested);
+// ShowTextDuringFadeのナレーション全行読了後、WBP_LoadingScreen側へ「今から明転を開始してよい」と合図する。
+// WBP_LoadingScreenは通常OnAnimationFinishedで自動的に明転するが、ナレーション中はその自動遷移を止め、
+// このイベントを受けて初めてStartFadeIn相当の処理を呼ぶ必要がある（BP側の対応が必須）
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnNarrationReadyToFadeIn);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_FiveParams(FOnInGameTimeChanged, int32, Year, int32, Month, int32, Day, int32, Hour, int32, Minute);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnDayChangedSignature);
 
@@ -71,6 +75,24 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Warp")
 	FOnWarpFadeOutRequested OnWarpFadeOutRequested;
 
+	// UI側でこれにイベントバインドする（ShowTextDuringFade用。WBP_LoadingScreen側で、
+	// ナレーション中に止めていた自動明転をここで再開させるために使う）
+	UPROPERTY(BlueprintAssignable, Category = "Warp")
+	FOnNarrationReadyToFadeIn OnNarrationReadyToFadeIn;
+
+	// ShowTextDuringFadeのナレーション表示中（暗転を維持すべき区間）かどうか。
+	// WBP_LoadingScreen側で、暗転アニメーション終了時の自動明転をこの間だけ止めるために使う
+	UFUNCTION(BlueprintPure, Category = "Warp")
+	bool IsWaitingForNarrationCompletion() const { return bWaitingForNarrationCompletion; }
+
+	// IsWaitingForNarrationCompletionと異なり、暗転要求が来た瞬間（RequestFadeThenShowNarration呼び出し直後、
+	// まだExecuteWarpProcessが実行されておらずbWaitingForNarrationCompletionがfalseの間）からtrueを返す。
+	// BP側のPlay Animation終了イベント（WarpFadeOutDuration秒のC++タイマーとは別系統で走る）が、
+	// C++側がbWaitingForNarrationCompletionをtrueにするより先に発火することがあるため、
+	// WBP_LoadingScreen側のBranch判定にはこちらを使う（自動明転を止めるべきかの判定がタイマー競合の影響を受けない）
+	UFUNCTION(BlueprintPure, Category = "Warp")
+	bool IsNarrationFadePending() const { return ReservedNarrationComponent.IsValid() || bWaitingForNarrationCompletion; }
+
 	/** ワープ先名簿（データテーブル）をセットする場所 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Warp")
 	UDataTable* WarpDataTable;
@@ -124,6 +146,17 @@ public:
 	 *  暗転が終わった瞬間にSourceLink->ExecuteWarpNow()を呼び、実際のテレポートを行う */
 	UFUNCTION(BlueprintCallable, Category = "Warp")
 	void RequestFadeThenWallWarp(class AWallWarpLink* SourceLink, class ACharacter* TargetCharacter);
+
+	/** UDialogComponentからの要求（ActionType=ShowTextDuringFade用）。エリアChangeと同じ暗転
+	 *  （OnWarpFadeOutRequested）を挟み、画面が真っ暗になった瞬間にNarrationComponent->BeginFadeNarration()を呼ぶ。
+	 *  通常のRequestFadeThen〇〇と異なり、明転はプレイヤーが全行読み終えるまで自動では始まらない
+	 *  （ResumeFadeInAfterNarrationが呼ばれるまでHandleWarpFadeOutCompleteがFadeInタイマーを保留する） */
+	void RequestFadeThenShowNarration(class UDialogComponent* NarrationComponent, class ACharacter* TargetCharacter);
+
+	/** ShowTextDuringFadeの全行を読み終えた後、UDialogComponent::AdvanceFadeNarrationLineから呼ばれる。
+	 *  保留していた明転タイマーをここで開始し、明転完了後はHandleWarpFadeInCompleteが
+	 *  NarrationComponent->ResumeAfterFadeNarration(NextDialogID)を呼んで会話を継続させる */
+	void ResumeFadeInAfterNarration(class UDialogComponent* NarrationComponent, FName NextDialogID);
 
 	/** DT_WarpDestinationsの全行を、UI表示用の軽量データ一覧として取得する（デバッグメニュー等がBP側で一覧を組み立てる際に使う） */
 	UFUNCTION(BlueprintCallable, Category = "Warp")
@@ -255,9 +288,13 @@ public:
 	/** EventDistributorComponentの抽選で決まったEventIDを渡し、対応する施設（WarpID）へワープしてイベントを開始する。
 	 *  ClearCondition=TimeElapsed/Bothの場合はTimeLimitSeconds後に自動でResolveActiveEvent(true)を呼ぶ。
 	 *  ClearCondition=AnimationSequenceの場合は暗転明け後にAnimEventIDのステップ再生を開始し、完走で自動成立する。
-	 *  EventContextActorはTriggerEventPoolを呼び出したOwnerActor（NPC/敵など）。FAnimEventStep::PlayTarget=NPC時の再生対象になる */
+	 *  EventContextActorはTriggerEventPoolを呼び出したOwnerActor（NPC/敵など）。FAnimEventStep::PlayTarget=NPC時の再生対象になる。
+	 *  ExtraParticipantMeshOverrideは、ClearCondition=AnimationSequenceで再生するAnimEventIDのExtra参加者
+	 *  （ExtraPairings）のメッシュ差し替えに使う（BeginAnimEventSequenceIfNeeded→PlayAnimSequenceEventへそのまま渡す）。
+	 *  bHideContextActorDuringAnimEventが設定されていれば、そのAnimEvent再生中だけEventContextActor自身を
+	 *  非表示にする（同じくBeginAnimEventSequenceIfNeeded→PlayAnimSequenceEventへそのまま渡す） */
 	UFUNCTION(BlueprintCallable, Category = "Event")
-	void StartEvent(FName EventID, class ACharacter* PlayerCharacter, class AActor* EventContextActor = nullptr);
+	void StartEvent(FName EventID, class ACharacter* PlayerCharacter, class AActor* EventContextActor = nullptr, TSoftObjectPtr<class USkeletalMesh> ExtraParticipantMeshOverride = nullptr, bool bHideContextActorDuringAnimEvent = false);
 
 	/** 施設側のクリア判定（インタラクト等）、または制限時間切れから呼ばれる。bSuccess=trueなら成立、falseなら不成立として
 	 *  対応するアクション群（SuccessActions/FailureActions）を実行し、ReturnWarpIDへ戻す */
@@ -287,9 +324,48 @@ public:
 	 *  （例：会話中のNPCや、EventDistributorComponentが付いているOwnerActor）。完了時にOnAnimSequenceEventFinishedをBroadcastする。
 	 *  bFadeInBeforeStart=trueなら、Step0の再生前にもステップ切り替えと同じ暗転を挟む。
 	 *  イベント分岐システム経由（BeginAnimEventSequenceIfNeeded）は既にワープ暗転明け直後なのでfalseのまま呼ぶ想定。
-	 *  会話・QuestItemPointなどワープを経由しない直接呼び出しはtrueを渡すことで開始時にも暗転させられる */
+	 *  会話・QuestItemPointなどワープを経由しない直接呼び出しはtrueを渡すことで開始時にも暗転させられる。
+	 *  ExtraParticipantMeshOverrideが設定されていれば、このAnimEventID再生中にスポーンするExtra参加者
+	 *  （FAnimSequenceEntry::ExtraPairings）のメッシュを、Pairing.Meshの代わりにこれで差し替える
+	 *  （FDialogData::AnimSequenceNPCMeshOverride参照。同じDT_AnimEventsを複数種のNPC見た目で使い回すための機能）。
+	 *  bHideSecondaryContextActorDuringAnimが設定されていれば、このAnimEventID再生中だけSecondaryContextActor
+	 *  自身を非表示にし、全Step完了・強制終了のどちらでも自動的に再表示する（FDialogChoice::bHideTalkingNPCDuringAnimEvent参照。
+	 *  ExtraPairingsが話しかけた相手と同じ見た目を演じる演出で、フィールド上の本体と重なって「分身」に見えるのを防ぐ用途） */
 	UFUNCTION(BlueprintCallable, Category = "AnimEvent")
-	void PlayAnimSequenceEvent(FName AnimEventID, class ACharacter* PrimaryCharacter, class AActor* SecondaryContextActor = nullptr, bool bFadeInBeforeStart = false);
+	void PlayAnimSequenceEvent(FName AnimEventID, class ACharacter* PrimaryCharacter, class AActor* SecondaryContextActor = nullptr, bool bFadeInBeforeStart = false, TSoftObjectPtr<class USkeletalMesh> ExtraParticipantMeshOverride = nullptr, bool bHideSecondaryContextActorDuringAnim = false);
+
+	/** Characterが現在PlayAnimSequenceEventのPrimaryCharacterとして再生中（開始〜完了通知の間）かどうか。
+	 *  会話終了処理など、他システムがアニメ再生中の入力ロック（SetInputLocked）を誤って解除しないためのガードに使う */
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "AnimEvent")
+	bool IsPlayingAnimSequenceEventFor(const class ACharacter* Character) const;
+
+	/** Actorが現在PlayAnimSequenceEvent/PlayAnimSequenceRowDirectのSecondaryContextActor（NPC側再生対象）として
+	 *  使われているかどうか。AQuestNPCBase::OnTalkDialogClosedが、これからAnimEventの対象になるNPCの
+	 *  「会話前の向きへ戻す」処理を開始してしまわないようにするガードに使う */
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "AnimEvent")
+	bool IsAnimEventSecondaryContextActor(const class AActor* Actor) const;
+
+	/** Actorが現在PlayAnimSequenceEvent/PlayAnimSequenceRowDirectのPrimary/Secondaryとして再生中なら、
+	 *  再生開始した瞬間（暗転前）のワールドTransformをOutLocation/OutRotationへ返しtrueを返す。
+	 *  AMyProject1Character::Tickが毎フレームこのTransformへ強制的に固定し直すことで、ターゲット追従回転や
+	 *  移動処理など他のTickロジックがアニメーション再生中に位置・向きをズラしてしまうのを防ぐために使う */
+	bool GetAnimSequenceLockedTransform(const class AActor* Actor, FVector& OutLocation, FRotator& OutRotation) const;
+
+	/** 進行中イベント（StartEvent〜ResolveActiveEvent）のClearConditionがAnimationSequenceかどうか。
+	 *  StartEventはワープの暗転を挟んでからPlayAnimSequenceEventを開始するため、ワープ待ち～暗転中の間は
+	 *  まだIsPlayingAnimSequenceEventForがtrueにならない。会話終了処理（CloseDialog）が、この間に
+	 *  誤って入力ロックを解除してしまわないよう、そちらのガードにも使う */
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Event")
+	bool IsActiveEventPendingAnimationSequence() const;
+
+	/** Actorが進行中イベント（StartEvent〜ResolveActiveEvent）のEventContextActor（TriggerEventPoolを
+	 *  呼んだNPC自身）であり、かつそのイベントのClearConditionがAnimationSequenceかどうか。
+	 *  StartEvent（TriggerEventPool経由）はワープの暗転を挟んでからPlayAnimSequenceEventでこのNPCの
+	 *  基準値をキャッシュするため、CloseDialogが呼ばれる時点（暗転前）ではIsAnimEventSecondaryContextActorは
+	 *  まだtrueにならない。AQuestNPCBase::OnTalkDialogClosedが、この間に向き戻しを開始してしまわないよう、
+	 *  ActiveEventContextActor基準で先んじて判定するためのガードに使う */
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Event")
+	bool IsActiveEventContextActorPendingAnimationSequence(const class AActor* Actor) const;
 
 private:
 	// 進行中イベントの制限時間タイマー、および対象プレイヤーの記憶（StartEvent/ResolveActiveEvent用）
@@ -298,6 +374,14 @@ private:
 
 	// StartEventに渡されたEventContextActor（TriggerEventPoolを呼んだOwnerActor）の記憶。FAnimEventStep::PlayTarget=NPC用
 	TWeakObjectPtr<class AActor> ActiveEventContextActor;
+
+	// StartEventに渡されたExtraParticipantMeshOverrideの記憶。ClearCondition=AnimationSequence時、
+	// BeginAnimEventSequenceIfNeededがPlayAnimSequenceEventへそのまま渡す（FDialogChoice::AnimSequenceNPCMeshOverride用）
+	TSoftObjectPtr<class USkeletalMesh> ActiveEventExtraMeshOverride;
+
+	// StartEventに渡されたbHideContextActorDuringAnimEventの記憶。BeginAnimEventSequenceIfNeededが
+	// PlayAnimSequenceEventへそのまま渡す（FDialogChoice::bHideTalkingNPCDuringAnimEvent用）
+	bool bActiveEventHideContextActorDuringAnimEvent = false;
 
 	/** ActiveEventTimeLimitTimerHandleから呼ばれ、制限時間経過による成立（ResolveActiveEvent(true)）を行う */
 	void HandleActiveEventTimeUp();
@@ -329,19 +413,29 @@ private:
 	// HandleAnimEventStepMontageEndedが新しいステップの状態と誤って結びつけないための照合に使う
 	TWeakObjectPtr<class UAnimMontage> CurrentAnimEventMontage;
 
+	// FAnimSequenceEntry::Soundで現在再生中のサウンド（メイン参加者のみ。ExtraPairingsにはSound設定がない）。
+	// ステップ開始時、直前のCurrentAnimEventSoundと同じSoundWaveなら再生し直さず継続し、異なる場合のみ
+	// CurrentAnimEventAudioComponentを止めてから新しいサウンドを再生する（PlayAnimEventStep参照）。
+	// 全Step完了・強制終了のどちらでもDestroyAnimEventExtraActorsで停止・クリアする
+	TWeakObjectPtr<class UAudioComponent> CurrentAnimEventAudioComponent;
+	TWeakObjectPtr<class USoundBase> CurrentAnimEventSound;
+
 	// FAnimEventPairing::ParticipantID → そのIDのためにスポーンした表示専用Character（AAnimEventActor）。
 	// AnimEventの開始時は空。抽選で選ばれたFAnimSequenceEntry::ExtraPairingsにそのIDが初登場したStepで
 	// スポーンし、全Step完了・イベント強制終了のどちらでもDestroyAnimEventExtraActorsで破棄してクリアする
 	TMap<FName, TWeakObjectPtr<class AAnimEventActor>> AnimEventExtraActors;
 
-	// 各Extra参加者のスポーン時点でのMesh相対Transform（AnimEventExtraActorsと同じKey）。
-	// Primary/Secondaryと同じ「基準値＋FAnimSequenceEntryのOffset」方式に揃えるための基準値
-	TMap<FName, FVector> AnimEventExtraBaseMeshLocations;
-	TMap<FName, FRotator> AnimEventExtraBaseMeshRotations;
-
 	// 現在のステップで各Extra参加者が実際に再生中のモンタージュ（AnimEventExtraActorsと同じKey）。
 	// CurrentAnimEventMontageのExtra参加者版
 	TMap<FName, TWeakObjectPtr<class UAnimMontage>> CurrentAnimEventExtraMontages;
+
+	// PlayAnimSequenceEventがbHideSecondaryContextActorDuringAnim=trueで非表示にしたSecondaryContextActorの記憶。
+	// 有効な間だけ、DestroyAnimEventExtraActors（全Step完了・強制終了どちらの後片付けからも呼ばれる）で再表示する
+	TWeakObjectPtr<class ACharacter> AnimEventHiddenSecondaryNPC;
+
+	// SyncAnimEventEquipmentVisibilityがFAnimSequenceEntry::bHideAllEquipmentDuringPlay=trueで装備を非表示にした
+	// キャラクターの記憶。有効な間だけ、DestroyAnimEventExtraActors（全Step完了・強制終了どちらの後片付けからも呼ばれる）で再表示する
+	TWeakObjectPtr<class ACharacter> AnimEventHiddenEquipmentCharacter;
 
 	// FAnimSequenceEntry::PropMeshでスポーンした小道具（椅子等、Player側のみ）。
 	// 行の再生開始時にSpawnOrUpdateAnimSequencePropでスポーン/更新し、DestroyAnimEventExtraActorsで一緒に破棄する
@@ -351,12 +445,40 @@ private:
 	// （trueの場合のみ、全ステップ完了時にAMyProject1Character::MusicComp->ExitRoomMusic()で元のBGMへ戻す）
 	bool bAnimEventOverrodeMusic = false;
 
+	// PlayAnimSequenceEventの引数ExtraParticipantMeshOverrideのキャッシュ。設定されている間は、
+	// このAnimEventID再生中にGetOrSpawnAnimEventExtraActorがスポーンするExtra参加者（FAnimEventPairing）の
+	// メッシュとして、Pairing.Meshの代わりにこちらを使う。全ステップ完了・強制終了時にリセットする
+	TSoftObjectPtr<class USkeletalMesh> CurrentAnimEventExtraMeshOverride;
+
 	// PlayAnimSequenceEvent開始時点でのPrimary/SecondaryのMesh相対Transform（FAnimSequenceEntry::MeshLocationOffset/
 	// MeshRotationOffset適用前の基準値）。各ステップ開始時はこの基準値+Offsetを都度設定し、全ステップ完了時にこの値へ戻す
 	FVector AnimEventPrimaryBaseMeshLocation = FVector::ZeroVector;
 	FRotator AnimEventPrimaryBaseMeshRotation = FRotator::ZeroRotator;
 	FVector AnimEventSecondaryBaseMeshLocation = FVector::ZeroVector;
 	FRotator AnimEventSecondaryBaseMeshRotation = FRotator::ZeroRotator;
+
+	// PlayAnimSequenceEvent/PlayAnimSequenceRowDirect開始時点でのPrimary/SecondaryのワールドActor Transform。
+	// GetAnimSequenceLockedTransform経由でAMyProject1Character::Tickが毎フレーム参照し、この位置・向きへ
+	// 強制的に固定し直す（ターゲット追従回転等、他のTickロジックによる位置ズレを防ぐため）
+	FVector AnimEventPrimaryLockedActorLocation = FVector::ZeroVector;
+	FRotator AnimEventPrimaryLockedActorRotation = FRotator::ZeroRotator;
+	FVector AnimEventSecondaryLockedActorLocation = FVector::ZeroVector;
+	FRotator AnimEventSecondaryLockedActorRotation = FRotator::ZeroRotator;
+
+	// 再生中、Primary/SecondaryのCapsuleがPawnチャンネルに対して持っていた元のコリジョン応答。
+	// AnimEvent再生中はPawn同士の押し出しを防ぐため一時的にECR_Ignoreにし、終了時にこの値へ戻す
+	// （Capsuleのコリジョン自体は切らないため、CharacterMovementComponentの地面判定・MovementModeには影響しない）
+	ECollisionResponse AnimEventPrimaryOriginalPawnResponse = ECR_Block;
+	ECollisionResponse AnimEventSecondaryOriginalPawnResponse = ECR_Block;
+
+	// 再生中、Primary/SecondaryのCharacterMovementComponentが元々持っていたMovementMode（およびCustomMovementMode）。
+	// アニメーション再生専用の演出中は重力・床判定・RootMotionによる位置ズレ/めり込みが起きないよう、CharacterMovement
+	// 自体を一時的にMOVE_None（DisableMovementと同じ、移動を完全に止める標準モード）にし、終了時にこの値へ戻す
+	// （AnimEventPrimaryBaseMeshLocation等と同じく、PlayAnimSequenceEvent/PlayAnimSequenceRowDirect共通で使う）
+	TEnumAsByte<EMovementMode> AnimEventPrimaryOriginalMovementMode = MOVE_Walking;
+	uint8 AnimEventPrimaryOriginalCustomMovementMode = 0;
+	TEnumAsByte<EMovementMode> AnimEventSecondaryOriginalMovementMode = MOVE_Walking;
+	uint8 AnimEventSecondaryOriginalCustomMovementMode = 0;
 
 	// ステップ切り替え時の暗転演出（試験実装）。ワープと同じOnWarpFadeOutRequestedをUIへBroadcastし、
 	// WarpFadeOutDuration秒後（画面が真っ暗になったタイミング）でPendingAnimEventNextStepIndexへ切り替える
@@ -424,6 +546,19 @@ private:
 	 *  全Step再生完了時、およびResolveActiveEventによるイベント強制終了時（アニメ再生中の時間切れ等）の両方から呼ぶ */
 	void DestroyAnimEventExtraActors();
 
+	/** FAnimSequenceEntry::bHideAllEquipmentDuringPlayに従って、TargetCharacterの装備表示状態を同期する。
+	 *  bWantHidden=trueならTargetCharacterの装備を非表示化して記憶する。falseの場合や、前回とは異なる
+	 *  キャラクターが指定された場合は、前回非表示にしたキャラクターがいればそちらを先に再表示してから切り替える。
+	 *  PlayAnimSequenceRowDirect（単発再生）とPlayAnimEventStep（Stepごとの抽選再生）の両方から、
+	 *  再生対象を解決した直後に呼ぶ想定 */
+	void SyncAnimEventEquipmentVisibility(class ACharacter* TargetCharacter, bool bWantHidden);
+
+	/** 進行中のAnimSequenceEvent（PlayAnimEventStepのStepチェーン）を、全Step完了を待たずに強制的に中断する。
+	 *  タイマー解除・入力ロック解除・NPCのAIロジック再開・Extra参加者破棄・状態リセットまでをまとめて行う。
+	 *  ResolveActiveEventの強制終了パスと、PlayAnimSequenceEventが前回のStepチェーン実行中に呼ばれた場合の
+	 *  再入防止（古いExtra参加者が新しいイベントのMesh/位置設定を受けずに使い回されてしまうのを防ぐ）の両方から呼ぶ */
+	void AbortCurrentAnimEventStepChain();
+
 	/** Entry.PropMeshが設定されていれば、PrimaryCharacter基準のPropRelativeLocation/Rotationへ
 	 *  CurrentAnimSequencePropActorをスポーン（未スポーンの場合）またはメッシュ差し替え・位置更新する。
 	 *  PropMesh未設定なら何もしない。PlayAnimEventStep・PlayAnimSequenceRowDirectの両方（Player再生時のみ）から呼ぶ */
@@ -444,8 +579,8 @@ public:
 	/** DT_AnimSequencesの指定行（RowName）のMontageを、PlayTargetで指定したPrimary(Player)/Secondary(NPC)側で
 	 *  再生する。位置調整中はポーズを保てるよう、明示的に止める（StopAnimSequenceRowDirect）までループし続ける。
 	 *  行のExtraPairingsも通常のイベント再生と同じ処理で同時にスポーン・再生するため（こちらは1回のみ）、
-	 *  Player/NPC/追加参加者のMeshLocationOffset/MeshRotationOffsetによる位置関係をまとめて確認できる。
-	 *  再生中に呼び直すと、前回のテスト再生（Extra参加者・位置オフセット）を片付けてから再生し直す */
+	 *  Player/NPCのMeshLocationOffset/MeshRotationOffsetと、追加参加者のSpawnRelativeLocation/Rotationによる
+	 *  位置関係をまとめて確認できる。再生中に呼び直すと、前回のテスト再生（Extra参加者・位置オフセット）を片付けてから再生し直す */
 	UFUNCTION(BlueprintCallable, Category = "AnimEvent")
 	void PlayAnimSequenceRowDirect(FName RowName, class ACharacter* PrimaryCharacter, class AActor* SecondaryContextActor, EStatTargetActor PlayTarget);
 
@@ -532,6 +667,17 @@ private:
 	// 暗転が終わるまで待機している「ワープ元のWallWarpLink」と「対象キャラクター」の記憶（RequestFadeThenWallWarp用）
 	TWeakObjectPtr<class AWallWarpLink> ReservedWallWarpLink;
 	TWeakObjectPtr<class ACharacter> ReservedWallWarpCharacter;
+
+	// 暗転が終わるまで待機している「ナレーション表示開始を通知する相手」の記憶（RequestFadeThenShowNarration用）
+	TWeakObjectPtr<class UDialogComponent> ReservedNarrationComponent;
+
+	/** ShowTextDuringFadeのナレーション表示中（BeginFadeNarration実行後〜ResumeFadeInAfterNarrationまで）true。
+	 *  HandleWarpFadeOutCompleteはこれがtrueの間、通常なら自動セットするFadeInタイマーを保留する */
+	bool bWaitingForNarrationCompletion = false;
+
+	// 明転完了後にResumeAfterFadeNarrationを呼び戻す相手と、続ける会話ID（ResumeFadeInAfterNarration用）
+	TWeakObjectPtr<class UDialogComponent> ReservedNarrationResumeComponent;
+	FName ReservedNarrationResumeNextDialogID;
 
 	/** 現在のプレイヤー状態を新しいUMyProject1SaveGameへ複製する（ディスクへは書き込まない一時オブジェクト）。
 	 *  ディスクへのセーブ（SaveCurrentGame）と、別マップへのワープでキャラクターが再生成される際の

@@ -1080,7 +1080,7 @@ bool UQuestComponent::ApplyFailurePenaltyStat(ETargetStat Stat, FName ExtraStatN
 			return false;
 		}
 		*CurrentVal += Amount;
-		StatName = ExtraStatName.ToString();
+		StatName = Stats.GetExtraStatDisplayName(ExtraStatName);
 		break;
 	}
 	default:

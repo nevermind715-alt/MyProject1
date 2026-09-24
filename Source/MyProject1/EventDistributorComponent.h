@@ -32,9 +32,17 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event")
 	FName EventPoolID;
 
-	/** EventPoolIDのプールから重み付き抽選を行い、当選したイベントを開始する（施設へワープする）。
+	/** EventPoolIDOverrideが指定されていればそちらを、Noneならこのコンポーネント自身のEventPoolIDを使い、
+	 *  そのプールから重み付き抽選を行って当選したイベントを開始する（施設へワープする）。
 	 *  PlayerCharacterは実際にイベントを体験させる対象（会話・ItemPointの場合は操作しているプレイヤー、
-	 *  戦闘敗北の場合はHP0にされたプレイヤー） */
+	 *  戦闘敗北の場合はHP0にされたプレイヤー）。
+	 *  EventPoolIDOverrideは、同じNPCの会話（DT_Dialogsの選択肢/セリフ単体アクション）ごとに違うプールを
+	 *  引きたい場合用（ActionPayload=EventPoolID）。QuestItemPoint・戦闘敗北経由は未使用のためNoneのまま呼ぶ。
+	 *  ExtraParticipantMeshOverrideが設定されていれば、当選したイベントがClearCondition=AnimationSequenceで
+	 *  再生するAnimEventIDのExtra参加者（ExtraPairings）のメッシュをこれで差し替える
+	 *  （FDialogChoice::AnimSequenceNPCMeshOverride参照。会話経由以外は未使用のためnullptrのまま呼ぶ）。
+	 *  bHideContextActorDuringAnimEventが設定されていれば、そのAnimEvent再生中だけこのコンポーネントの
+	 *  OwnerActor（話しかけた相手のNPC自身）を非表示にする（FDialogChoice::bHideTalkingNPCDuringAnimEvent参照） */
 	UFUNCTION(BlueprintCallable, Category = "Event")
-	void TriggerEventPool(class AMyProject1Character* PlayerCharacter);
+	void TriggerEventPool(class AMyProject1Character* PlayerCharacter, FName EventPoolIDOverride = NAME_None, const TSoftObjectPtr<class USkeletalMesh>& ExtraParticipantMeshOverride = nullptr, bool bHideContextActorDuringAnimEvent = false);
 };

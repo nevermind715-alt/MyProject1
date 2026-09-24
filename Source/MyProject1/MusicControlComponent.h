@@ -38,6 +38,15 @@ public:
 	// RoomMusicVolumeから出た時に呼ばれる。フィールドBGMへ戻す
 	void ExitRoomMusic();
 
+	// DT_AnimEvents::EventBGM等、RoomMusicVolumeとは無関係に一時的にBGMを上書きしたい時に呼ぶ。
+	// EnterRoomMusicと同様に動作するが、呼び出し時点の部屋BGM状態（RoomMusicVolume内にいたかどうか）を
+	// 記憶しておき、ExitOverrideMusicでその状態へ正しく戻せるようにする
+	void EnterOverrideMusic(TSoftObjectPtr<USoundBase> OverrideMusic, float VolumeScale = 1.0f);
+
+	// EnterOverrideMusicで一時的に上書きしたBGMを終える。EnterOverrideMusic呼び出し時点で
+	// RoomMusicVolume内にいた場合はその部屋のBGMへ、外にいた場合はExitRoomMusicと同じくフィールドBGMへ戻す
+	void ExitOverrideMusic();
+
 protected:
 	virtual void BeginPlay() override;
 
@@ -73,6 +82,11 @@ private:
 	// 部屋から出た時刻。この時刻からRoomMusicResumeThreshold以内に同じ曲の部屋へ戻った場合は続きから再生する
 	double LastRoomExitTime = -100.0;
 	const float RoomMusicResumeThreshold = 8.0f;
+
+	// EnterOverrideMusicを呼ぶ直前の部屋BGM状態（ExitOverrideMusicで正しい状態へ戻すために記憶しておく）
+	bool bHadRoomBeforeOverride = false;
+	TSoftObjectPtr<USoundBase> RoomMusicBeforeOverride;
+	float RoomVolumeBeforeOverride = 1.0f;
 
 	// --- フェード計算用のボリューム管理変数 ---
 	float TargetFieldVolume = 1.0f;

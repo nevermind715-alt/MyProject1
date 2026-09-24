@@ -12,7 +12,8 @@
 
 void UGameplayActionLibrary::ExecuteAction(IRpgCharacterInterface* RpgInterface, AActor* OwnerActor, AActor* ContextActor, UWorld* World,
 	EDialogActionType ActionType, const FString& ActionPayload, FName ItemID, int32 ItemAmount,
-	EStatTargetActor AnimSequenceRowPlayTarget)
+	EStatTargetActor AnimSequenceRowPlayTarget, const TSoftObjectPtr<USkeletalMesh>& AnimSequenceNPCMeshOverride,
+	bool bHideContextActorDuringAnimEvent)
 {
 	if (!RpgInterface) return;
 
@@ -102,6 +103,35 @@ void UGameplayActionLibrary::ExecuteAction(IRpgCharacterInterface* RpgInterface,
 		}
 		break;
 
+	case EDialogActionType::EquipEquipment:
+		// ActionPayloadにDT_Equipments（EquipmentDataTable）の行名を入れる。プレイヤー自身（OwnerActor）に装備させる
+		if (AMyProject1Character* OwnerChar = Cast<AMyProject1Character>(OwnerActor))
+		{
+			if (OwnerChar->EquipmentDataTable)
+			{
+				const FName EquipRowName(*ActionPayload);
+				if (FEquipmentData* EquipData = OwnerChar->EquipmentDataTable->FindRow<FEquipmentData>(EquipRowName, TEXT("ExecuteAction EquipEquipment")))
+				{
+					OwnerChar->EquipItem(EquipRowName, *EquipData);
+				}
+			}
+		}
+		break;
+
+	case EDialogActionType::UnequipEquipment:
+		// ActionPayloadにEEquipmentSlotの行名（例："Torso"）を入れる。プレイヤー自身（OwnerActor）の装備を、
+		// ロックの有無に関わらず強制的に外し、インベントリへ戻す
+		if (AMyProject1Character* OwnerChar = Cast<AMyProject1Character>(OwnerActor))
+		{
+			const UEnum* SlotEnum = StaticEnum<EEquipmentSlot>();
+			const int64 SlotValue = SlotEnum->GetValueByName(FName(*ActionPayload));
+			if (SlotValue != INDEX_NONE)
+			{
+				OwnerChar->UnequipItemAndReturnToInventory(static_cast<EEquipmentSlot>(SlotValue));
+			}
+		}
+		break;
+
 	case EDialogActionType::AddItem:
 		// ItemID/ItemAmountで指定したアイテムをプレイヤーのインベントリに追加する（渡す）。
 		// カバンが満杯で入り切らない場合はAddItem側がfalseを返すが、ここでは通知は出さない
@@ -155,7 +185,9 @@ void UGameplayActionLibrary::ExecuteAction(IRpgCharacterInterface* RpgInterface,
 
 	case EDialogActionType::PlayAnimSequence:
 		// ActionPayloadにDT_AnimEventsの行名（AnimEventID）を入れる。イベント抽選・ワープを経由せず直接再生する。
-		// ContextActor（話しかけている相手のNPC）はFAnimEventStep::PlayTarget=NPC時の再生対象になる
+		// ContextActor（話しかけている相手のNPC）はFAnimEventStep::PlayTarget=NPC時の再生対象になる。
+		// AnimSequenceNPCMeshOverrideは、このAnimEventID再生中にスポーンするExtra参加者（ExtraPairings）の
+		// メッシュ差し替えに使う（ContextActor自身のメッシュには影響しない）
 		if (World)
 		{
 			if (UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(World->GetGameInstance()))
@@ -163,7 +195,7 @@ void UGameplayActionLibrary::ExecuteAction(IRpgCharacterInterface* RpgInterface,
 				if (ACharacter* OwnerChar = Cast<ACharacter>(OwnerActor))
 				{
 					// ワープを経由しない直接呼び出しのため、開始前にも暗転を挟む（bFadeInBeforeStart=true）
-					GameInst->PlayAnimSequenceEvent(FName(*ActionPayload), OwnerChar, ContextActor, true);
+					GameInst->PlayAnimSequenceEvent(FName(*ActionPayload), OwnerChar, ContextActor, true, AnimSequenceNPCMeshOverride, bHideContextActorDuringAnimEvent);
 				}
 			}
 		}
@@ -235,6 +267,11 @@ void UGameplayActionLibrary::ApplyStatChange(IRpgCharacterInterface* RpgInterfac
 		StatName = TEXT("酒量");
 		break;
 
+	case ETargetStat::Mental:
+		Stats.Mental += ChangeVal;
+		StatName = TEXT("精神力");
+		break;
+
 	case ETargetStat::CustomExtraStat:
 		if (!ExtraStatName.IsNone())
 		{
@@ -243,7 +280,7 @@ void UGameplayActionLibrary::ApplyStatChange(IRpgCharacterInterface* RpgInterfac
 			if (CurrentVal)
 			{
 				*CurrentVal += ChangeVal;
-				StatName = ExtraStatName.ToString();
+				StatName = Stats.GetExtraStatDisplayName(ExtraStatName);
 			}
 			else
 			{
@@ -268,5 +305,62 @@ void UGameplayActionLibrary::ApplyStatChange(IRpgCharacterInterface* RpgInterfac
 		// ログもUI通知もインターフェース経由
 		RpgInterface->OnReceiveLogMessage(LogMsg, ELogMessageType::System);
 		RpgInterface->NotifyStatsChanged();
+	}
+}
+
+bool UGameplayActionLibrary::TryGetTargetStatValue(IRpgCharacterInterface* RpgInterface, AActor* ContextActor,
+	ETargetStat TargetStat, EStatTargetActor StatTargetActor, FName ExtraStatName, float& OutValue)
+{
+	OutValue = 0.0f;
+	if (!RpgInterface || TargetStat == ETargetStat::None) return false;
+
+	// StatTargetActor=NPCなら、対象自身のMyStats（個体ごとのFavor/Hostility等）を読み取る。
+	// ApplyStatChangeと異なり、対象未設定/非対応の場合はRpgInterfaceへフォールバックせず判定不能（false）とする
+	IRpgCharacterInterface* StatOwnerInterface = RpgInterface;
+	if (StatTargetActor == EStatTargetActor::NPC)
+	{
+		IRpgCharacterInterface* NPCInterface = Cast<IRpgCharacterInterface>(ContextActor);
+		if (!NPCInterface) return false;
+		StatOwnerInterface = NPCInterface;
+	}
+
+	const FCharacterStats& Stats = StatOwnerInterface->GetCharacterStats();
+
+	switch (TargetStat)
+	{
+	case ETargetStat::HP:                  OutValue = Stats.HP; return true;
+	case ETargetStat::STR:                 OutValue = Stats.STR; return true;
+	case ETargetStat::DEX:                 OutValue = Stats.DEX; return true;
+	case ETargetStat::VIT:                 OutValue = Stats.VIT; return true;
+	case ETargetStat::AGI:                 OutValue = Stats.AGI; return true;
+	case ETargetStat::Stamina:             OutValue = Stats.Stamina; return true;
+	case ETargetStat::Accuracy:            OutValue = Stats.Accuracy; return true;
+	case ETargetStat::Evasion:             OutValue = Stats.Evasion; return true;
+	case ETargetStat::AttackPower:         OutValue = Stats.AttackPower; return true;
+	case ETargetStat::DefensePower:        OutValue = Stats.DefensePower; return true;
+	case ETargetStat::Favor:               OutValue = Stats.Favor; return true;
+	case ETargetStat::Hostility:           OutValue = Stats.Hostility; return true;
+	case ETargetStat::Fame:                OutValue = Stats.Fame; return true;
+	case ETargetStat::Charm:               OutValue = Stats.Charm; return true;
+	case ETargetStat::Alcohol:             OutValue = Stats.Alcohol; return true;
+	case ETargetStat::Mental:              OutValue = Stats.Mental; return true;
+	case ETargetStat::FatigueGainRate:     OutValue = Stats.FatigueGainRateBonus; return true;
+	case ETargetStat::FatigueRecoveryRate: OutValue = Stats.FatigueRecoveryRateBonus; return true;
+	case ETargetStat::OGaugeGainRate:      OutValue = Stats.OGaugeGainRateBonus; return true;
+	case ETargetStat::OGaugeRecoveryRate:  OutValue = Stats.OGaugeRecoveryRateBonus; return true;
+	case ETargetStat::MovementSpeedRate:   OutValue = Stats.MovementSpeedRateBonus; return true;
+	case ETargetStat::CustomExtraStat:
+		if (!ExtraStatName.IsNone())
+		{
+			if (const float* Extra = Stats.ExtraStats.Find(ExtraStatName))
+			{
+				OutValue = *Extra;
+				return true;
+			}
+		}
+		return false;
+	default:
+		// MP等、FCharacterStatsに対応するメンバーが存在しないステータス種別は未対応
+		return false;
 	}
 }

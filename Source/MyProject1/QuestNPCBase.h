@@ -136,6 +136,12 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC|Equipment")
 	TArray<FName> InitialScarOverlayRowNames;
 
+	/** 会話終了後の向き戻し（ETurnMode::ReturnAfterTalk）が進行中なら、即座にPreTalkRotationへ確定させて打ち切る。
+	    AnimEvent（NPCとの位置合わせアニメーション）等、このNPCのActor向きを外部から使いたい処理が、
+	    TickTurnによる戻り回転の途中に基準値をキャッシュしてしまい、位置がズレるのを防ぐために呼ぶ */
+	UFUNCTION(BlueprintCallable, Category = "QuestNPC")
+	void StopReturnTurnImmediately();
+
 protected:
 	// 装備によるステータス補正（StatModifiers）を無効化し、NPCの装備を見た目だけの変化にする
 	virtual bool ShouldApplyEquipmentStatBonuses() const override { return false; }

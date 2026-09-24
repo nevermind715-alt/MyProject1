@@ -454,16 +454,15 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Input")
 	bool bIsInputLocked = false;
 
+	// AnimEvent（PlayAnimSequenceEvent/PlayAnimSequenceRowDirect）再生専用の入力ロック。
+	// bIsInputLockedは会話・ショップ等のUI開閉処理からも自由に true/false されるため、
+	// AnimEvent再生中にそれらの処理（CloseDialog等）が割り込むとロックが解除されてしまう事故が起きていた。
+	// AnimEvent側だけが触る独立したフラグにすることで、他システムからの干渉を受けないようにする
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Input")
+	bool bAnimEventInputLocked = false;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Cinematic")
 	bool bIsInCutscene = false;
-
-	/** trueの間、本体ABPのControl Rig（足元IKトレース）を無効化する。
-	 *  PlayAnimSequenceEvent（イベントアニム）再生中は、接地しない/横に曲がる等の
-	 *  アニメが混在するため、IKトレースがAnkle/Toe Offsetの補正と噛み合わずズレる問題への対処。
-	 *  ABP_PlayerAnim側のControl Rigノード「Should Do IKTrace」に
-	 *  「NOT(Is Falling) AND NOT(bSuppressFootIKTrace)」の形で反映させる想定（Blueprint側の配線が別途必要）。 */
-	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Cinematic")
-	bool bSuppressFootIKTrace = false;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input")
 	UInputAction* ToggleMenuAction;
@@ -471,6 +470,10 @@ public:
 	/** 操作ロックを切り替える関数（BPから呼び出し可能） */
 	UFUNCTION(BlueprintCallable, Category = "Input")
 	void SetInputLocked(bool bLocked) override;
+
+	/** AnimEvent再生専用の入力ロック。カメラ操作（DoLook）はこれまで通り効いたままにする */
+	UFUNCTION(BlueprintCallable, Category = "Input")
+	void SetAnimEventInputLocked(bool bLocked);
 
 	UFUNCTION(BlueprintCallable, Category = "Combat|UI")
 	bool IsReadingOldLogs() const;
@@ -554,22 +557,11 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Components")
 	USkeletalMeshComponent* NeckSkeletalMeshComp;
 
+	// 足首装備（アンクレット・足枷等）。メッシュ側でFootボーンへのスキンウェイトを外し、
+	// LowerLegのみに追従させることでFootの回転（歩行・ヒール補正・IK等）から独立させている。
+	// Leader Pose Componentで本体に追従するだけで良く、専用ABPでの回転上書きは不要
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Components")
 	USkeletalMeshComponent* AnkleSkeletalMeshComp;
-
-	/** 未設定（None）ならAnkleSkeletalMeshCompは今まで通りLeader Pose Componentで本体に追従する（＝現状維持、何も壊れない）。
-	 *  設定すると、AnkleSkeletalMeshCompはLeader Pose ComponentをやめてこのAnimBPで動くようになる。
-	 *  このABP側で「Copy Pose from Mesh（本体Meshから）」した後、J_Bip_L/R_Footに対して
-	 *  CurrentAnkleRotationOffset * -1 を追加のTransform(Modify)Boneで加算すれば、
-	 *  本体ABP側のヒール補正で足首装備だけ一緒に傾いてしまう問題を、同じボーン空間内で正しく打ち消せる
-	 *  （Leader Pose Component中はFollower自身のAnimGraphが評価されないため、Leader Poseを外す必要がある）。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Equipment|Offset")
-	TSubclassOf<UAnimInstance> AnkleAccessoryAnimClass;
-
-	/** ACharacter::GetMesh()はBlueprintに公開されていない（BlueprintCallableが付いていない）ため、
-	 *  足首装備用ABPの Copy Pose from Mesh に本体メッシュを渡すための薄いラッパー。 */
-	UFUNCTION(BlueprintPure, Category = "Character")
-	USkeletalMeshComponent* GetCharacterMesh() const { return GetMesh(); }
 
 	// --- 特殊枠（SkeletalMesh・ピアス等） ---
 
@@ -651,6 +643,13 @@ public:
 	// FItemData::bIsEx に対する UInventoryComponent::DiscardItem() と同じ役割。
 	UFUNCTION(BlueprintCallable, Category = "Equipment")
 	bool TryUnequipItem(EEquipmentSlot TargetSlot);
+
+	// ロック（bCannotUnequipManually）の有無に関わらず強制的に外し、インベントリへ戻す。
+	// Dialog/イベント抽選経由の装備着脱（EDialogActionType::UnequipEquipment）など、
+	// UI経由の「外す」ボタンを介さず正規の手段として強制的に脱がせたい用途に使う。
+	// 何も装備していないスロットを指定した場合は何もせず false を返す
+	UFUNCTION(BlueprintCallable, Category = "Equipment")
+	bool UnequipItemAndReturnToInventory(EEquipmentSlot TargetSlot);
 
 	// 指定スロットの装備が「自力では外せない」ロック装備かどうか（UIのボタン表示制御用）
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Equipment")
@@ -817,6 +816,17 @@ public:
 	/** 現在の鎖の終点コンポーネント */
 	UPROPERTY()
 	USceneComponent* CurrentCableTargetComponent;
+
+	// 装備の状態（CurrentEquippedItems）は変えず、現在装備している全パーツの表示/非表示だけを切り替える。
+	// HairMeshComp（髪型）・FaceMeshComp（顔面）はキャラクター本体の見た目のため対象外。
+	// 呪われ装備・拘束具など自力で外せないロック装備（bCannotUnequipManually）は、
+	// bVisible=falseで呼んでも非表示にせず常に表示したままにする（IsSlotLocked判定）。
+	// DT_AnimSequences再生中に一時的に装備を隠す用途（FAnimSequenceEntry::bHideAllEquipmentDuringPlay。
+	// UMyProject1GameInstance::SyncAnimEventEquipmentVisibility参照）。bVisible=trueへ戻す際は、
+	// インナー(InnerUpper/InnerLower)だけは単純に表示せず、RefreshInnerVisibility()で
+	// 現在の胴・腰装備のbHideInnerUpper/bHideInnerLower設定に従って正しい表示状態へ戻す
+	UFUNCTION(BlueprintCallable, Category = "Equipment")
+	void SetAllEquipmentComponentsVisible(bool bVisible);
 
 	/** ショップやNPCから呼ばれる、タトゥー/傷跡/治療/ピアスの購入・追加を試みる共通窓口 */
 	UFUNCTION(BlueprintCallable, Category = "Skin Overlay|Shop")
@@ -1264,6 +1274,16 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
 	UAnimMontage* SheatheMontage;
+
+public:
+
+	/** 攻撃時に出す掛け声の候補（複数設定するとランダムに1つ選ばれる。空なら掛け声は鳴らさない） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Voice|Attack")
+	TArray<USoundBase*> AttackVoiceSounds;
+
+	/** 攻撃時に掛け声を鳴らす確率（0.0〜1.0。0.5なら約50%の確率で鳴る） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Voice|Attack", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float AttackVoiceChance = 0.5f;
 
 public:
 	/** リンクする範囲（半径）。FF11なら1000〜1500くらいが目安 */

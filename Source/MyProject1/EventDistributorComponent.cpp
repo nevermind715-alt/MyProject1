@@ -11,11 +11,12 @@ UEventDistributorComponent::UEventDistributorComponent()
 	PrimaryComponentTick.bCanEverTick = false;
 }
 
-void UEventDistributorComponent::TriggerEventPool(AMyProject1Character* PlayerCharacter)
+void UEventDistributorComponent::TriggerEventPool(AMyProject1Character* PlayerCharacter, FName EventPoolIDOverride, const TSoftObjectPtr<USkeletalMesh>& ExtraParticipantMeshOverride, bool bHideContextActorDuringAnimEvent)
 {
-	if (!PlayerCharacter || !EventPoolDataTable || EventPoolID.IsNone()) return;
+	const FName PoolIDToUse = EventPoolIDOverride.IsNone() ? EventPoolID : EventPoolIDOverride;
+	if (!PlayerCharacter || !EventPoolDataTable || PoolIDToUse.IsNone()) return;
 
-	FEventPoolData* PoolData = EventPoolDataTable->FindRow<FEventPoolData>(EventPoolID, TEXT("TriggerEventPool"));
+	FEventPoolData* PoolData = EventPoolDataTable->FindRow<FEventPoolData>(PoolIDToUse, TEXT("TriggerEventPool"));
 	if (!PoolData || PoolData->Entries.Num() == 0) return;
 
 	IRpgCharacterInterface* RpgInterface = Cast<IRpgCharacterInterface>(PlayerCharacter);
@@ -56,6 +57,6 @@ void UEventDistributorComponent::TriggerEventPool(AMyProject1Character* PlayerCh
 	{
 		// GetOwner()：このコンポーネントが付いているNPC/QuestItemPoint/敵Actor。
 		// FAnimEventStep::PlayTarget=NPC時の再生対象として使われる（StartEvent参照）
-		GameInst->StartEvent(ChosenEventID, PlayerCharacter, GetOwner());
+		GameInst->StartEvent(ChosenEventID, PlayerCharacter, GetOwner(), ExtraParticipantMeshOverride, bHideContextActorDuringAnimEvent);
 	}
 }

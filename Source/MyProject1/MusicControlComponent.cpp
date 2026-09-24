@@ -182,6 +182,30 @@ void UMusicControlComponent::ExitRoomMusic()
 	}
 }
 
+void UMusicControlComponent::EnterOverrideMusic(TSoftObjectPtr<USoundBase> OverrideMusic, float VolumeScale)
+{
+	// 上書き前の部屋BGM状態（RoomMusicVolume内にいたか、いたならどの曲・音量だったか）を記憶しておく
+	bHadRoomBeforeOverride = bInRoom;
+	RoomMusicBeforeOverride = CurrentRoomMusic;
+	RoomVolumeBeforeOverride = TargetRoomVolume;
+
+	EnterRoomMusic(OverrideMusic, VolumeScale);
+}
+
+void UMusicControlComponent::ExitOverrideMusic()
+{
+	if (bHadRoomBeforeOverride)
+	{
+		// 上書き前は実在のRoomMusicVolume内にいた：そのOverlapはまだ継続中（ExitRoomMusicを経由していない
+		// ため、OnOverlapEndも呼ばれない）ので、ここで元の部屋のBGMへ明示的に戻す
+		EnterRoomMusic(RoomMusicBeforeOverride, RoomVolumeBeforeOverride);
+	}
+	else
+	{
+		ExitRoomMusic();
+	}
+}
+
 void UMusicControlComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);

@@ -410,6 +410,12 @@ struct FCharacterStats
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats|Extra")
 	TMap<FName, float> ExtraStats;
 
+	// ExtraStatsの各キー（"ExStats1"等）に対応する、ログ表示専用の自由な名称。
+	// キー名（ExtraStatsと同じFName）はStatusScreenWidget等が参照する識別子なので変更せず、
+	// ここに表示名を登録すると増減ログにその名前が使われる（未登録ならキー名をそのまま使う）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats|Extra")
+	TMap<FName, FString> ExtraStatDisplayNames;
+
 
 	// --- 代行者クラスの等級（ギルドNPCへの申請で昇格） ---
 	// 初期値は「未登録」。代行者登録ダイアログでRequestRankUpを実行すると五等になる
@@ -474,6 +480,20 @@ struct FCharacterStats
 		}
 
 		return false;
+	}
+
+	// ExtraStatsのキーに対応するログ表示名を取得する（会話アクション・クエストペナルティ等のステータス増減ログで使用）
+	// ExtraStatDisplayNamesに登録があればそれを、無ければキー名（FName）をそのまま返す
+	FString GetExtraStatDisplayName(FName StatKey) const
+	{
+		if (const FString* DisplayName = ExtraStatDisplayNames.Find(StatKey))
+		{
+			if (!DisplayName->IsEmpty())
+			{
+				return *DisplayName;
+			}
+		}
+		return StatKey.ToString();
 	}
 
 	void ClampAll()
@@ -590,6 +610,17 @@ enum class EStatTargetActor : uint8
 {
 	Player  UMETA(DisplayName = "プレイヤー"),
 	NPC     UMETA(DisplayName = "話しかけているNPC")
+};
+
+// --- 数値ステータス条件の比較演算子 ---
+UENUM(BlueprintType)
+enum class EStatCompareOp : uint8
+{
+	GreaterOrEqual  UMETA(DisplayName = "以上"),
+	LessOrEqual     UMETA(DisplayName = "以下"),
+	Equal           UMETA(DisplayName = "等しい"),
+	Greater         UMETA(DisplayName = "より大きい"),
+	Less            UMETA(DisplayName = "より小さい")
 };
 
 // --- バフ・デバフ専用のデータ（データテーブル用） ---
@@ -892,6 +923,12 @@ enum class EDialogActionType : uint8
 	Close           UMETA(DisplayName = "会話を終了する"),
 	AddSkinOverlay     UMETA(DisplayName = "タトゥー/傷跡を強制追加"),
 	RemoveSkinOverlay  UMETA(DisplayName = "タトゥー/傷跡を強制削除"),
+	// ActionPayloadにDT_Equipments（EquipmentDataTable）の行名を入れる。プレイヤー自身（OwnerActor）に装備させる。
+	// 既に同じスロットへ何か装備していればEquipItem()の仕様通り上書きする
+	EquipEquipment     UMETA(DisplayName = "装備を着せる（ActionPayload=DT_Equipmentsの行名）"),
+	// ActionPayloadにEEquipmentSlotの行名（例："Torso"）を入れる。プレイヤー自身（OwnerActor）の装備を、
+	// ロック（bCannotUnequipManually）の有無に関わらず強制的に外し、インベントリへ戻す
+	UnequipEquipment   UMETA(DisplayName = "装備を外す（ActionPayload=EEquipmentSlotの行名）"),
 	// ActionPayloadに設定先のEAdventurerRank行名（例："Rank4"）を入れる。条件判定はせず直接その等級に設定する
 	RequestRankUp      UMETA(DisplayName = "代行者等級を設定する（ActionPayload=等級名）"),
 	// AddItemと対。ItemID/ItemAmountで指定したアイテムをプレイヤーのインベントリから削除する
@@ -900,6 +937,7 @@ enum class EDialogActionType : uint8
 	AddGil          UMETA(DisplayName = "お金を渡す（ActionPayload=金額）"),
 	// ActionPayloadにEventDistributorComponentのEventPoolID（DT_EventPoolsの行名）を入れる。
 	// 話しかけている相手（CurrentNPC）のUEventDistributorComponentを探して抽選を開始する
+	// （ActionPayloadが空欄なら、そのコンポーネント自身が持つEventPoolIDにフォールバックする）
 	TriggerEvent    UMETA(DisplayName = "イベント抽選を開始する（ActionPayload=EventPoolID）"),
 	// ActionPayloadにDT_AnimEventsの行名（AnimEventID）を入れる。イベント抽選・ワープを一切経由せず、
 	// その場でUMyProject1GameInstance::PlayAnimSequenceEventを直接呼ぶ。話しかけている相手（CurrentNPC）が
@@ -907,8 +945,13 @@ enum class EDialogActionType : uint8
 	PlayAnimSequence UMETA(DisplayName = "アニメーションシーケンスを再生する（ActionPayload=AnimEventID）"),
 	// ActionPayloadにDT_AnimSequencesの行名を直接入れる。DT_AnimEvents・Tag抽選・BGM切替・暗転演出を一切経由せず、
 	// その場でUMyProject1GameInstance::PlayAnimSequenceRowDirectを直接呼ぶ。行のExtraPairingsも同時に再生されるため、
-	// Player/NPC/追加参加者の位置関係（MeshLocationOffset/MeshRotationOffset）をまとめて確認する調整用途を想定している
-	PlayAnimSequenceRow UMETA(DisplayName = "アニメーション1行を直接再生する（調整確認用。ActionPayload=DT_AnimSequencesの行名）")
+	// Player/NPCのMeshLocationOffset/MeshRotationOffsetと、追加参加者のSpawnRelativeLocation/Rotationを
+	// まとめて確認する調整用途を想定している
+	PlayAnimSequenceRow UMETA(DisplayName = "アニメーション1行を直接再生する（調整確認用。ActionPayload=DT_AnimSequencesの行名）"),
+	// エリアChangeと同じ暗転（OnWarpFadeOutRequested）を挟み、画面が真っ暗になった状態でFadeNarrationTextを
+	// ナレーション表示する。既存の逐次表示システム（改行区切り・クリック/決定入力で1行ずつ送る）をそのまま使い、
+	// 全行読み終えると明転→NextDialogIDへ継続する（NextDialogIDが空なら会話を終了する）
+	ShowTextDuringFade UMETA(DisplayName = "暗転中にセリフを表示する（ActionPayload未使用。FadeNarrationTextを使用）")
 };
 
 // --- 選択肢1つ分のデータ ---
@@ -924,9 +967,29 @@ struct FDialogChoice
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Condition")
 	EDialogChoiceColor ChoiceColor = EDialogChoiceColor::White;
 
-	// 要求される精神値（Mentalがこの数値以上ないと選べない）
+	// チェックを入れた時だけ、下のRequiredStat系の条件でこの選択肢の選択可否を制御する（従来のRequiredMental固定仕様を汎用化したもの）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Condition")
-	float RequiredMental = 0.0f;
+	bool bUseStatCondition = false;
+
+	// 条件判定に使うステータスの種類
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Condition", meta = (EditCondition = "bUseStatCondition"))
+	ETargetStat RequiredStat = ETargetStat::Mental;
+
+	// RequiredStat=CustomExtraStat時のみ使用する、ExtraStatsのキー名
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Condition", meta = (EditCondition = "bUseStatCondition && RequiredStat == ETargetStat::CustomExtraStat"))
+	FName RequiredStatExtraName;
+
+	// 判定対象。プレイヤー自身か、話しかけているNPC自身か
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Condition", meta = (EditCondition = "bUseStatCondition"))
+	EStatTargetActor RequiredStatTargetActor = EStatTargetActor::Player;
+
+	// RequiredStatValueとの比較方法（以上／以下／等しい／より大きい／より小さい）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Condition", meta = (EditCondition = "bUseStatCondition"))
+	EStatCompareOp RequiredStatCompareOp = EStatCompareOp::GreaterOrEqual;
+
+	// 比較対象の数値
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Condition", meta = (EditCondition = "bUseStatCondition"))
+	float RequiredStatValue = 0.0f;
 
 	// 必須フラグ（空欄ならフラグ不要。文字が入っていれば、そのフラグを持っている時だけ選べる）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Condition")
@@ -945,6 +1008,20 @@ struct FDialogChoice
 	// 行のExtraPairingsは、このPlayTargetの設定に関わらず常に同時に再生される
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (EditCondition = "ActionType == EDialogActionType::PlayAnimSequenceRow"))
 	EStatTargetActor AnimSequenceRowPlayTarget = EStatTargetActor::Player;
+
+	// ActionType=PlayAnimSequence時、または ActionType=TriggerEvent経由で抽選されたDT_EventDefinitions行が
+	// ClearCondition=AnimationSequenceでAnimEventIDを再生する場合、そのStepsが再生中にスポーンするExtra参加者
+	// （FAnimSequenceEntry::ExtraPairings）のメッシュを、DT_AnimSequences側のPairing.Meshの代わりにこれで差し替える
+	// （未設定ならDT_AnimSequences側の設定のまま。FDialogData::AnimSequenceNPCMeshOverride参照）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (EditCondition = "ActionType == EDialogActionType::PlayAnimSequence || ActionType == EDialogActionType::TriggerEvent"))
+	TSoftObjectPtr<class USkeletalMesh> AnimSequenceNPCMeshOverride;
+
+	// trueにすると、このAnimEvent再生中だけ話しかけている相手（CurrentNPC）自身を非表示にする。
+	// ExtraPairingsでスポーンするAAnimEventActorが話しかけた相手と同じ見た目を演じる演出（喧嘩・変身等）で、
+	// フィールドに立っている本体と重なって「分身」に見えるのを防ぐ用途。再生完了・強制終了のどちらでも
+	// 自動的に再表示する（UMyProject1GameInstance::PlayAnimSequenceEvent参照）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (EditCondition = "ActionType == EDialogActionType::PlayAnimSequence || ActionType == EDialogActionType::TriggerEvent"))
+	bool bHideTalkingNPCDuringAnimEvent = false;
 
 	// ActionType=AddItem/RemoveItem時に対象となるアイテムの行名（DT_ItemData等の行名）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (EditCondition = "ActionType == EDialogActionType::AddItem || ActionType == EDialogActionType::RemoveItem"))
@@ -995,6 +1072,12 @@ struct FDialogChoice
 	// 次に飛ぶ会話のID（会話を続ける場合）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog")
 	FName NextDialogID;
+
+	// ActionType=ShowTextDuringFade時、暗転して画面が真っ暗になった後に表示するナレーションテキスト。
+	// 改行で複数ページに分割され、通常の会話と同じくクリック/決定入力で1行ずつ読み進める。
+	// 全行読み終えると明転し、NextDialogIDで指定した会話へ続く
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (EditCondition = "ActionType == EDialogActionType::ShowTextDuringFade", MultiLine = true))
+	FText FadeNarrationText;
 };
 
 // --- 会話全体のデータ（データテーブル用） ---
@@ -1021,6 +1104,19 @@ struct FDialogData : public FTableRowBase
 	// 再生するモーション（頷く、怒るなど）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Animation")
 	class UAnimMontage* DialogEmote = nullptr;
+
+	// ActionType=PlayAnimSequence時、または ActionType=TriggerEvent経由で抽選されたDT_EventDefinitions行が
+	// ClearCondition=AnimationSequenceでAnimEventIDを再生する場合、そのStepsが再生中にスポーンするExtra参加者
+	// （FAnimSequenceEntry::ExtraPairings）のメッシュを、DT_AnimSequences側のPairing.Meshの代わりにこれで差し替える
+	// （未設定ならDT_AnimSequences側の設定のまま）。話しかけている相手（NPC）自身のメッシュには影響しない。
+	// 同じDT_AnimEvents/EventPoolを複数種のNPC見た目で使い回したい場合に使う
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Animation", meta = (EditCondition = "ActionType == EDialogActionType::PlayAnimSequence || ActionType == EDialogActionType::TriggerEvent"))
+	TSoftObjectPtr<class USkeletalMesh> AnimSequenceNPCMeshOverride;
+
+	// trueにすると、このAnimEvent再生中だけ話しかけている相手（NPC）自身を非表示にする
+	// （FDialogChoice::bHideTalkingNPCDuringAnimEvent参照）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Animation", meta = (EditCondition = "ActionType == EDialogActionType::PlayAnimSequence || ActionType == EDialogActionType::TriggerEvent"))
+	bool bHideTalkingNPCDuringAnimEvent = false;
 
 	// このセリフを読み終わった時に会話を明示的に終了するフラグ
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog")
@@ -1084,6 +1180,12 @@ struct FDialogData : public FTableRowBase
 	// Choicesが空の行（分岐なし）で、そのままステップ完了とみなしてよい場合に使う
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Action")
 	bool bAdvanceDailySequence = false;
+
+	// ActionType=ShowTextDuringFade時、暗転して画面が真っ暗になった後に表示するナレーションテキスト。
+	// 改行で複数ページに分割され、通常の会話と同じくクリック/決定入力で1行ずつ読み進める。
+	// 全行読み終えると明転し、NextDialogIDで指定した会話へ続く
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Action", meta = (EditCondition = "ActionType == EDialogActionType::ShowTextDuringFade", MultiLine = true))
+	FText FadeNarrationText;
 };
 
 // --- クエストの種類 ---
@@ -1104,17 +1206,6 @@ enum class EQuestStatus : uint8
 	InProgress          UMETA(DisplayName = "進行中"),
 	ObjectiveCleared    UMETA(DisplayName = "条件達成（報告待ち）"),
 	Completed           UMETA(DisplayName = "完了（報酬受取済）")
-};
-
-// --- 数値ステータス条件の比較演算子 ---
-UENUM(BlueprintType)
-enum class EStatCompareOp : uint8
-{
-	GreaterOrEqual  UMETA(DisplayName = "以上"),
-	LessOrEqual     UMETA(DisplayName = "以下"),
-	Equal           UMETA(DisplayName = "等しい"),
-	Greater         UMETA(DisplayName = "より大きい"),
-	Less            UMETA(DisplayName = "より小さい")
 };
 
 // --- 数値ステータス条件1件分（例：Level が 10 以上） ---
@@ -1704,12 +1795,9 @@ struct FAnimEventPairing
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent")
 	FName ParticipantID;
 
-	// スポーンするメッシュ・AnimBP（このParticipantIDが初めて登場するStepでのみ参照される）
+	// スポーンするメッシュ（このParticipantIDが初めて登場するStepでのみ参照される。ABPは使わずMontageを直接再生する）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent")
 	TSoftObjectPtr<class USkeletalMesh> Mesh;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent")
-	TSubclassOf<class UAnimInstance> AnimClass;
 
 	// スポーン位置・回転（AnimEventPrimaryCharacter＝プレイヤーのワールドTransformからの相対値。初登場時のみ参照される）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent")
@@ -1723,14 +1811,6 @@ struct FAnimEventPairing
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent")
 	class UAnimMontage* Montage = nullptr;
 
-	// このMontage再生中、Mesh相対位置に加算するオフセット（立ちポーズからのズレ量）
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent")
-	FVector MeshLocationOffset = FVector::ZeroVector;
-
-	// このMontage再生中、Mesh相対回転に加算するオフセット
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent")
-	FRotator MeshRotationOffset = FRotator::ZeroRotator;
-
 	// このアニメーション再生開始と同時にログへ表示するセリフ（空欄なら何も表示しない）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent")
 	FText Line;
@@ -1741,16 +1821,18 @@ struct FAnimEventPairing
 };
 
 // アニメーション1本分のデータ（DT_AnimSequences用）。
-// 行名は「Punch01」「Punch02」のような個別ID。Tagは「PunchBare」のようなカテゴリ分類で、
-// 同じTagを持つ複数行がバリエーション候補になる（PlayAnimEventStepが抽選で1つ選ぶ）
+// 行名は「Punch01」「Punch02」のような個別ID。Tagsは「PunchBare」のようなカテゴリ分類で、
+// 同じTagを持つ複数行がバリエーション候補になる（PlayAnimEventStepが抽選で1つ選ぶ）。
+// 1行を複数カテゴリに所属させたい場合のため複数設定可能（例："Wave"と"Greeting"の両方に該当する行）
 USTRUCT(BlueprintType)
 struct FAnimSequenceEntry : public FTableRowBase
 {
 	GENERATED_BODY()
 
-	// カテゴリ分類用のTag（例："PunchBare"＝素手の殴打）。同じTagを持つ行同士がバリエーション候補として扱われる
+	// カテゴリ分類用のTag（例："PunchBare"＝素手の殴打）。同じTagを持つ行同士がバリエーション候補として扱われる。
+	// 1行に複数のTagを設定可能（いずれかのTagで検索された時に候補となる）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent")
-	FName Tag;
+	TArray<FName> Tags;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent")
 	class UAnimMontage* Montage = nullptr;
@@ -1791,6 +1873,16 @@ struct FAnimSequenceEntry : public FTableRowBase
 	// PropMeshのスポーン回転（Player CharacterのActorTransformからの相対値）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent")
 	FRotator PropRelativeRotation = FRotator::ZeroRotator;
+
+	// trueにすると、この行の再生対象キャラクター（PlayTargetで決まるPlayer/NPC）の装備を、
+	// 見た目だけ一時的に全て非表示にする（CurrentEquippedItemsの状態は変えない。脱衣シーン等の簡易対応用）。
+	// 再生終了・強制終了のどちらでも自動的に再表示する（UMyProject1GameInstance::SyncAnimEventEquipmentVisibility参照）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent")
+	bool bHideAllEquipmentDuringPlay = false;
+
+	// このMontage再生開始と同時に1回だけ再生するサウンド（未設定なら何も鳴らさない）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent")
+	class USoundBase* Sound = nullptr;
 };
 
 // --- DT_AnimSequences一覧UI用の軽量データ（デバッグメニュー等、C++からBPへ一覧を渡す用。FWarpDestinationInfoと同じ用途） ---
@@ -1803,9 +1895,9 @@ struct FAnimSequenceRowInfo
 	UPROPERTY(BlueprintReadOnly, Category = "AnimEvent")
 	FName RowName;
 
-	// 行が属するTag（同じTagの行をグループ表示したい場合の参考情報）
+	// 行が属するTag一覧（同じTagの行をグループ表示したい場合の参考情報）
 	UPROPERTY(BlueprintReadOnly, Category = "AnimEvent")
-	FName Tag;
+	TArray<FName> Tags;
 };
 
 // アニメーションイベントの再生ステップ1件分

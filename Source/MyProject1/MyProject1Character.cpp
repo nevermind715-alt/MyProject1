@@ -106,6 +106,7 @@ AMyProject1Character::AMyProject1Character()
 	FeetMeshComp = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("FeetMeshComp"));
 	FeetMeshComp->SetupAttachment(GetMesh());
 	FeetMeshComp->SetLeaderPoseComponent(GetMesh());
+	FeetMeshComp->bUseBoundsFromLeaderPoseComponent = true;
 
 	WristSkeletalMeshComp = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("WristSkeletalMeshComp"));
 	WristSkeletalMeshComp->SetupAttachment(GetMesh());
@@ -118,6 +119,7 @@ AMyProject1Character::AMyProject1Character()
 	AnkleSkeletalMeshComp = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("AnkleSkeletalMeshComp"));
 	AnkleSkeletalMeshComp->SetupAttachment(GetMesh());
 	AnkleSkeletalMeshComp->SetLeaderPoseComponent(GetMesh());
+	AnkleSkeletalMeshComp->bUseBoundsFromLeaderPoseComponent = true;
 
 	// 特殊枠（ピアス等、SkeletalMeshで表現するアクセサリー用）
 	// ※ピアスのように頂点がボーンの局所範囲にしかない小型メッシュは、自前のバウンズ計算だと
@@ -253,15 +255,6 @@ AMyProject1Character::AMyProject1Character()
 void AMyProject1Character::BeginPlay()
 {
 	Super::BeginPlay();
-
-	// ★AnkleAccessoryAnimClassが設定されている場合だけ、足首装備をLeader Pose Componentから切り離し、
-	//   専用ABP（Copy Pose from Mesh + ヒール補正の打ち消しノードを想定）に差し替える。
-	//   未設定なら何もせず、今まで通りLeader Pose Componentで本体に追従する（＝現状維持）。
-	if (AnkleSkeletalMeshComp && AnkleAccessoryAnimClass)
-	{
-		AnkleSkeletalMeshComp->SetLeaderPoseComponent(nullptr);
-		AnkleSkeletalMeshComp->SetAnimInstanceClass(AnkleAccessoryAnimClass);
-	}
 
 	ClearCableSystem(EEquipmentSlot::Feet);
 	ClearCableSystem(EEquipmentSlot::Hands);
@@ -418,8 +411,8 @@ void AMyProject1Character::SetupPlayerInputComponent(UInputComponent* PlayerInpu
 
 void AMyProject1Character::OnActionKeyPressed()
 {
-	// 会話中・カットシーン中などの操作ロック中は何もしない
-	if (bIsInputLocked) return;
+	// 会話中・カットシーン中・AnimEvent再生中などの操作ロック中は何もしない
+	if (bIsInputLocked || bAnimEventInputLocked) return;
 
 	if (!CurrentTarget) return;
 
@@ -502,8 +495,8 @@ void AMyProject1Character::OnWaitKeyPressed()
 
 bool AMyProject1Character::TryOpenTimeSkipMenu(bool bIsSleepMode)
 {
-	// 会話中・カットシーン中・戦闘中（オートアタック中）は時間を進めさせない
-	if (bIsInputLocked || bIsInCutscene || bIsAutoAttacking)
+	// 会話中・カットシーン中・戦闘中（オートアタック中）・AnimEvent再生中は時間を進めさせない
+	if (bIsInputLocked || bIsInCutscene || bIsAutoAttacking || bAnimEventInputLocked)
 	{
 		return false;
 	}
@@ -532,8 +525,8 @@ void AMyProject1Character::OnToggleMenuPressed()
 		{
 			bool bIsCommandMenuOpen = (HUD->CommandMenuWidget && HUD->CommandMenuWidget->IsInViewport());
 
-			// 「メニューは閉じていて」かつ「操作ロック中（＝ショップや会話中）」なら、メニューを開かせない
-			if (!bIsCommandMenuOpen && bIsInputLocked)
+			// 「メニューは閉じていて」かつ「操作ロック中（＝ショップや会話中、AnimEvent再生中）」なら、メニューを開かせない
+			if (!bIsCommandMenuOpen && (bIsInputLocked || bAnimEventInputLocked))
 			{
 				return;
 			}
@@ -603,6 +596,17 @@ void AMyProject1Character::SetInputLocked(bool bLocked)
 	}
 }
 
+void AMyProject1Character::SetAnimEventInputLocked(bool bLocked)
+{
+	bAnimEventInputLocked = bLocked;
+
+	if (bLocked && GetCharacterMovement())
+	{
+		// ロックした瞬間に移動を即座に停止させる（慣性で滑るのを防ぐ）
+		GetCharacterMovement()->StopMovementImmediately();
+	}
+}
+
 void AMyProject1Character::HandleJumpCompleted()
 {
 	// BP側のイベントを呼び出す
@@ -662,7 +666,7 @@ void AMyProject1Character::OnDebugNudgeHeight(const FInputActionValue& Value)
 
 void AMyProject1Character::DoMove(float Right, float Forward)
 {
-	if (bIsInputLocked) return; // ロック中なら何もしない
+	if (bIsInputLocked || bAnimEventInputLocked) return; // ロック中なら何もしない
 
 	// WASD入力があったのでログウィンドウを再表示させる
 	OnRequestShowLogWindow();
@@ -723,7 +727,7 @@ void AMyProject1Character::DoLook(float Yaw, float Pitch)
 
 void AMyProject1Character::DoJumpStart()
 {
-	if (bIsInputLocked) return; // ロック中なら何もしない
+	if (bIsInputLocked || bAnimEventInputLocked) return; // ロック中なら何もしない
 
 	// signal the character to jump
 	Jump();
@@ -891,8 +895,23 @@ void AMyProject1Character::CycleTarget()
 
 void AMyProject1Character::Tick(float DeltaTime)
 {
-	Super::Tick(DeltaTime);
+	// PlayAnimSequenceEvent/PlayAnimSequenceRowDirectの再生対象（Primary/Secondaryどちらか）になっている間は、
+	// 再生開始時点のTransformへ毎フレーム強制的に固定し直し、以降のTickロジック（ターゲット追従回転、
+	// 移動速度計算等）を一切実行しない。Super::Tick(DeltaTime)より前でreturnすることで、Blueprint側の
+	// Event Tick（ReceiveTick。ACharacter/APawn/AActorのTick経由で呼ばれるため、Super::Tickを呼ぶと
+	// 発火してしまう）も含めて、アニメーション再生中は位置・向きの変更要因をこの一箇所で完全に遮断する
+	if (UMyProject1GameInstance* AnimLockGameInst = GetWorld() ? GetWorld()->GetGameInstance<UMyProject1GameInstance>() : nullptr)
+	{
+		FVector LockedLocation;
+		FRotator LockedRotation;
+		if (AnimLockGameInst->GetAnimSequenceLockedTransform(this, LockedLocation, LockedRotation))
+		{
+			SetActorLocationAndRotation(LockedLocation, LockedRotation);
+			return;
+		}
+	}
 
+	Super::Tick(DeltaTime);
 
 	// 1. 既存の鎖システム（足・その他用）のワールド同期
 	if (EquipmentCableComp && EquipmentCableComp->IsVisible())
@@ -1534,6 +1553,16 @@ void AMyProject1Character::OnAttackHit()
 	if (SoundToPlay)
 	{
 		UGameplayStatics::PlaySoundAtLocation(this, SoundToPlay, GetActorLocation());
+	}
+
+	// 攻撃時の掛け声（AttackVoiceSoundsが設定されていれば、AttackVoiceChanceの確率でランダムに1つ再生。
+	// ヒット・ミスどちらでも攻撃自体に対する掛け声として鳴らす）
+	if (AttackVoiceSounds.Num() > 0 && FMath::FRand() <= AttackVoiceChance)
+	{
+		if (USoundBase* VoiceToPlay = AttackVoiceSounds[FMath::RandRange(0, AttackVoiceSounds.Num() - 1)])
+		{
+			UGameplayStatics::PlaySoundAtLocation(this, VoiceToPlay, GetActorLocation());
+		}
 	}
 
 	// 攻撃者と防御者の名前を準備しておく
@@ -3482,6 +3511,22 @@ bool AMyProject1Character::TryUnequipItem(EEquipmentSlot TargetSlot)
 	return true;
 }
 
+bool AMyProject1Character::UnequipItemAndReturnToInventory(EEquipmentSlot TargetSlot)
+{
+	const FName RemovedItemID = GetEquippedItemID(TargetSlot);
+	if (RemovedItemID.IsNone()) return false;
+
+	// ロック判定はしない（ForceRemoveLockedEquipmentと異なり、ロック装備以外にも作用させる）
+	UnequipItem(TargetSlot);
+
+	if (InventoryComp)
+	{
+		InventoryComp->AddItem(RemovedItemID, 1);
+	}
+
+	return true;
+}
+
 bool AMyProject1Character::ForceRemoveLockedEquipment(EEquipmentSlot TargetSlot, bool bReturnToInventory)
 {
 	// ロック装備でないスロットには作用させない（誤爆防止）
@@ -3953,6 +3998,61 @@ void AMyProject1Character::RefreshInnerVisibility()
 	if (InnerLowerMeshComp)
 	{
 		InnerLowerMeshComp->SetVisibility(!bHideLower);
+	}
+}
+
+void AMyProject1Character::SetAllEquipmentComponentsVisible(bool bVisible)
+{
+	// HairMeshComp（髪型）・FaceMeshComp（顔面）は装備ではなくキャラクター本体の見た目のため対象外。
+	// 呪われ装備・拘束具など自力で外せないロック装備（bCannotUnequipManually）は、
+	// 非表示化（bVisible=false）の対象からも除外し、常に表示したままにする
+	// （「外せないはずの物が演出で消える」矛盾を避けるため）
+	auto SlotVisible = [this, bVisible](EEquipmentSlot Slot) -> bool
+	{
+		return bVisible || IsSlotLocked(Slot);
+	};
+
+	if (HeadMeshComp) HeadMeshComp->SetVisibility(SlotVisible(EEquipmentSlot::Head));
+	if (TorsoMeshComp) TorsoMeshComp->SetVisibility(SlotVisible(EEquipmentSlot::Torso));
+	if (WaistMeshComp) WaistMeshComp->SetVisibility(SlotVisible(EEquipmentSlot::Waist));
+	if (HandsMeshComp) HandsMeshComp->SetVisibility(SlotVisible(EEquipmentSlot::Hands));
+	if (LegsMeshComp) LegsMeshComp->SetVisibility(SlotVisible(EEquipmentSlot::Legs));
+	if (FeetMeshComp) FeetMeshComp->SetVisibility(SlotVisible(EEquipmentSlot::Feet));
+
+	const bool bNeckVisible = SlotVisible(EEquipmentSlot::Neck);
+	if (NeckSkeletalMeshComp) NeckSkeletalMeshComp->SetVisibility(bNeckVisible);
+	if (NeckMeshComp) NeckMeshComp->SetVisibility(bNeckVisible);
+
+	const bool bWristVisible = SlotVisible(EEquipmentSlot::Wrist);
+	if (WristSkeletalMeshComp) WristSkeletalMeshComp->SetVisibility(bWristVisible);
+	if (WristMeshComp) WristMeshComp->SetVisibility(bWristVisible);
+
+	const bool bAnkleVisible = SlotVisible(EEquipmentSlot::Ankle);
+	if (AnkleSkeletalMeshComp) AnkleSkeletalMeshComp->SetVisibility(bAnkleVisible);
+	if (AnkleMeshComp) AnkleMeshComp->SetVisibility(bAnkleVisible);
+
+	if (Extra1MeshComp) Extra1MeshComp->SetVisibility(SlotVisible(EEquipmentSlot::Extra1));
+	if (Extra2MeshComp) Extra2MeshComp->SetVisibility(SlotVisible(EEquipmentSlot::Extra2));
+	if (Extra3MeshComp) Extra3MeshComp->SetVisibility(SlotVisible(EEquipmentSlot::Extra3));
+	if (Extra4MeshComp) Extra4MeshComp->SetVisibility(SlotVisible(EEquipmentSlot::Extra4));
+	if (Extra5MeshComp) Extra5MeshComp->SetVisibility(SlotVisible(EEquipmentSlot::Extra5));
+
+	// 武器はCurrentEquippedItems（EquipItem/UnequipItem）を経由しないため、ロック（bCannotUnequipManually）の
+	// 対象にならない。素直にbVisibleの通り切り替える
+	if (WeaponMeshComp) WeaponMeshComp->SetVisibility(bVisible);
+	if (StaticWeaponMeshComp) StaticWeaponMeshComp->SetVisibility(bVisible);
+
+	// インナー(InnerUpper/InnerLower)は胴・腰装備のbHideInnerUpper/bHideInnerLower設定によって
+	// 「装備していても常に非表示」のケースがあるため、単純にSetVisibility(true)で戻すと
+	// 本来隠れているべきインナーが見えてしまう。再表示時は既存の判定ロジックに委ねる
+	if (bVisible)
+	{
+		RefreshInnerVisibility();
+	}
+	else
+	{
+		if (InnerUpperMeshComp) InnerUpperMeshComp->SetVisibility(IsSlotLocked(EEquipmentSlot::InnerUpper));
+		if (InnerLowerMeshComp) InnerLowerMeshComp->SetVisibility(IsSlotLocked(EEquipmentSlot::InnerLower));
 	}
 }
 

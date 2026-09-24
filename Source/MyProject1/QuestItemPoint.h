@@ -146,6 +146,16 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item Interact|Chance Outcome", meta = (EditCondition = "bUseChanceOutcome && !bResolveActiveEventOnChanceFailure"))
 	TArray<FEventAction> ChanceFailureActions;
 
+	// --- アニメーションイベント ---
+	/** 空欄でなければ、インタラクト成功時にDT_AnimEvents（UMyProject1GameInstance::AnimEventDataTable）のこの行を
+	    再生する（GameplayActionLibraryのEDialogActionType::PlayAnimSequenceと同じ経路。イベント抽選・ワープは経由しない）。
+	    再生対象はFAnimEventStep::PlayTargetで決まる（Player想定。このアクタ自身はSecondaryContextActorとして渡すが、
+	    ACharacterではないためPlayTarget=NPCを対象にしても再生されない）。
+	    設定した場合、下のSuccessLogText等（成功ログ・クエスト連携・イベント分岐・効果音・使用済み化）は
+	    アニメーション再生完了まで遅延される。空欄なら従来通り即座に実行する */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item Interact|Animation")
+	FName AnimEventID;
+
 	// --- 演出 ---
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item Interact|Audio")
 	class USoundBase* InteractSound = nullptr;
@@ -197,4 +207,21 @@ private:
 
 	/** ApproachSoundを既に鳴らしたか（bApproachSoundOnce用） */
 	bool bApproachSoundPlayed = false;
+
+	/** インタラクト成功時（アニメーションなし）はTryInteractから直接、AnimEventID再生ありの場合は
+	    OnInteractAnimEventFinishedから呼ぶ、成功後処理（ログ・クエスト連携・イベント分岐・効果音・使用済み化）の本体 */
+	void FinalizeInteractSuccess(class AMyProject1Character* Interactor);
+
+	/** AnimEventID再生完了後にFinalizeInteractSuccessへ渡すためのInteractorの記憶 */
+	TWeakObjectPtr<class AMyProject1Character> PendingAnimEventInteractor;
+
+	/** AnimEventIDの再生をこのアクタが開始して完了待ちしている間だけtrue。
+	    UMyProject1GameInstance::OnAnimSequenceEventFinishedは全アクタ共通のグローバル通知のため、
+	    他のアクタ（NPCとの会話等）が開始したアニメーションイベントの完了通知を誤って拾わないためのガード */
+	bool bWaitingForAnimEventCompletion = false;
+
+	/** UMyProject1GameInstance::OnAnimSequenceEventFinishedの購読先。
+	    bWaitingForAnimEventCompletion=trueの時だけFinalizeInteractSuccessを呼ぶ */
+	UFUNCTION()
+	void OnInteractAnimEventFinished(bool bCompletedNormally);
 };

@@ -10,6 +10,11 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnDialogUpdated, const FDialogData
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnDialogClosed);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnHideChoices);
 
+// ActionType=ShowTextDuringFade用。暗転して画面が真っ暗になった後の1行分のテキストをUIへ送る
+// （名前欄などを持つ通常のOnDialogUpdatedとは別に、ナレーション専用の見た目をUI側で作れるようにするため）
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnFadeNarrationLine, const FText&, Line);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnFadeNarrationClosed);
+
 UCLASS(ClassGroup = (Custom), meta = (BlueprintSpawnableComponent))
 class MYPROJECT1_API UDialogComponent : public UActorComponent
 {
@@ -64,6 +69,20 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Dialog")
 	FOnHideChoices OnHideChoices;
 
+	// UI側でこれにイベントバインドする（ActionType=ShowTextDuringFade用。暗転中の1行が更新されるたびに呼ばれる）
+	UPROPERTY(BlueprintAssignable, Category = "Dialog")
+	FOnFadeNarrationLine OnFadeNarrationLine;
+
+	// ActionType=ShowTextDuringFadeの全行を読み終え、明転処理に移った瞬間に呼ばれる（UI側の非表示用）
+	UPROPERTY(BlueprintAssignable, Category = "Dialog")
+	FOnFadeNarrationClosed OnFadeNarrationClosed;
+
+	// GameInstance側から、暗転して画面が真っ暗になった瞬間に呼ばれる（RequestFadeThenShowNarration用）
+	void BeginFadeNarration();
+
+	// GameInstance側から、ナレーション読了後の明転が完了した瞬間に呼ばれ、NextDialogIDへ会話を継続する
+	void ResumeAfterFadeNarration(FName NextDialogID);
+
 private:
 	// 現在使用中のデータテーブルとNPC
 	UPROPERTY()
@@ -77,12 +96,17 @@ private:
 
 	// アクションの実行本体（Choice経由でもセリフ単体経由でも共通で使う）。
 	// AnimSequenceRowPlayTargetはActionType=PlayAnimSequenceRow専用（セリフ単体経由の場合はFDialogChoiceを経由しないため、
-	// 呼び出し側でEStatTargetActor::Playerを渡す＝現状セリフ単体からはPlayAnimSequenceRowのNPC再生を指定できない）
-	void ExecuteActionCore(EDialogActionType ActionType, const FString& ActionPayload, FName GrantFlag, bool bFadeOnGrantFlag, FName FlagToRemove, bool bFadeOnRemoveFlag, ETargetStat StatToChange, EStatTargetActor StatTargetActor, FName ExtraStatName, float StatChangeAmount, FName ItemID, int32 ItemAmount, bool bAdvanceDailySequence, EStatTargetActor AnimSequenceRowPlayTarget = EStatTargetActor::Player);
+	// 呼び出し側でEStatTargetActor::Playerを渡す＝現状セリフ単体からはPlayAnimSequenceRowのNPC再生を指定できない）。
+	// AnimSequenceNPCMeshOverrideはActionType=PlayAnimSequence/TriggerEvent専用（FDialogData::AnimSequenceNPCMeshOverride参照。
+	// 再生されるDT_AnimEventsのExtra参加者[ExtraPairings]のメッシュを差し替える）。
+	// FadeNarrationText/NextDialogIDForNarrationはActionType=ShowTextDuringFade専用。
+	// 戻り値：ShowTextDuringFadeで暗転ナレーションを開始した場合はtrue。呼び出し側（SelectChoice/ShowCurrentLine）は
+	// この場合、通常のNextDialogID遷移・CloseDialogを行わず、ResumeAfterFadeNarrationに継続を委ねる
+	bool ExecuteActionCore(EDialogActionType ActionType, const FString& ActionPayload, FName GrantFlag, bool bFadeOnGrantFlag, FName FlagToRemove, bool bFadeOnRemoveFlag, ETargetStat StatToChange, EStatTargetActor StatTargetActor, FName ExtraStatName, float StatChangeAmount, FName ItemID, int32 ItemAmount, bool bAdvanceDailySequence, EStatTargetActor AnimSequenceRowPlayTarget, const TSoftObjectPtr<class USkeletalMesh>& AnimSequenceNPCMeshOverride, const FText& FadeNarrationText, FName NextDialogIDForNarration, bool bHideTalkingNPCDuringAnimEvent);
 
 	// --- 逐次表示システム用の変数と関数 ---
 
-	/** 分割されたテキストを保持する配列 */
+	/** 分割されたテキストを保持する配列（通常のセリフとShowTextDuringFadeのナレーションで共用） */
 	UPROPERTY()
 	TArray<FString> CurrentDialogLines;
 
@@ -91,4 +115,25 @@ private:
 
 	/** 現在の行のテキストをUIへ送信する関数 */
 	void ShowCurrentLine();
+
+	// --- 暗転中ナレーション（ShowTextDuringFade）用の状態 ---
+
+	/** ExecuteActionCoreが暗転を要求してから、BeginFadeNarrationで実際に表示が始まるまでの間true。
+	 *  この間はまだ真っ暗になっておらず入力ロックの合間なので、AdvanceDialog等の誤動作を防ぐガードに使う */
+	bool bIsFadeNarrationPending = false;
+
+	/** BeginFadeNarrationで表示を開始してから、全行読み終えるまでtrue */
+	bool bIsShowingFadeNarration = false;
+
+	/** BeginFadeNarrationで表示する、改行分割済みのナレーション行（ExecuteActionCoreで先に分割しておく） */
+	TArray<FString> PendingNarrationLines;
+
+	/** ナレーション終了後、明転を経て継続する次の会話ID（NoneならCloseDialog） */
+	FName PendingNarrationNextDialogID;
+
+	/** 現在のナレーション行をUIへ送信する（OnFadeNarrationLineをBroadcast） */
+	void ShowFadeNarrationLine();
+
+	/** ナレーション表示中、クリック/決定入力のたびにAdvanceDialogから呼ばれる */
+	void AdvanceFadeNarrationLine();
 };

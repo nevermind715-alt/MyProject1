@@ -259,6 +259,42 @@ void AQuestItemPoint::TryInteract(AMyProject1Character* Interactor)
 		}
 	}
 
+	// AnimEventIDが設定されていれば、この下の成功後処理（ログ・クエスト連携・イベント分岐・効果音・使用済み化）は
+	// アニメーション再生完了後（OnInteractAnimEventFinished）まで遅延する
+	if (!AnimEventID.IsNone())
+	{
+		if (UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetWorld()->GetGameInstance()))
+		{
+			PendingAnimEventInteractor = Interactor;
+			bWaitingForAnimEventCompletion = true;
+			GameInst->OnAnimSequenceEventFinished.AddUniqueDynamic(this, &AQuestItemPoint::OnInteractAnimEventFinished);
+			// ワープを経由しない直接呼び出しのため、開始前にも暗転を挟む（GameplayActionLibraryのPlayAnimSequenceと同じ理由）
+			GameInst->PlayAnimSequenceEvent(AnimEventID, Interactor, this, true);
+			return;
+		}
+	}
+
+	FinalizeInteractSuccess(Interactor);
+}
+
+void AQuestItemPoint::OnInteractAnimEventFinished(bool bCompletedNormally)
+{
+	// 他のアクター（NPCとの会話等）が開始したアニメーションイベントの完了通知を誤って拾わないためのガード
+	if (!bWaitingForAnimEventCompletion) return;
+
+	bWaitingForAnimEventCompletion = false;
+
+	// bCompletedNormally=false（AnimEventID不正・対象不備等で再生自体が始まらなかった）の場合も、
+	// アイテムの授受は既に完了しているためインタラクト自体は成功扱いのまま後処理を進める
+	if (AMyProject1Character* Interactor = PendingAnimEventInteractor.Get())
+	{
+		FinalizeInteractSuccess(Interactor);
+	}
+	PendingAnimEventInteractor = nullptr;
+}
+
+void AQuestItemPoint::FinalizeInteractSuccess(AMyProject1Character* Interactor)
+{
 	if (!SuccessLogText.IsEmpty())
 	{
 		Interactor->OnReceiveLogMessage(SuccessLogText, SuccessLogType);
@@ -304,6 +340,11 @@ void AQuestItemPoint::ApplyUsedState()
 	Mesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	SkeletalMesh->SetVisibility(false);
 	Decal->SetVisibility(false);
+
+	// Actor自体もHidden化しないと、TargetNearestEnemy/CycleTargetのIsHidden()判定を素通りして
+	// 見た目は消えたのにターゲットだけできてしまう（UpdateFlagVisibilityのRequiredFlag非表示と同じ扱いに揃える）
+	SetActorHiddenInGame(true);
+	SetActorEnableCollision(false);
 }
 
 void AQuestItemPoint::OnApproachTriggerBeginOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
