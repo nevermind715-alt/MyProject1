@@ -38,7 +38,18 @@ bool UInventoryComponent::AddItemSilently(FName ItemID, int32 Amount)
 	return AddItemInternal(ItemID, Amount, true);
 }
 
-bool UInventoryComponent::AddItemInternal(FName ItemID, int32 Amount, bool bSilent)
+bool UInventoryComponent::EnsureAtLeast(FName ItemID, int32 MinQuantity)
+{
+	if (ItemID.IsNone() || MinQuantity <= 0) return false;
+	if (!GetItemData(ItemID)) return false;
+
+	const int32 Missing = MinQuantity - GetItemQuantity(ItemID);
+	if (Missing <= 0) return true;
+
+	return AddItemInternal(ItemID, Missing, /*bSilent=*/true, /*bIgnoreRareLimit=*/true);
+}
+
+bool UInventoryComponent::AddItemInternal(FName ItemID, int32 Amount, bool bSilent, bool bIgnoreRareLimit)
 {
 	if (Amount <= 0) return false;
 
@@ -51,7 +62,7 @@ bool UInventoryComponent::AddItemInternal(FName ItemID, int32 Amount, bool bSile
 
 	// ★世界に1つしかない（bIsRare）アイテムは、一度手に入れたら二度と手に入らない。
 	// チェスト等が何らかの理由で同じIDを再度渡してきても、ここで確実に弾く。
-	if (ItemInfo->bIsRare && ObtainedRareItemIDs.Contains(ItemID))
+	if (!bIgnoreRareLimit && ItemInfo->bIsRare && ObtainedRareItemIDs.Contains(ItemID))
 	{
 		if (IRpgCharacterInterface* RpgInterface = Cast<IRpgCharacterInterface>(GetOwner()))
 		{
@@ -113,7 +124,7 @@ bool UInventoryComponent::AddItemInternal(FName ItemID, int32 Amount, bool bSile
 
 		// クエストへの通知などは、まだ依存関係があるため一旦既存のキャラクターへのキャストを残します
 		AMyProject1Character* OwnerChar = Cast<AMyProject1Character>(GetOwner());
-		if (OwnerChar && OwnerChar->QuestComp)
+		if (OwnerChar && OwnerChar->QuestComp && !bSilent)
 		{
 			OwnerChar->QuestComp->UpdateGatherObjective(ItemID, ActuallyAdded);
 		}
@@ -156,6 +167,15 @@ bool UInventoryComponent::RemoveItem(FName ItemID, int32 Amount)
 	if (GetItemQuantity(ItemID) < Amount)
 	{
 		return false; // 足りない
+	}
+
+	// 装備中の分は減らせない（装備中のアイテムはカバンにも残す仕様。売却・破棄・納品などの共通の安全弁）
+	if (const AMyProject1Character* OwnerChar = Cast<AMyProject1Character>(GetOwner()))
+	{
+		if (GetItemQuantity(ItemID) - Amount < OwnerChar->GetEquippedCount(ItemID))
+		{
+			return false;
+		}
 	}
 
 	int32 RemainingToRemove = Amount;
@@ -201,6 +221,20 @@ bool UInventoryComponent::DiscardItem(FName ItemID, int32 Amount)
 			RpgInterface->OnReceiveLogMessage(CannotDiscardMsg, ELogMessageType::System);
 		}
 		return false;
+	}
+
+	// 装備中の分は捨てられない
+	if (const AMyProject1Character* OwnerChar = Cast<AMyProject1Character>(GetOwner()))
+	{
+		if (GetItemQuantity(ItemID) - Amount < OwnerChar->GetEquippedCount(ItemID))
+		{
+			if (IRpgCharacterInterface* RpgInterface = Cast<IRpgCharacterInterface>(GetOwner()))
+			{
+				const FString Name = ItemInfo ? ItemInfo->Name : ItemID.ToString();
+				RpgInterface->OnReceiveLogMessage(FString::Printf(TEXT("%s は装備中なので捨てられない。"), *Name), ELogMessageType::System);
+			}
+			return false;
+		}
 	}
 
 	// 通常の削除処理へ委譲（所持数チェック・スロット整理・OnInventoryUpdatedはRemoveItem側で行う）

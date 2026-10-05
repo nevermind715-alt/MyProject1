@@ -329,6 +329,12 @@ void AMyProject1Character::BeginPlay()
 		ApplyDefaultInventoryItems();
 	}
 
+	// 装備中のアイテムは、新規開始・ロードを問わずカバンにも入っている状態にそろえる
+	if (IsPlayerControlled())
+	{
+		EnsureEquippedItemsInInventory();
+	}
+
 	UpdateHealthWidgetName(CharacterName);
 
 	LastCombatTime = GetWorld()->GetTimeSeconds();
@@ -3086,6 +3092,57 @@ void AMyProject1Character::ApplyDefaultEquipment()
 	}
 }
 
+int32 AMyProject1Character::GetEquippedCount(FName ItemID) const
+{
+	if (ItemID.IsNone()) return 0;
+
+	int32 Count = 0;
+	for (const TPair<EEquipmentSlot, FName>& Pair : CurrentEquippedItems)
+	{
+		if (Pair.Value == ItemID) ++Count;
+	}
+	return Count;
+}
+
+bool AMyProject1Character::IsItemEquipped(FName ItemID) const
+{
+	return GetEquippedCount(ItemID) > 0;
+}
+
+bool AMyProject1Character::EquipItemFromInventory(FName ItemID)
+{
+	if (ItemID.IsNone() || !InventoryComp || !EquipmentDataTable) return false;
+	if (InventoryComp->GetItemQuantity(ItemID) <= 0) return false;
+
+	FEquipmentData* EquipData = EquipmentDataTable->FindRow<FEquipmentData>(ItemID, TEXT("EquipItemFromInventory"));
+	if (!EquipData) return false;
+
+	// 自力では外せない装備が着いている部位には、上書きして装備させない
+	if (IsSlotLocked(EquipData->TargetSlot))
+	{
+		OnReceiveLogMessage(TEXT("その部位の装備は自力では外せない。"), ELogMessageType::System);
+		return false;
+	}
+
+	// カバンの数は変えない（EquipItem()内でカバンに入っていることも担保される）
+	EquipItem(ItemID, *EquipData);
+	return true;
+}
+
+void AMyProject1Character::EnsureEquippedItemsInInventory()
+{
+	if (!InventoryComp) return;
+
+	TSet<FName> Checked;
+	for (const TPair<EEquipmentSlot, FName>& Pair : CurrentEquippedItems)
+	{
+		if (Pair.Value.IsNone() || Checked.Contains(Pair.Value)) continue;
+		Checked.Add(Pair.Value);
+
+		InventoryComp->EnsureAtLeast(Pair.Value, GetEquippedCount(Pair.Value));
+	}
+}
+
 void AMyProject1Character::ApplyDefaultInventoryItems()
 {
 	if (!InventoryComp) return;
@@ -3365,6 +3422,12 @@ void AMyProject1Character::EquipItem(FName ItemID, FEquipmentData EquipData)
 
 	RefreshEquipmentStats();
 	RefreshMovementRestriction();
+
+	// 装備中のアイテムはカバンにも入っている仕様。どの経路で装備しても、ここで担保する。
+	if (InventoryComp && IsPlayerControlled())
+	{
+		InventoryComp->EnsureAtLeast(ItemID, GetEquippedCount(ItemID));
+	}
 }
 
 void AMyProject1Character::UnequipItem(EEquipmentSlot TargetSlot)
@@ -3533,9 +3596,10 @@ bool AMyProject1Character::UnequipItemAndReturnToInventory(EEquipmentSlot Target
 	// ロック判定はしない（ForceRemoveLockedEquipmentと異なり、ロック装備以外にも作用させる）
 	UnequipItem(TargetSlot);
 
+	// 装備中のアイテムはカバンに残っている仕様なので、足す必要があるのはカバンに無いときだけ
 	if (InventoryComp)
 	{
-		InventoryComp->AddItem(RemovedItemID, 1);
+		InventoryComp->EnsureAtLeast(RemovedItemID, 1);
 	}
 
 	return true;
@@ -3550,10 +3614,17 @@ bool AMyProject1Character::ForceRemoveLockedEquipment(EEquipmentSlot TargetSlot,
 
 	UnequipItem(TargetSlot);
 
-	// 鍵・ショップ解除はインベントリに戻す。破壊解除は戻さない（＝消滅）。
-	if (bReturnToInventory && !RemovedItemID.IsNone() && InventoryComp)
+	// 鍵・ショップ解除はカバンに残す（無ければ補充）。破壊解除はカバンからも消す（＝消滅）。
+	if (!RemovedItemID.IsNone() && InventoryComp)
 	{
-		InventoryComp->AddItem(RemovedItemID, 1);
+		if (bReturnToInventory)
+		{
+			InventoryComp->EnsureAtLeast(RemovedItemID, 1);
+		}
+		else
+		{
+			InventoryComp->RemoveItem(RemovedItemID, 1);
+		}
 	}
 
 	return true;

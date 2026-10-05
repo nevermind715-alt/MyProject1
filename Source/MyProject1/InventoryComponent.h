@@ -97,8 +97,16 @@ public:
 	/** AddItemと同じだが、入手ログ（「〜を手に入れた」）と取得音を出さない。ゲーム開始時の初期所持品用。 */
 	bool AddItemSilently(FName ItemID, int32 Amount);
 
+	/**
+	 * 指定アイテムが最低 MinQuantity 個カバンにあるように補充する（足りない分だけ静かに追加）。
+	 * 装備中のアイテムは「カバンにも必ず入っている」仕様のため、装備した経路を問わずここで担保する。
+	 * 入手ログ・取得音・クエスト通知は出さず、1つしか手に入らないレアアイテムの制限も無視する。
+	 * ItemDataTableに無いID（髪型など）は何もせず false を返す。
+	 */
+	bool EnsureAtLeast(FName ItemID, int32 MinQuantity);
+
 private:
-	bool AddItemInternal(FName ItemID, int32 Amount, bool bSilent);
+	bool AddItemInternal(FName ItemID, int32 Amount, bool bSilent, bool bIgnoreRareLimit = false);
 
 public:
 

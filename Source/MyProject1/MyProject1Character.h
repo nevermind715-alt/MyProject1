@@ -777,6 +777,22 @@ public:
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Equipment")
 	FName GetEquippedItemID(EEquipmentSlot Slot);
 
+	// 指定アイテムを現在いくつ装備しているか（同じIDを複数スロットに着けている場合は複数になる）
+	int32 GetEquippedCount(FName ItemID) const;
+
+	// 指定アイテムを装備中か。インベントリ画面の「装備中」マーク表示などに使う。
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Equipment")
+	bool IsItemEquipped(FName ItemID) const;
+
+	// インベントリ内のアイテムを装備する（装備メニュー／アイテムメニューの「装備」ボタン用）。
+	// 装備してもカバンからは減らない（装備中のアイテムもカバンに残る）。同じ部位に装備中のものがあれば入れ替わる。
+	// カバンに無い、装備データが無い、部位がロックされている場合は何もせず false。
+	UFUNCTION(BlueprintCallable, Category = "Equipment")
+	bool EquipItemFromInventory(FName ItemID);
+
+	// 装備中の全アイテムが、カバンにも入っているように補充する（旧セーブデータ・イベント装備などの救済）。
+	void EnsureEquippedItemsInInventory();
+
 	/** 動的な鎖を表現するコンポーネント */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Cable")
 	UCableComponent* EquipmentCableComp;
