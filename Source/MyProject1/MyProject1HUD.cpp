@@ -232,6 +232,18 @@ void AMyProject1HUD::ToggleInventoryMenu()
                 InventoryMenuWidget->RemoveFromParent();
             }
 
+            // 2回目以降のAddToViewportが約2秒固まる問題の回避：
+            // 閉じたWidgetを使い回さず破棄し、次に開くときは1回目と同じ新規生成にする。
+            // WBP_InventoryScreenはOnInitializedでOnInventoryUpdatedにBindしているため、ここで解除する。
+            if (APawn* Pawn = PC->GetPawn())
+            {
+                if (UInventoryComponent* Inv = Pawn->FindComponentByClass<UInventoryComponent>())
+                {
+                    Inv->OnInventoryUpdated.RemoveAll(InventoryMenuWidget);
+                }
+            }
+            InventoryMenuWidget = nullptr;
+
             // --- 修正：メニューを再表示する際に確実に Visible にする ---
             if (CommandMenuWidget)
             {
