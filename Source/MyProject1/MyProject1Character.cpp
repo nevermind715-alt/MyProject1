@@ -3139,7 +3139,12 @@ void AMyProject1Character::EnsureEquippedItemsInInventory()
 		if (Pair.Value.IsNone() || Checked.Contains(Pair.Value)) continue;
 		Checked.Add(Pair.Value);
 
-		InventoryComp->EnsureAtLeast(Pair.Value, GetEquippedCount(Pair.Value));
+		if (!InventoryComp->EnsureAtLeast(Pair.Value, GetEquippedCount(Pair.Value)))
+		{
+			// 髪型などItemDataTableに無いIDは正常。装備品なのにここに出る場合は、DT_EquipmentsとDT_ItemsのRow名が一致していない。
+			UE_LOG(LogTemp, Warning, TEXT("[EquipInv] 装備 '%s' (スロット%d) をカバンに補充できなかった。ItemDataTableに同名の行が無い、またはカバンが満杯。"),
+				*Pair.Value.ToString(), static_cast<int32>(Pair.Key));
+		}
 	}
 }
 
