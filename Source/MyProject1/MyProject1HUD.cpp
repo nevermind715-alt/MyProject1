@@ -7,8 +7,30 @@
 #include "ShopNPCBase.h"
 #include "WBP_TimeSkipMenu.h"
 
+DEFINE_LOG_CATEGORY_STATIC(LogInvOpenProfile, Log, All);
+
 namespace
 {
+	// インベントリ開閉の計測用（原因特定後に削除する）
+	struct FInvProfileStep
+	{
+		const TCHAR* Label;
+		int32 OpenCount;
+		double Start;
+		FInvProfileStep(const TCHAR* InLabel, int32 InCount)
+			: Label(InLabel), OpenCount(InCount), Start(FPlatformTime::Seconds()) {}
+		~FInvProfileStep()
+		{
+			const double Ms = (FPlatformTime::Seconds() - Start) * 1000.0;
+			UE_LOG(LogInvOpenProfile, Log, TEXT("[InvProfile] #%d %s : %.3f ms (frame %llu)"),
+				OpenCount, Label, Ms, (uint64)GFrameCounter);
+			if (Ms > 16.0)
+			{
+				UE_LOG(LogInvOpenProfile, Warning, TEXT("[InvProfile] #%d %s が遅い: %.3f ms"), OpenCount, Label, Ms);
+			}
+		}
+	};
+
 	void SayShopGoodbye(AMyProject1Character* OwnerChar)
 	{
 		if (OwnerChar && OwnerChar->ActiveShopNPC)
@@ -166,8 +188,16 @@ void AMyProject1HUD::ToggleInventoryMenu()
     APlayerController* PC = GetOwningPlayerController();
     if (!PC || !InventoryMenuClass) return;
 
+    static int32 InvToggleCount = 0;
+    ++InvToggleCount;
+    const int32 N = InvToggleCount;
+    FInvProfileStep Total(TEXT("Toggle全体"), N);
+    UE_LOG(LogInvOpenProfile, Log, TEXT("[InvProfile] #%d 開始 Widget生成済み=%d InViewport=%d"),
+        N, InventoryMenuWidget != nullptr, InventoryMenuWidget ? InventoryMenuWidget->IsInViewport() : false);
+
     if (!InventoryMenuWidget)
     {
+        FInvProfileStep Step(TEXT("CreateWidget"), N);
         InventoryMenuWidget = CreateWidget<UUserWidget>(GetWorld(), InventoryMenuClass);
     }
 
@@ -175,20 +205,32 @@ void AMyProject1HUD::ToggleInventoryMenu()
     {
         if (!InventoryMenuWidget->IsInViewport())
         {
-            InventoryMenuWidget->AddToViewport(20);
+            {
+                FInvProfileStep Step(TEXT("AddToViewport"), N);
+                InventoryMenuWidget->AddToViewport(20);
+            }
 
             // 背後のメニューを隠す
             if (CommandMenuWidget) CommandMenuWidget->SetVisibility(ESlateVisibility::Collapsed);
 
-            FInputModeGameAndUI InputMode;
-            InputMode.SetWidgetToFocus(InventoryMenuWidget->TakeWidget());
-            PC->SetInputMode(InputMode);
+            {
+                FInvProfileStep Step(TEXT("TakeWidget+SetInputMode"), N);
+                FInputModeGameAndUI InputMode;
+                InputMode.SetWidgetToFocus(InventoryMenuWidget->TakeWidget());
+                PC->SetInputMode(InputMode);
+            }
 
-            if (MenuOpenSound) UGameplayStatics::PlaySound2D(this, MenuOpenSound);
+            {
+                FInvProfileStep Step(TEXT("PlaySound2D(Open)"), N);
+                if (MenuOpenSound) UGameplayStatics::PlaySound2D(this, MenuOpenSound);
+            }
         }
         else
         {
-            InventoryMenuWidget->RemoveFromParent();
+            {
+                FInvProfileStep Step(TEXT("RemoveFromParent"), N);
+                InventoryMenuWidget->RemoveFromParent();
+            }
 
             // --- 修正：メニューを再表示する際に確実に Visible にする ---
             if (CommandMenuWidget)
