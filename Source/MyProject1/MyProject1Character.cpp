@@ -3408,7 +3408,8 @@ void AMyProject1Character::ApplyDefaultEquipment()
 		// 初期装備もここでインベントリに入れておかないと、外した瞬間に所持データごと消えて再装備できなくなる。
 		if (InventoryComp)
 		{
-			InventoryComp->AddItem(RowName, 1);
+			// 開始時の持ち物なので、入手ログ・取得音は出さない
+			InventoryComp->EnsureAtLeast(RowName, 1);
 		}
 
 		// EquipItem()末尾でRefreshEquipmentStats()も呼ばれるため、StatModifiersも通常どおり反映される
