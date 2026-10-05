@@ -326,13 +326,22 @@ void AMyProject1Character::BeginPlay()
 	if (IsPlayerControlled() && !bRestoredFromSnapshot)
 	{
 		ApplyDefaultEquipment();
-		ApplyDefaultInventoryItems();
 	}
 
-	// 装備中のアイテムは、新規開始・ロードを問わずカバンにも入っている状態にそろえる
+	// 初期所持品の付与と、装備中アイテムのカバンへの補充は、次のフレームで行う。
+	// Blueprint側のBeginPlayでInventoryComp->ItemDataTable等が設定される場合でも、アイテムデータを確実に引けるようにするため。
+	// 装備中のアイテムは、新規開始・ロードを問わずカバンにも入っている状態にそろえる。
 	if (IsPlayerControlled())
 	{
-		EnsureEquippedItemsInInventory();
+		const bool bGiveDefaultItems = !bRestoredFromSnapshot;
+		GetWorldTimerManager().SetTimerForNextTick(FTimerDelegate::CreateWeakLambda(this, [this, bGiveDefaultItems]()
+		{
+			if (bGiveDefaultItems)
+			{
+				ApplyDefaultInventoryItems();
+			}
+			EnsureEquippedItemsInInventory();
+		}));
 	}
 
 	UpdateHealthWidgetName(CharacterName);
@@ -3142,8 +3151,8 @@ void AMyProject1Character::EnsureEquippedItemsInInventory()
 		if (!InventoryComp->EnsureAtLeast(Pair.Value, GetEquippedCount(Pair.Value)))
 		{
 			// 髪型などItemDataTableに無いIDは正常。装備品なのにここに出る場合は、DT_EquipmentsとDT_ItemsのRow名が一致していない。
-			UE_LOG(LogTemp, Warning, TEXT("[EquipInv] 装備 '%s' (スロット%d) をカバンに補充できなかった。ItemDataTableに同名の行が無い、またはカバンが満杯。"),
-				*Pair.Value.ToString(), static_cast<int32>(Pair.Key));
+			UE_LOG(LogTemp, Warning, TEXT("[EquipInv] 装備 '%s' (スロット%d) をカバンに補充できなかった。ItemDataTable=%s（nullなら未設定）。同名の行が無い、またはカバンが満杯。"),
+				*Pair.Value.ToString(), static_cast<int32>(Pair.Key), *GetNameSafe(InventoryComp->ItemDataTable));
 		}
 	}
 }
