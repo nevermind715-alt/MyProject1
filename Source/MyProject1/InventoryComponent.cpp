@@ -30,6 +30,16 @@ FItemData* UInventoryComponent::GetItemData(FName ItemID)
 
 bool UInventoryComponent::AddItem(FName ItemID, int32 Amount)
 {
+	return AddItemInternal(ItemID, Amount, false);
+}
+
+bool UInventoryComponent::AddItemSilently(FName ItemID, int32 Amount)
+{
+	return AddItemInternal(ItemID, Amount, true);
+}
+
+bool UInventoryComponent::AddItemInternal(FName ItemID, int32 Amount, bool bSilent)
+{
 	if (Amount <= 0) return false;
 
 	FItemData* ItemInfo = GetItemData(ItemID);
@@ -110,7 +120,8 @@ bool UInventoryComponent::AddItem(FName ItemID, int32 Amount)
 
 		// ★ログ出力部分をインターフェース（窓口）経由に変更！
 		// これにより、将来プレイヤー以外のNPCがアイテムを拾った時でもエラーにならずログが流せます
-		if (IRpgCharacterInterface* RpgInterface = Cast<IRpgCharacterInterface>(GetOwner()))
+		IRpgCharacterInterface* RpgInterface = bSilent ? nullptr : Cast<IRpgCharacterInterface>(GetOwner());
+		if (RpgInterface)
 		{
 			FString LogMsg;
 			if (ActuallyAdded == 1)
@@ -125,7 +136,7 @@ bool UInventoryComponent::AddItem(FName ItemID, int32 Amount)
 		}
 
 		// 取得音を再生（入手経路を問わず共通。位置に依存しないUI寄りの音なのでPlaySound2Dを使用）
-		if (ItemPickupSound)
+		if (ItemPickupSound && !bSilent)
 		{
 			UGameplayStatics::PlaySound2D(this, ItemPickupSound);
 		}

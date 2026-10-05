@@ -755,6 +755,14 @@ public:
 	/** DefaultEquipmentRowNamesをEquipmentDataTableから引いて装備させる。完全新規開始時のみBeginPlayから呼ばれる。 */
 	void ApplyDefaultEquipment();
 
+	// 完全新規開始時（NEW GAME／セーブロードでも別マップワープでもない初回Play）にだけ、カバンへ入れて始める初期所持品。
+	// ItemID = ItemDataTable（DT_Items）のRow名、Quantity = 個数。入手ログと取得音は出さない。
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Inventory")
+	TArray<FInventorySlot> DefaultInventoryItems;
+
+	/** DefaultInventoryItemsをカバンへ入れる。完全新規開始時のみBeginPlayから呼ばれる。 */
+	void ApplyDefaultInventoryItems();
+
 	
 	// バフ専用データテーブルの参照
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Buff")

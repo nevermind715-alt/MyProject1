@@ -94,6 +94,14 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	bool AddItem(FName ItemID, int32 Amount);
 
+	/** AddItemと同じだが、入手ログ（「〜を手に入れた」）と取得音を出さない。ゲーム開始時の初期所持品用。 */
+	bool AddItemSilently(FName ItemID, int32 Amount);
+
+private:
+	bool AddItemInternal(FName ItemID, int32 Amount, bool bSilent);
+
+public:
+
 	/** アイテムを減らす（使う/捨てる） */
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	bool RemoveItem(FName ItemID, int32 Amount);

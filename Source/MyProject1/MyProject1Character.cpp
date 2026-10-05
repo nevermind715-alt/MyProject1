@@ -326,6 +326,7 @@ void AMyProject1Character::BeginPlay()
 	if (IsPlayerControlled() && !bRestoredFromSnapshot)
 	{
 		ApplyDefaultEquipment();
+		ApplyDefaultInventoryItems();
 	}
 
 	UpdateHealthWidgetName(CharacterName);
@@ -3082,6 +3083,19 @@ void AMyProject1Character::ApplyDefaultEquipment()
 
 		// EquipItem()末尾でRefreshEquipmentStats()も呼ばれるため、StatModifiersも通常どおり反映される
 		EquipItem(RowName, *EquipData);
+	}
+}
+
+void AMyProject1Character::ApplyDefaultInventoryItems()
+{
+	if (!InventoryComp) return;
+
+	for (const FInventorySlot& Item : DefaultInventoryItems)
+	{
+		if (Item.ItemID.IsNone() || Item.Quantity <= 0) continue;
+
+		// 開始時の持ち物なので、入手ログ・取得音は出さない
+		InventoryComp->AddItemSilently(Item.ItemID, Item.Quantity);
 	}
 }
 
