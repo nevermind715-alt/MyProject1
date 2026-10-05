@@ -151,6 +151,13 @@ bool UDialogComponent::ExecuteActionCore(EDialogActionType ActionType, const FSt
 		}
 		PendingNarrationNextDialogID = NextDialogIDForNarration;
 
+		// ここでreturnするとStatToChangeの通常処理（関数末尾）に到達しないため、
+		// 画面が真っ暗になった瞬間（BeginFadeNarration）に適用できるよう保存しておく
+		PendingNarrationStatToChange = StatToChange;
+		PendingNarrationStatTargetActor = StatTargetActor;
+		PendingNarrationExtraStatName = ExtraStatName;
+		PendingNarrationStatChangeAmount = StatChangeAmount;
+
 		// 暗転演出中（まだ真っ暗になっていない）のAdvanceDialog誤動作を防ぐため、要求と同時に立てる
 		bIsFadeNarrationPending = true;
 
@@ -378,6 +385,15 @@ bool UDialogComponent::CanSelectChoice(const FDialogChoice& Choice) const
 		}
 	}
 
+	if (Choice.RequiredGil > 0)
+	{
+		const UInventoryComponent* Inv = GetOwner() ? GetOwner()->FindComponentByClass<UInventoryComponent>() : nullptr;
+		if (!Inv || Inv->Gil < Choice.RequiredGil)
+		{
+			return false;
+		}
+	}
+
 	return true;
 }
 
@@ -464,6 +480,14 @@ void UDialogComponent::BeginFadeNarration()
 
 	CurrentDialogLines = PendingNarrationLines;
 	CurrentLineIndex = 0;
+
+	// 画面が真っ暗な今のうちに、保存しておいたステータス変化を適用する
+	if (IRpgCharacterInterface* RpgInterface = Cast<IRpgCharacterInterface>(GetOwner()))
+	{
+		UGameplayActionLibrary::ApplyStatChange(RpgInterface, CurrentNPC, PendingNarrationStatToChange, PendingNarrationStatTargetActor, PendingNarrationExtraStatName, PendingNarrationStatChangeAmount);
+	}
+	PendingNarrationStatToChange = ETargetStat::None;
+	PendingNarrationStatChangeAmount = 0.0f;
 
 	ShowFadeNarrationLine();
 }

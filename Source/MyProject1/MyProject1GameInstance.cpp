@@ -8,6 +8,7 @@
 #include "QuestComponent.h"
 #include "SkinOverlayComponent.h"
 #include "GameFramework/PlayerController.h"
+#include "GameFramework/SpringArmComponent.h"
 #include "WallWarpLink.h"
 #include "GameplayActionLibrary.h"
 #include "RpgCharacterInterface.h"
@@ -19,6 +20,7 @@
 #include "MusicControlComponent.h"
 #include "AnimEventActor.h"
 #include "QuestNPCBase.h"
+#include "SleepPoint.h"
 #include "AIController.h"
 #include "BrainComponent.h"
 #include "Engine/SkeletalMesh.h"
@@ -52,6 +54,22 @@ void UMyProject1GameInstance::UpdateInGameTime()
 	int32 Hour = CurrentTimeInMinutes / 60;
 	int32 Minute = CurrentTimeInMinutes % 60;
 
+	// 「時」が変わった瞬間（分が0になった瞬間）だけExStats17を減少させる（動作を軽くするため、毎分ではなくここだけで計算する）
+	if (Minute == 0)
+	{
+		APlayerController* PC = GetWorld() ? GetWorld()->GetFirstPlayerController() : nullptr;
+		if (AMyProject1Character* Character = PC ? Cast<AMyProject1Character>(PC->GetPawn()) : nullptr)
+		{
+			Character->ApplyExStats17DecayForElapsedMinutes(60);
+		}
+	}
+
+	// 午前1時になった瞬間に、妊娠抽選を1日1回行う（ExStats17の減少後の値で判定される）
+	if (CurrentTimeInMinutes == 60)
+	{
+		RollConception();
+	}
+
 	// UIに向けて「時間が変わったよ！」とお知らせする
 	if (OnInGameTimeChanged.IsBound())
 	{
@@ -67,13 +85,26 @@ void UMyProject1GameInstance::AdvanceTimeBy(int32 MinutesToAdd)
 		return;
 	}
 
-	CurrentTimeInMinutes += MinutesToAdd;
-
-	// 日をまたぐ分だけAdvanceDayを個別に呼ぶ（複数日またぐ待機でも1日ずつ正しく進む）
-	while (CurrentTimeInMinutes >= 1440)
+	// 日をまたぐ分だけAdvanceDayを個別に呼ぶ（複数日またぐ待機でも1日ずつ正しく進む）。
+	// 1日ごとに区切って進めることで、途中で午前1時を通過した日の妊娠抽選も取りこぼさない
+	int32 RemainingMinutes = MinutesToAdd;
+	while (RemainingMinutes > 0)
 	{
-		CurrentTimeInMinutes -= 1440;
-		AdvanceDay();
+		const int32 StepMinutes = FMath::Min(RemainingMinutes, 1440 - CurrentTimeInMinutes);
+		const int32 MinutesBefore = CurrentTimeInMinutes;
+		CurrentTimeInMinutes += StepMinutes;
+		RemainingMinutes -= StepMinutes;
+
+		if (MinutesBefore < 60 && CurrentTimeInMinutes >= 60)
+		{
+			RollConception();
+		}
+
+		if (CurrentTimeInMinutes >= 1440)
+		{
+			CurrentTimeInMinutes -= 1440;
+			AdvanceDay();
+		}
 	}
 
 	int32 Hour = CurrentTimeInMinutes / 60;
@@ -105,10 +136,162 @@ void UMyProject1GameInstance::AdvanceDay()
 		}
 	}
 
+	// 妊娠中／産後の回復期の終了日に達したら次の段階へ進める（Broadcast前に行い、UpdateCycleStateが新しい段階で計算するようにする）
+	if (CycleMode != ECycleMode::Normal && CycleModeEndDay >= 0 && TotalElapsedDays >= CycleModeEndDay)
+	{
+		if (CycleMode == ECycleMode::Pregnancy)
+		{
+			BeginPostpartum();
+		}
+		else
+		{
+			EndPostpartum();
+		}
+	}
+
 	if (OnDayChangedDelegate.IsBound())
 	{
 		OnDayChangedDelegate.Broadcast();
 	}
+
+	OnCycleDisplayChanged.Broadcast();
+}
+
+int32 UMyProject1GameInstance::GetCurrentCycleDay() const
+{
+	const int32 ElapsedDays = FMath::Max(0, TotalElapsedDays - CycleStartDay);
+
+	if (CycleMode != ECycleMode::Normal)
+	{
+		// 妊娠中／産後の回復期は繰り返さず、開始日を1日目とした経過日数をそのまま使う
+		return ElapsedDays + 1;
+	}
+
+	// 💡全体のサイクル日数は、エディタ側で設定されたルールの一番大きい終了日から自動計算する
+	int32 MaxCycleDays = 30; // ルールが空の時のための保険のデフォルト値
+	if (CyclePhaseRules.Num() > 0)
+	{
+		// リストの最後の要素の MaxDay を全体のサイクル日数とする（例：最後の要素が「21〜30」なら30日サイクル）
+		MaxCycleDays = CyclePhaseRules.Last().MaxDay;
+	}
+
+	return (ElapsedDays % MaxCycleDays) + 1;
+}
+
+FText UMyProject1GameInstance::GetCurrentCycleDisplayName() const
+{
+	const int32 CycleDay = GetCurrentCycleDay();
+	ECycleState MatchedState = CurrentCycleState;
+
+	for (const FCyclePhaseSettings& Rule : GetActiveCyclePhaseRules())
+	{
+		if (CycleDay >= Rule.MinDay && CycleDay <= Rule.MaxDay)
+		{
+			if (!Rule.PhaseDisplayName.IsEmpty())
+			{
+				return Rule.PhaseDisplayName;
+			}
+			MatchedState = Rule.TargetState;
+			break;
+		}
+	}
+
+	switch (CycleMode)
+	{
+	case ECycleMode::Pregnancy:
+		return PregnancyModeDisplayName;
+	case ECycleMode::Postpartum:
+		return PostpartumModeDisplayName;
+	default:
+		return StaticEnum<ECycleState>()->GetDisplayNameTextByValue(static_cast<int64>(MatchedState));
+	}
+}
+
+AMyProject1Character* UMyProject1GameInstance::FindPlayerCharacter() const
+{
+	APlayerController* PC = GetWorld() ? GetWorld()->GetFirstPlayerController() : nullptr;
+	return PC ? Cast<AMyProject1Character>(PC->GetPawn()) : nullptr;
+}
+
+const TArray<FCyclePhaseSettings>& UMyProject1GameInstance::GetActiveCyclePhaseRules() const
+{
+	switch (CycleMode)
+	{
+	case ECycleMode::Pregnancy:
+		return PregnancyPhaseRules;
+	case ECycleMode::Postpartum:
+		return PostpartumPhaseRules;
+	default:
+		return CyclePhaseRules;
+	}
+}
+
+void UMyProject1GameInstance::SyncCycleModeFlags(AMyProject1Character* Character) const
+{
+	if (!Character) return;
+
+	if (!PregnantFlagName.IsNone())
+	{
+		if (CycleMode == ECycleMode::Pregnancy) Character->AddFlag(PregnantFlagName);
+		else Character->RemoveFlag(PregnantFlagName);
+	}
+	if (!PostpartumFlagName.IsNone())
+	{
+		if (CycleMode == ECycleMode::Postpartum) Character->AddFlag(PostpartumFlagName);
+		else Character->RemoveFlag(PostpartumFlagName);
+	}
+}
+
+// 午前1時に呼ばれる。状態A・通常段階・ExStats17が基準値以上の時だけ、設定確率で妊娠する
+void UMyProject1GameInstance::RollConception()
+{
+	if (CycleMode != ECycleMode::Normal || CurrentCycleState != ECycleState::StateA) return;
+
+	AMyProject1Character* Character = FindPlayerCharacter();
+	if (!Character || Character->GetExtraStat(TEXT("ExStats17")) < ConceptionRequiredExStat17) return;
+
+	if (FMath::FRand() >= ConceptionChance) return;
+
+	BeginPregnancy();
+	Character->UpdateCycleState(); // フラグ付与とステータス補正の再計算
+	OnCycleDisplayChanged.Broadcast();
+}
+
+void UMyProject1GameInstance::BeginPregnancy()
+{
+	// 今日から妊娠期間（ゲーム内カレンダーでPregnancyDurationMonthsヶ月）の日数を、各月の実日数を足し合わせて求める
+	int32 PregnancyDays = 0;
+	int32 Year = CurrentYear;
+	int32 Month = CurrentMonth;
+	for (int32 i = 0; i < PregnancyDurationMonths; ++i)
+	{
+		PregnancyDays += GetDaysInMonth(Year, Month);
+		if (++Month > 12)
+		{
+			Month = 1;
+			Year++;
+		}
+	}
+
+	CycleMode = ECycleMode::Pregnancy;
+	CycleStartDay = TotalElapsedDays;
+	CycleModeEndDay = TotalElapsedDays + PregnancyDays;
+}
+
+// 出産。産後の回復期へ移る（出産イベントを足すならここが起点）
+void UMyProject1GameInstance::BeginPostpartum()
+{
+	CycleMode = ECycleMode::Postpartum;
+	CycleStartDay = TotalElapsedDays;
+	CycleModeEndDay = TotalElapsedDays + PostpartumRecoveryDays;
+}
+
+// 回復期の終了。月齢サイクルを今日から1日目として再開し、妊娠抽選も再開する
+void UMyProject1GameInstance::EndPostpartum()
+{
+	CycleMode = ECycleMode::Normal;
+	CycleStartDay = TotalElapsedDays;
+	CycleModeEndDay = -1;
 }
 
 // 指定した「年・月」の日数を計算する処理
@@ -161,7 +344,43 @@ void UMyProject1GameInstance::RequestWarp(FName WarpID, ACharacter* PlayerCharac
 	ReservedWarpID = WarpID;
 	ReservedPlayer = PlayerCharacter;
 
+	// FWarpDestination::bShowFadeNarrationOnWarpが設定されていれば、実際の移動より先に暗転セリフを表示する。
+	// 暗転完了後の処理はExecuteWarpProcess→BeginWarpDestinationNarrationへ続く（bPendingEventStartNarrationと同じパターン）
+	if (WarpData->bShowFadeNarrationOnWarp && !WarpData->FadeNarrationText.IsEmpty())
+	{
+		bPendingWarpDestinationNarration = true;
+	}
+
 	BeginWarpFade(PlayerCharacter);
+}
+
+// ----------------------------------------------------
+// 1.4.5. DT_WarpDestinationsを介さず、Transformを直接指定してのワープ要求
+//        （FEventDefinition::bUseContextActorLocationInsteadOfWarp用）
+// ----------------------------------------------------
+void UMyProject1GameInstance::RequestWarpToTransform(const FTransform& DestinationTransform, ACharacter* PlayerCharacter, bool bIsEventContext)
+{
+	if (!PlayerCharacter) { UE_LOG(LogTemp, Warning, TEXT("RequestWarpToTransform: PlayerCharacter is null")); return; }
+
+	ReservedDirectWarpTransform = DestinationTransform;
+	ReservedDirectWarpCharacter = PlayerCharacter;
+	bReservedDirectWarpIsEventContext = bIsEventContext;
+
+	BeginWarpFade(PlayerCharacter);
+}
+
+void UMyProject1GameInstance::RestoreDirectWarpCameraCollisionTestIfNeeded(ACharacter* PlayerCharacter)
+{
+	if (!bReservedDirectWarpCameraCollisionOverrideActive) return;
+	bReservedDirectWarpCameraCollisionOverrideActive = false;
+
+	if (AMyProject1Character* MyPlayerChar = PlayerCharacter ? Cast<AMyProject1Character>(PlayerCharacter) : nullptr)
+	{
+		if (USpringArmComponent* Boom = MyPlayerChar->GetCameraBoom())
+		{
+			Boom->bDoCollisionTest = bReservedDirectWarpOriginalCameraCollisionTest;
+		}
+	}
 }
 
 // ----------------------------------------------------
@@ -257,6 +476,64 @@ void UMyProject1GameInstance::ResumeFadeInAfterNarration(UDialogComponent* Narra
 }
 
 // ----------------------------------------------------
+// 1.6.7. ASleepPointの睡眠イベント専用の暗転セリフ（既存のUDialogComponent::OnFadeNarrationLine/
+//        OnFadeNarrationClosed表示UIをそのまま流用する。UDialogComponentの内部状態・会話フローは経由しない）
+// ----------------------------------------------------
+void UMyProject1GameInstance::BeginSleepEventNarration(const FText& NarrationText, float DisplaySeconds, ASleepPoint* SleepPointContext, AMyProject1Character* PlayerCharacter)
+{
+	if (!SleepPointContext || !PlayerCharacter) return;
+
+	UDialogComponent* PlayerDialogComp = PlayerCharacter->FindComponentByClass<UDialogComponent>();
+	if (!PlayerDialogComp) return;
+
+	SleepEventNarrationSource = SleepPointContext;
+	SleepEventNarrationPlayer = PlayerCharacter;
+
+	// 既存の暗転セリフUI（ActionType=ShowTextDuringFadeが使っているのと同じ表示）をそのまま鳴らすだけ。
+	// TryStartDialog等は一切呼ばないため、UDialogComponent側の会話状態（CurrentDialogData等）には触れない
+	PlayerDialogComp->OnFadeNarrationLine.Broadcast(NarrationText);
+
+	GetTimerManager().SetTimer(SleepEventNarrationTimerHandle, this,
+		&UMyProject1GameInstance::HandleSleepEventNarrationTimerComplete, FMath::Max(DisplaySeconds, 0.1f), false);
+}
+
+void UMyProject1GameInstance::HandleSleepEventNarrationTimerComplete()
+{
+	// 後片付けしてからASleepPoint側のイベント発動処理へつなぐ
+	ASleepPoint* SleepPointContext = SleepEventNarrationSource.Get();
+	AMyProject1Character* PlayerCharacter = SleepEventNarrationPlayer.Get();
+	SleepEventNarrationSource.Reset();
+	SleepEventNarrationPlayer.Reset();
+
+	if (UDialogComponent* PlayerDialogComp = PlayerCharacter ? PlayerCharacter->FindComponentByClass<UDialogComponent>() : nullptr)
+	{
+		PlayerDialogComp->OnFadeNarrationClosed.Broadcast();
+	}
+
+	if (SleepPointContext && PlayerCharacter)
+	{
+		SleepPointContext->OnSleepEventNarrationFinished(PlayerCharacter);
+	}
+}
+
+void UMyProject1GameInstance::ResumeFadeInAfterSleepEvent()
+{
+	// HandleWarpFadeOutCompleteが保留していたFadeInタイマーを、ここで初めて開始する
+	if (!bWaitingForNarrationCompletion) return;
+	bWaitingForNarrationCompletion = false;
+
+	// WBP_LoadingScreen側へ「暗転アニメーション終了時に止めていた自動明転を、今開始してよい」と合図する
+	OnNarrationReadyToFadeIn.Broadcast();
+
+	// まだ画面が真っ暗な今のうちに、保留中の時間経過・疲労反映を確定させる（明転して時計が見える
+	// 状態になってから急に時間が進むと違和感があるため、明転が始まる直前に反映する）
+	ApplyPendingSleepTimeAdvanceIfNeeded();
+
+	GetTimerManager().SetTimer(WarpFadeInTimerHandle, this,
+		&UMyProject1GameInstance::HandleWarpFadeInComplete, WarpFadeInDuration, false);
+}
+
+// ----------------------------------------------------
 // 1.7. 暗転演出の共通処理（入力停止→暗転タイマー予約→UIへ合図）
 // ----------------------------------------------------
 void UMyProject1GameInstance::BeginWarpFade(ACharacter* TargetCharacter)
@@ -268,6 +545,33 @@ void UMyProject1GameInstance::BeginWarpFade(ACharacter* TargetCharacter)
 		TargetCharacter->DisableInput(PC);
 	}
 	InputDisabledCharacter = TargetCharacter;
+
+	// 既に画面が真っ暗な状態を保持中（睡眠イベントの暗転セリフ終了直後にStartEventが新たなワープを
+	// 要求した場合等）なら、二重に暗転アニメーションを要求せず、実移動だけ行って明転へ引き継ぐ。
+	// ここでbWaitingForNarrationCompletionを解除しないと、この後のExecuteWarpProcessが完了しても
+	// HandleWarpFadeOutCompleteが自動明転タイマーのセットを保留し続け、画面が真っ暗なまま
+	// 入力不能（EnableInputが呼ばれない）で固まってしまう
+	if (bWaitingForNarrationCompletion)
+	{
+		bWaitingForNarrationCompletion = false;
+		ExecuteWarpProcess();
+
+		// ExecuteWarpProcess内でさらに別の暗転セリフ（bPendingEventEndNarration等）が新規に予約され、
+		// bWaitingForNarrationCompletionが再度trueに立て直された場合、まだ画面を明転させてはいけない
+		// （HandleWarpFadeOutCompleteの「if (bWaitingForNarrationCompletion) return;」と同じガード）。
+		// その新しい暗転セリフ側の表示完了処理が、改めてBeginWarpFadeを呼び直して明転へつなぐ
+		if (bWaitingForNarrationCompletion)
+		{
+			return;
+		}
+
+		// WBP_LoadingScreen側へ「暗転アニメーション終了時に止めていた自動明転を、今開始してよい」と合図する
+		OnNarrationReadyToFadeIn.Broadcast();
+
+		GetTimerManager().SetTimer(WarpFadeInTimerHandle, this,
+			&UMyProject1GameInstance::HandleWarpFadeInComplete, WarpFadeInDuration, false);
+		return;
+	}
 
 	// 同じフレームで複数のRequest系が呼ばれても（フラグ消去の相乗り等）、暗転タイマーは1本だけ動かす
 	if (!GetTimerManager().IsTimerActive(WarpFadeOutTimerHandle))
@@ -293,6 +597,10 @@ void UMyProject1GameInstance::HandleWarpFadeOutComplete()
 	{
 		return;
 	}
+
+	// まだ画面が真っ暗な今のうちに、保留中の時間経過・疲労反映を確定させる（bHasActiveEventが
+	// 立っている＝これからAnimEvent等が始まる場合は、内部ガードで自動的にスキップされ持ち越される）
+	ApplyPendingSleepTimeAdvanceIfNeeded();
 
 	GetTimerManager().SetTimer(WarpFadeInTimerHandle, this,
 		&UMyProject1GameInstance::HandleWarpFadeInComplete, WarpFadeInDuration, false);
@@ -324,7 +632,32 @@ void UMyProject1GameInstance::HandleWarpFadeInComplete()
 		return;
 	}
 
+	// 保留中の時間経過・疲労反映は、ここ（明転が終わって画面が見える状態）ではなく、暗転がまだ真っ暗な
+	// うちに明転を始める直前（HandleWarpFadeOutComplete/ResumeFadeInAfterSleepEvent）で確定済み
 	BeginAnimEventSequenceIfNeeded();
+}
+
+void UMyProject1GameInstance::ApplyPendingSleepTimeAdvanceIfNeeded()
+{
+	if (!bPendingSleepTimeAdvanceApply || bHasActiveEvent) return;
+	bPendingSleepTimeAdvanceApply = false;
+
+	const int32 Minutes = PendingSleepTimeAdvanceMinutes;
+	const bool bIsSleep = PendingSleepTimeAdvanceIsSleep;
+	AMyProject1Character* Character = Cast<AMyProject1Character>(PendingSleepTimeAdvanceCharacter.Get());
+	PendingSleepTimeAdvanceCharacter.Reset();
+
+	AdvanceTimeBy(Minutes);
+
+	// HandleFatigueTickは現実時間の経過にしか反応しないため、待機/睡眠でジャンプした分の疲労度は
+	// ここで明示的に反映する（そうしないと待機による時間経過分の疲労上昇が抜け落ちる）
+	if (Character)
+	{
+		Character->ApplyFatigueForSkippedMinutes(Minutes, bIsSleep);
+
+		// ExStats17の自然減少も同様に、スキップした分数に応じてまとめて反映する（例：2時間スキップなら4減る）
+		Character->ApplyExStats17DecayForElapsedMinutes(Minutes);
+	}
 }
 
 // ----------------------------------------------------
@@ -348,13 +681,31 @@ void UMyProject1GameInstance::ExecuteWarpProcess()
 	// 待機/睡眠による時間スキップの予約があれば、こちらで完結させる（RequestFadeThenAdvanceTime用）
 	if (ReservedTimeSkipMinutes > 0)
 	{
-		AdvanceTimeBy(ReservedTimeSkipMinutes);
+		// AdvanceTimeBy・疲労反映は、ここ（暗転が真っ暗になった直後）ではなく、実際に画面へ戻る最後の
+		// 明転時まで保留する（ApplyPendingSleepTimeAdvanceIfNeeded参照）。イベントが当選した場合、
+		// ここで先に時計を進めてしまうと、まだAnimEvent等の演出中なのに時計表示だけ起床時間になってしまうため
+		bPendingSleepTimeAdvanceApply = true;
+		PendingSleepTimeAdvanceMinutes = ReservedTimeSkipMinutes;
+		PendingSleepTimeAdvanceCharacter = ReservedTimeSkipCharacter;
+		PendingSleepTimeAdvanceIsSleep = ReservedTimeSkipIsSleep;
 
-		// HandleFatigueTickは現実時間の経過にしか反応しないため、待機/睡眠でジャンプした分の疲労度は
-		// ここで明示的に反映する（そうしないと待機による時間経過分の疲労上昇が抜け落ちる）
 		if (AMyProject1Character* SkippedCharacter = Cast<AMyProject1Character>(ReservedTimeSkipCharacter.Get()))
 		{
-			SkippedCharacter->ApplyFatigueForSkippedMinutes(ReservedTimeSkipMinutes, ReservedTimeSkipIsSleep);
+			// 睡眠（ASleepPoint::TryInteract経由）による時間スキップの場合、眠ったベッド自身の
+			// bTriggerEventPoolOnSleepがtrueなら抽選を行う（金品を盗まれる等）。何かが起きる場合は、
+			// まだ画面が真っ暗なこのタイミングで暗転セリフ→イベント発動まで進め、明転タイマーの自動開始は
+			// 保留する（保留の解除＝明転再開はASleepPoint::StartPendingSleepEvent側が行う）
+			if (ReservedTimeSkipIsSleep)
+			{
+				if (ASleepPoint* SleepPointContext = SkippedCharacter->GetPendingSleepPointContext())
+				{
+					if (SleepPointContext->TriggerSleepEventPoolIfEnabled(SkippedCharacter))
+					{
+						bWaitingForNarrationCompletion = true;
+						SleepPointContext->BeginPendingSleepEvent(SkippedCharacter);
+					}
+				}
+			}
 		}
 
 		ReservedTimeSkipMinutes = 0;
@@ -388,6 +739,53 @@ void UMyProject1GameInstance::ExecuteWarpProcess()
 		return;
 	}
 
+	// FEventDefinition::bShowNarrationOnStartの予約があれば、こちらで完結させる（StartEvent用）。
+	// 上のReservedNarrationComponentと同じく、ここではFadeInタイマーをまだ動かさない
+	// （bWaitingForNarrationCompletionにより、HandleWarpFadeOutCompleteが自動セットを保留する）
+	if (bPendingEventStartNarration)
+	{
+		bPendingEventStartNarration = false;
+		bWaitingForNarrationCompletion = true;
+
+		BeginEventStartNarration();
+		return;
+	}
+
+	// ClearCondition=Instantかつ bShowNarrationOnStart のイベントの予約があれば、こちらで完結させる（StartEvent用）。
+	// bPendingEventStartNarrationと同じく、ここではFadeInタイマーをまだ動かさない
+	if (bPendingInstantEventNarration)
+	{
+		bPendingInstantEventNarration = false;
+		bWaitingForNarrationCompletion = true;
+
+		BeginInstantEventNarration();
+		return;
+	}
+
+	// FEventDefinition::bShowNarrationOnEndの予約があれば、こちらで完結させる（ResolveActiveEvent用）。
+	// 上のbPendingEventStartNarrationと同じく、ここではFadeInタイマーをまだ動かさない
+	// （bWaitingForNarrationCompletionにより、HandleWarpFadeOutCompleteが自動セットを保留する）
+	if (bPendingEventEndNarration)
+	{
+		bPendingEventEndNarration = false;
+		bWaitingForNarrationCompletion = true;
+
+		BeginEventEndNarration();
+		return;
+	}
+
+	// FWarpDestination::bShowFadeNarrationOnWarpの予約があれば、こちらで完結させる（RequestWarp用）。
+	// 上のbPendingEventStartNarrationと同じく、ここではFadeInタイマーをまだ動かさない
+	// （bWaitingForNarrationCompletionにより、HandleWarpFadeOutCompleteが自動セットを保留する）
+	if (bPendingWarpDestinationNarration)
+	{
+		bPendingWarpDestinationNarration = false;
+		bWaitingForNarrationCompletion = true;
+
+		BeginWarpDestinationNarration();
+		return;
+	}
+
 	// WallWarpLink経由の予約があれば、こちらで完結させる（RequestFadeThenWallWarp用）
 	if (ReservedWallWarpLink.IsValid() && ReservedWallWarpCharacter.IsValid())
 	{
@@ -395,6 +793,53 @@ void UMyProject1GameInstance::ExecuteWarpProcess()
 
 		ReservedWallWarpLink.Reset();
 		ReservedWallWarpCharacter.Reset();
+		return;
+	}
+
+	// 直接指定のTransformへのワープ予約があれば、こちらで完結させる（RequestWarpToTransform用）
+	if (ReservedDirectWarpCharacter.IsValid())
+	{
+		if (ACharacter* Character = ReservedDirectWarpCharacter.Get())
+		{
+			Character->SetActorTransform(ReservedDirectWarpTransform);
+
+			if (APlayerController* PC = Cast<APlayerController>(Character->GetController()))
+			{
+				PC->SetControlRotation(ReservedDirectWarpTransform.GetRotation().Rotator());
+			}
+
+			// 以下の一時変更はイベント用（bIsEventContext）のテレポート専用。戦闘敗北時のPlayerStartへの復帰では
+			// 元に戻す側（ResolveActiveEvent）が走らないため行わない
+			if (bReservedDirectWarpIsEventContext)
+			{
+				// EventContextActor（BP_SleepPoint等）のTransformはベッド什器の寝る位置（床より高い）にあることが多く、
+				// この後PlayAnimSequenceEventがMovementModeを止める（BeginAnimEventSequenceIfNeeded参照）までの間、
+				// 床が近くに見つからずFalling状態になり重力で落下して見えてしまう。MovementMode自体は
+				// PlayAnimSequenceEvent側の「元のモードを記憶して戻す」処理と衝突するため触らず、
+				// GravityScaleだけ一時的に0にして視覚的な落下を止める（ResolveActiveEventで元に戻す）
+				if (UCharacterMovementComponent* Movement = Character->GetCharacterMovement())
+				{
+					ReservedDirectWarpOriginalGravityScale = Movement->GravityScale;
+					Movement->GravityScale = 0.0f;
+				}
+
+				// EventContextActor（BP_SleepPoint等）やその周囲の壁等にCameraBoom（SpringArm）の衝突判定が
+				// ヒットし、カメラが引き寄せられて（キャラに埋まって）見えるテレポート直後の一瞬だけを防ぎたいので、
+				// ここでは無効化のみ行う。ずっと無効のままだとカメラ回転時に壁を素通しして裏が見えてしまうため、
+				// AnimEvent再生開始時点（RestoreDirectWarpCameraCollisionTestIfNeeded）ですぐ元に戻す
+				if (AMyProject1Character* MyCharacter = Cast<AMyProject1Character>(Character))
+				{
+					if (USpringArmComponent* Boom = MyCharacter->GetCameraBoom())
+					{
+						bReservedDirectWarpOriginalCameraCollisionTest = Boom->bDoCollisionTest;
+						Boom->bDoCollisionTest = false;
+						bReservedDirectWarpCameraCollisionOverrideActive = true;
+					}
+				}
+			}
+		}
+
+		ReservedDirectWarpCharacter.Reset();
 		return;
 	}
 
@@ -422,12 +867,17 @@ void UMyProject1GameInstance::ExecuteWarpProcess()
 				PC->SetControlRotation(WarpData->DestinationTransform.GetRotation().Rotator());
 			}
 
-			// イベント分岐で敗北→同一レベル内の施設へワープしてきた場合、bIsDeadのまま行動不能にならないよう復帰させる
+			// イベント分岐で敗北→同一レベル内の施設へワープしてきた場合、HP・Staminaを全快させて復帰させる
 			if (bHasActiveEvent)
 			{
 				if (AMyProject1Character* MyChar = Cast<AMyProject1Character>(ReservedPlayer.Get()))
 				{
-					MyChar->Revive(1.0f);
+					MyChar->Revive(MyChar->MyStats.MaxHP);
+					MyChar->MyStats.Stamina = MyChar->MyStats.MaxStamina;
+					if (MyChar->OnStaminaChangedDelegate.IsBound())
+					{
+						MyChar->OnStaminaChangedDelegate.Broadcast(MyChar->MyStats.Stamina, MyChar->MyStats.MaxStamina);
+					}
 				}
 			}
 		}
@@ -560,6 +1010,9 @@ UMyProject1SaveGame* UMyProject1GameInstance::CapturePlayerStateSnapshot(AMyProj
 	SaveObj->CurrentDay = CurrentDay;
 	SaveObj->TotalElapsedDays = TotalElapsedDays;
 	SaveObj->CurrentCycleState = CurrentCycleState;
+	SaveObj->CycleMode = CycleMode;
+	SaveObj->CycleStartDay = CycleStartDay;
+	SaveObj->CycleModeEndDay = CycleModeEndDay;
 
 	return SaveObj;
 }
@@ -600,6 +1053,9 @@ bool UMyProject1GameInstance::LoadSavedGame(const FString& SlotName)
 	CurrentDay = Loaded->CurrentDay;
 	TotalElapsedDays = Loaded->TotalElapsedDays;
 	CurrentCycleState = Loaded->CurrentCycleState;
+	CycleMode = Loaded->CycleMode;
+	CycleStartDay = Loaded->CycleStartDay;
+	CycleModeEndDay = Loaded->CycleModeEndDay;
 
 	// 傷・タトゥー・ピアス・病気の「箱」も先にGameInstance側へ反映しておく。
 	// SkinOverlayComponent::BeginPlayがLoadOverlayStateFromGameInstance()で自動的に読みに来る。
@@ -775,7 +1231,37 @@ void UMyProject1GameInstance::StartEvent(FName EventID, ACharacter* PlayerCharac
 
 	FEventDefinition* Definition = EventDefinitionDataTable->FindRow<FEventDefinition>(EventID, TEXT("StartEvent"));
 	if (!Definition) { UE_LOG(LogTemp, Warning, TEXT("StartEvent: EventID '%s' not found in EventDefinitionDataTable"), *EventID.ToString()); return; }
-	if (Definition->WarpID.IsNone()) { UE_LOG(LogTemp, Warning, TEXT("StartEvent: EventID '%s' has no WarpID set"), *EventID.ToString()); return; }
+
+	// ClearCondition=Instantはワープを一切経由せず、その場でSuccessActionsだけを即時実行してすぐ終了する
+	// （bHasActiveEventも立てない。睡眠中に金品を盗まれる等、施設への強制送致を伴わない即時イベント用）
+	if (Definition->ClearCondition == EEventClearCondition::Instant)
+	{
+		// bShowNarrationOnStart/bShowNarrationOnEndなら、暗転を挟んでSuccessActionsの前後にセリフを表示する
+		// （暗転後の処理はExecuteWarpProcess→BeginInstantEventNarration→HandleInstantEvent〜TimerComplete）
+		const bool bInstantStartNarration = Definition->bShowNarrationOnStart && !Definition->EventStartNarrationText.IsEmpty();
+		const bool bInstantEndNarration = Definition->bShowNarrationOnEnd && !Definition->EventEndNarrationText.IsEmpty();
+		if (bInstantStartNarration || bInstantEndNarration)
+		{
+			bPendingInstantEventNarration = true;
+			PendingInstantEventID = EventID;
+			PendingInstantEventPlayer = PlayerCharacter;
+			BeginWarpFade(PlayerCharacter);
+			return;
+		}
+
+		ExecuteEventActionList(Definition->SuccessActions, PlayerCharacter);
+		return;
+	}
+
+	if (Definition->bUseContextActorLocationInsteadOfWarp)
+	{
+		if (!EventContextActor) { UE_LOG(LogTemp, Warning, TEXT("StartEvent: EventID '%s' has bUseContextActorLocationInsteadOfWarp but no EventContextActor"), *EventID.ToString()); return; }
+	}
+	else if (Definition->WarpID.IsNone())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("StartEvent: EventID '%s' has no WarpID set"), *EventID.ToString());
+		return;
+	}
 
 	bHasActiveEvent = true;
 	ActiveEventID = EventID;
@@ -812,13 +1298,263 @@ void UMyProject1GameInstance::StartEvent(FName EventID, ACharacter* PlayerCharac
 			&UMyProject1GameInstance::HandleActiveEventTimeUp, Definition->TimeLimitSeconds, false);
 	}
 
-	// RequiredFlagのチェックは施設への強制送致には意味を持たないためバイパスする
-	RequestWarp(Definition->WarpID, PlayerCharacter, true);
+	// bShowNarrationOnStartなら、実際のワープ要求より先に新規で暗転を要求する。暗転完了後の処理は
+	// ExecuteWarpProcess→BeginEventStartNarrationへ続く（ReservedNarrationComponentと同じパターン）
+	if (Definition->bShowNarrationOnStart && !Definition->EventStartNarrationText.IsEmpty())
+	{
+		bPendingEventStartNarration = true;
+		BeginWarpFade(PlayerCharacter);
+		return;
+	}
+
+	ContinueEventAfterStartNarration();
+}
+
+void UMyProject1GameInstance::BeginEventStartNarration()
+{
+	FEventDefinition* Definition = EventDefinitionDataTable
+		? EventDefinitionDataTable->FindRow<FEventDefinition>(ActiveEventID, TEXT("BeginEventStartNarration"))
+		: nullptr;
+	ACharacter* PlayerChar = ActiveEventPlayer.Get();
+	UDialogComponent* PlayerDialogComp = PlayerChar ? PlayerChar->FindComponentByClass<UDialogComponent>() : nullptr;
+
+	if (!Definition || !PlayerDialogComp)
+	{
+		// 表示できない場合は演出なしでそのままワープへ進む。bWaitingForNarrationCompletionはtrueのまま
+		// 渡すことで、この先のContinueEventAfterStartNarration→BeginWarpFadeが「既に暗転済み」として
+		// 二重に暗転演出をせずそのまま続行できるようにする
+		ContinueEventAfterStartNarration();
+		return;
+	}
+
+	// 既存の暗転セリフUI（ActionType=ShowTextDuringFade/BeginSleepEventNarrationが使っているのと同じ表示）を
+	// そのまま鳴らすだけ。TryStartDialog等は一切呼ばないため、UDialogComponent側の会話状態には触れない
+	PlayerDialogComp->OnFadeNarrationLine.Broadcast(Definition->EventStartNarrationText);
+
+	GetTimerManager().SetTimer(EventStartNarrationTimerHandle, this,
+		&UMyProject1GameInstance::HandleEventStartNarrationTimerComplete, FMath::Max(Definition->EventStartNarrationDisplaySeconds, 0.1f), false);
+}
+
+void UMyProject1GameInstance::BeginInstantEventNarration()
+{
+	FEventDefinition* Definition = EventDefinitionDataTable
+		? EventDefinitionDataTable->FindRow<FEventDefinition>(PendingInstantEventID, TEXT("BeginInstantEventNarration"))
+		: nullptr;
+	ACharacter* PlayerChar = PendingInstantEventPlayer.Get();
+	UDialogComponent* PlayerDialogComp = PlayerChar ? PlayerChar->FindComponentByClass<UDialogComponent>() : nullptr;
+
+	// 開始セリフが無い（終了セリフだけの）場合や表示できない異常系は、最短時間のタイマー経由でSuccessActions実行へ進む
+	float DisplaySeconds = 0.1f;
+	if (Definition && PlayerDialogComp && Definition->bShowNarrationOnStart && !Definition->EventStartNarrationText.IsEmpty())
+	{
+		PlayerDialogComp->OnFadeNarrationLine.Broadcast(Definition->EventStartNarrationText);
+		DisplaySeconds = FMath::Max(Definition->EventStartNarrationDisplaySeconds, 0.1f);
+	}
+
+	// 表示できない異常系でも画面が真っ暗なまま固まらないよう、最短時間のタイマー経由で必ずHandle側（明転再開）へ進む
+	GetTimerManager().SetTimer(InstantEventNarrationTimerHandle, this,
+		&UMyProject1GameInstance::HandleInstantEventNarrationTimerComplete, DisplaySeconds, false);
+}
+
+void UMyProject1GameInstance::HandleInstantEventNarrationTimerComplete()
+{
+	ACharacter* PlayerChar = PendingInstantEventPlayer.Get();
+	UDialogComponent* PlayerDialogComp = PlayerChar ? PlayerChar->FindComponentByClass<UDialogComponent>() : nullptr;
+
+	if (PlayerDialogComp)
+	{
+		PlayerDialogComp->OnFadeNarrationClosed.Broadcast();
+	}
+
+	// まだ画面が真っ暗な今のうちにSuccessActions（フラグ発布など）を確定させる
+	FEventDefinition* Definition = (PlayerChar && EventDefinitionDataTable)
+		? EventDefinitionDataTable->FindRow<FEventDefinition>(PendingInstantEventID, TEXT("HandleInstantEventNarrationTimerComplete"))
+		: nullptr;
+	if (Definition)
+	{
+		ExecuteEventActionList(Definition->SuccessActions, PlayerChar);
+	}
+
+	// 終了セリフがあれば、暗転したまま表示してから明転する
+	if (Definition && PlayerDialogComp && Definition->bShowNarrationOnEnd && !Definition->EventEndNarrationText.IsEmpty())
+	{
+		PlayerDialogComp->OnFadeNarrationLine.Broadcast(Definition->EventEndNarrationText);
+		GetTimerManager().SetTimer(InstantEventNarrationTimerHandle, this,
+			&UMyProject1GameInstance::HandleInstantEventEndNarrationTimerComplete, FMath::Max(Definition->EventEndNarrationDisplaySeconds, 0.1f), false);
+		return;
+	}
+
+	FinishInstantEventNarration();
+}
+
+void UMyProject1GameInstance::HandleInstantEventEndNarrationTimerComplete()
+{
+	if (ACharacter* PlayerChar = PendingInstantEventPlayer.Get())
+	{
+		if (UDialogComponent* PlayerDialogComp = PlayerChar->FindComponentByClass<UDialogComponent>())
+		{
+			PlayerDialogComp->OnFadeNarrationClosed.Broadcast();
+		}
+	}
+
+	FinishInstantEventNarration();
+}
+
+void UMyProject1GameInstance::FinishInstantEventNarration()
+{
+	PendingInstantEventID = NAME_None;
+	PendingInstantEventPlayer.Reset();
+
+	bWaitingForNarrationCompletion = false;
+	OnNarrationReadyToFadeIn.Broadcast();
+	GetTimerManager().SetTimer(WarpFadeInTimerHandle, this,
+		&UMyProject1GameInstance::HandleWarpFadeInComplete, WarpFadeInDuration, false);
+}
+
+void UMyProject1GameInstance::HandleEventStartNarrationTimerComplete()
+{
+	if (AMyProject1Character* MyChar = Cast<AMyProject1Character>(ActiveEventPlayer.Get()))
+	{
+		if (UDialogComponent* PlayerDialogComp = MyChar->FindComponentByClass<UDialogComponent>())
+		{
+			PlayerDialogComp->OnFadeNarrationClosed.Broadcast();
+		}
+	}
+
+	// bWaitingForNarrationCompletionはここでは解除しない。ContinueEventAfterStartNarration内の
+	// BeginWarpFadeが「既に暗転済み」として検知し、二重に暗転演出せず自分でtrueを解除して続行する
+	ContinueEventAfterStartNarration();
+}
+
+void UMyProject1GameInstance::ContinueEventAfterStartNarration()
+{
+	FEventDefinition* Definition = EventDefinitionDataTable
+		? EventDefinitionDataTable->FindRow<FEventDefinition>(ActiveEventID, TEXT("ContinueEventAfterStartNarration"))
+		: nullptr;
+	ACharacter* PlayerChar = ActiveEventPlayer.Get();
+
+	// 暗転セリフ表示中にPlayerCharacterやEventDefinitionが失われた異常系はこれ以上進められないため、
+	// イベント状態をクリアして諦める。bWaitingForNarrationCompletion中（画面が真っ暗なまま）だった場合は、
+	// この先ワープが起きずBeginWarpFadeが呼ばれなくなるため、ここで明転を再開しないと画面が真っ暗なまま固まる
+	if (!Definition || !PlayerChar || (Definition->bUseContextActorLocationInsteadOfWarp && !ActiveEventContextActor.IsValid()))
+	{
+		bHasActiveEvent = false;
+		ActiveEventID = NAME_None;
+		ActiveEventPlayer.Reset();
+		ActiveEventContextActor.Reset();
+
+		if (bWaitingForNarrationCompletion)
+		{
+			bWaitingForNarrationCompletion = false;
+			OnNarrationReadyToFadeIn.Broadcast();
+			GetTimerManager().SetTimer(WarpFadeInTimerHandle, this,
+				&UMyProject1GameInstance::HandleWarpFadeInComplete, WarpFadeInDuration, false);
+		}
+		return;
+	}
+
+	if (Definition->bUseContextActorLocationInsteadOfWarp)
+	{
+		AActor* ContextActor = ActiveEventContextActor.Get();
+
+		// EventContextActor（BP_SleepPoint等）のScaleは什器側の見た目調整用であり、そのままプレイヤーに
+		// 適用されると体格が変わってしまうため、Location/Rotationだけを使いScaleはプレイヤー自身の値を維持する
+		const FTransform DestinationTransform(ContextActor->GetActorRotation(), ContextActor->GetActorLocation(), PlayerChar->GetActorScale3D());
+		RequestWarpToTransform(DestinationTransform, PlayerChar);
+	}
+	else
+	{
+		// RequiredFlagのチェックは施設への強制送致には意味を持たないためバイパスする
+		RequestWarp(Definition->WarpID, PlayerChar, true);
+	}
+}
+
+void UMyProject1GameInstance::BeginWarpDestinationNarration()
+{
+	FWarpDestination* WarpData = WarpDataTable
+		? WarpDataTable->FindRow<FWarpDestination>(ReservedWarpID, TEXT("BeginWarpDestinationNarration"))
+		: nullptr;
+	ACharacter* PlayerChar = ReservedPlayer.Get();
+	UDialogComponent* PlayerDialogComp = PlayerChar ? PlayerChar->FindComponentByClass<UDialogComponent>() : nullptr;
+
+	if (!WarpData || !PlayerDialogComp)
+	{
+		// 表示できない場合は演出なしでそのままワープへ進む。bWaitingForNarrationCompletionはtrueのまま
+		// 渡すことで、この先のContinueWarpAfterDestinationNarration内のBeginWarpFadeが「既に暗転済み」として
+		// 二重に暗転演出せずそのまま続行できるようにする
+		ContinueWarpAfterDestinationNarration();
+		return;
+	}
+
+	// 既存の暗転セリフUI（ASleepPoint::BeginSleepEventNarration/BeginEventStartNarrationと同じ表示）を
+	// そのまま鳴らすだけ。TryStartDialog等は一切呼ばないため、UDialogComponent側の会話状態には触れない
+	PlayerDialogComp->OnFadeNarrationLine.Broadcast(WarpData->FadeNarrationText);
+
+	GetTimerManager().SetTimer(WarpDestinationNarrationTimerHandle, this,
+		&UMyProject1GameInstance::HandleWarpDestinationNarrationTimerComplete, 3.0f, false);
+}
+
+void UMyProject1GameInstance::HandleWarpDestinationNarrationTimerComplete()
+{
+	if (ACharacter* PlayerChar = ReservedPlayer.Get())
+	{
+		if (UDialogComponent* PlayerDialogComp = PlayerChar->FindComponentByClass<UDialogComponent>())
+		{
+			PlayerDialogComp->OnFadeNarrationClosed.Broadcast();
+		}
+	}
+
+	// bWaitingForNarrationCompletionはここでは解除しない。ContinueWarpAfterDestinationNarration内の
+	// BeginWarpFadeが「既に暗転済み」として検知し、二重に暗転演出せず自分でtrueを解除して続行する
+	ContinueWarpAfterDestinationNarration();
+}
+
+void UMyProject1GameInstance::ContinueWarpAfterDestinationNarration()
+{
+	ACharacter* PlayerChar = ReservedPlayer.Get();
+
+	// 暗転セリフ表示中にPlayerCharacterが失われた異常系はこれ以上進められないため、予約情報を諦めて破棄する。
+	// bWaitingForNarrationCompletion中（画面が真っ暗なまま）だった場合は、この先ワープが起きずBeginWarpFadeが
+	// 呼ばれなくなるため、ここで明転を再開しないと画面が真っ暗なまま固まる
+	if (!PlayerChar)
+	{
+		ReservedWarpID = NAME_None;
+		ReservedPlayer.Reset();
+
+		if (bWaitingForNarrationCompletion)
+		{
+			bWaitingForNarrationCompletion = false;
+			OnNarrationReadyToFadeIn.Broadcast();
+			GetTimerManager().SetTimer(WarpFadeInTimerHandle, this,
+				&UMyProject1GameInstance::HandleWarpFadeInComplete, WarpFadeInDuration, false);
+		}
+		return;
+	}
+
+	// bWaitingForNarrationCompletionがtrueのままBeginWarpFadeへ渡すことで、「既に暗転済み」として
+	// 二重に暗転演出せず、ExecuteWarpProcessを呼び直してReservedWarpIDの実移動へ進む
+	BeginWarpFade(PlayerChar);
 }
 
 void UMyProject1GameInstance::HandleActiveEventTimeUp()
 {
 	ResolveActiveEvent(true);
+}
+
+void UMyProject1GameInstance::ExecuteEventActionList(const TArray<FEventAction>& Actions, ACharacter* PlayerChar)
+{
+	if (!PlayerChar) return;
+
+	IRpgCharacterInterface* RpgInterface = Cast<IRpgCharacterInterface>(PlayerChar);
+	if (!RpgInterface) return;
+
+	for (const FEventAction& Action : Actions)
+	{
+		UGameplayActionLibrary::ExecuteAction(RpgInterface, PlayerChar, nullptr, GetWorld(),
+			Action.ActionType, Action.ActionPayload, Action.ItemID, Action.ItemAmount);
+		UGameplayActionLibrary::ApplyStatChange(RpgInterface, nullptr,
+			Action.StatToChange, Action.StatTargetActor, Action.ExtraStatName, Action.StatChangeAmount);
+	}
 }
 
 void UMyProject1GameInstance::ResolveActiveEvent(bool bSuccess)
@@ -838,20 +1574,37 @@ void UMyProject1GameInstance::ResolveActiveEvent(bool bSuccess)
 
 	if (Definition && PlayerChar)
 	{
-		if (IRpgCharacterInterface* RpgInterface = Cast<IRpgCharacterInterface>(PlayerChar))
-		{
-			const TArray<FEventAction>& Actions = bSuccess ? Definition->SuccessActions : Definition->FailureActions;
-			for (const FEventAction& Action : Actions)
-			{
-				UGameplayActionLibrary::ExecuteAction(RpgInterface, PlayerChar, nullptr, GetWorld(),
-					Action.ActionType, Action.ActionPayload, Action.ItemID, Action.ItemAmount);
-				UGameplayActionLibrary::ApplyStatChange(RpgInterface, nullptr,
-					Action.StatToChange, Action.StatTargetActor, Action.ExtraStatName, Action.StatChangeAmount);
-			}
-		}
+		const TArray<FEventAction>& Actions = bSuccess ? Definition->SuccessActions : Definition->FailureActions;
+		ExecuteEventActionList(Actions, PlayerChar);
 	}
 
 	const FName ReturnID = Definition ? Definition->ReturnWarpID : NAME_None;
+
+	const bool bUsedContextActorLocation = Definition && Definition->bUseContextActorLocationInsteadOfWarp;
+	AActor* UsedContextActor = ActiveEventContextActor.Get();
+
+	// RequestWarpToTransformのテレポート時に変更していたGravityScale・CameraBoomの衝突判定を元に戻す
+	if (bUsedContextActorLocation && PlayerChar)
+	{
+		if (UCharacterMovementComponent* Movement = PlayerChar->GetCharacterMovement())
+		{
+			Movement->GravityScale = ReservedDirectWarpOriginalGravityScale;
+		}
+
+		// ClearCondition=AnimationSequenceならBeginAnimEventSequenceIfNeededで既に復元済み（冪等なのでここでは何もしない）。
+		// Interact/TimeElapsed/Both等、AnimEvent再生を経由しないケースの安全策としてここでも呼んでおく
+		RestoreDirectWarpCameraCollisionTestIfNeeded(PlayerChar);
+	}
+
+	// bUseContextActorLocationInsteadOfWarpでASleepPoint自身へワープしていた場合、戻り先はReturnWarpIDではなく
+	// プレイヤーがそのSleepPointにインタラクトした時点の座標にする（ActiveEventContextActor.Reset()前に取得しておく）
+	ASleepPoint* ReturnToSleepPoint = bUsedContextActorLocation ? Cast<ASleepPoint>(UsedContextActor) : nullptr;
+
+	// bShowNarrationOnEnd用に、ActiveEventID等をクリアする前に戻り先情報を退避しておく
+	// （ContinueEventAfterEndNarrationはこの後ActiveEventPlayer等ではなくこちらを参照する）
+	PendingEventEndReturnPlayer = PlayerChar;
+	PendingEventEndReturnWarpID = ReturnID;
+	PendingEventEndReturnSleepPoint = ReturnToSleepPoint;
 
 	bHasActiveEvent = false;
 	ActiveEventID = NAME_None;
@@ -859,10 +1612,101 @@ void UMyProject1GameInstance::ResolveActiveEvent(bool bSuccess)
 	ActiveEventContextActor.Reset();
 	ActiveEventExtraMeshOverride.Reset();
 
-	if (!ReturnID.IsNone() && PlayerChar)
+	// bShowNarrationOnEndなら、戻り先への実際のワープ要求より先に新規で暗転を要求する。暗転完了後の処理は
+	// ExecuteWarpProcess→BeginEventEndNarrationへ続く（bPendingEventStartNarrationと同じパターン）
+	if (Definition && Definition->bShowNarrationOnEnd && !Definition->EventEndNarrationText.IsEmpty() && PlayerChar)
+	{
+		PendingEventEndNarrationText = Definition->EventEndNarrationText;
+		PendingEventEndNarrationDisplaySeconds = Definition->EventEndNarrationDisplaySeconds;
+
+		bPendingEventEndNarration = true;
+		BeginWarpFade(PlayerChar);
+		return;
+	}
+
+	ContinueEventAfterEndNarration();
+}
+
+void UMyProject1GameInstance::BeginEventEndNarration()
+{
+	ACharacter* PlayerChar = PendingEventEndReturnPlayer.Get();
+	UDialogComponent* PlayerDialogComp = PlayerChar ? PlayerChar->FindComponentByClass<UDialogComponent>() : nullptr;
+
+	if (!PlayerDialogComp)
+	{
+		// 表示できない場合は演出なしでそのまま戻り先へ進む。bWaitingForNarrationCompletionはtrueのまま
+		// 渡すことで、この先のContinueEventAfterEndNarration→BeginWarpFadeが「既に暗転済み」として
+		// 二重に暗転演出をせずそのまま続行できるようにする
+		ContinueEventAfterEndNarration();
+		return;
+	}
+
+	// 既存の暗転セリフUI（ActionType=ShowTextDuringFade/BeginEventStartNarrationが使っているのと同じ表示）を
+	// そのまま鳴らすだけ。TryStartDialog等は一切呼ばないため、UDialogComponent側の会話状態には触れない
+	PlayerDialogComp->OnFadeNarrationLine.Broadcast(PendingEventEndNarrationText);
+
+	GetTimerManager().SetTimer(EventEndNarrationTimerHandle, this,
+		&UMyProject1GameInstance::HandleEventEndNarrationTimerComplete, FMath::Max(PendingEventEndNarrationDisplaySeconds, 0.1f), false);
+}
+
+void UMyProject1GameInstance::HandleEventEndNarrationTimerComplete()
+{
+	if (AMyProject1Character* MyChar = Cast<AMyProject1Character>(PendingEventEndReturnPlayer.Get()))
+	{
+		if (UDialogComponent* PlayerDialogComp = MyChar->FindComponentByClass<UDialogComponent>())
+		{
+			PlayerDialogComp->OnFadeNarrationClosed.Broadcast();
+		}
+	}
+
+	// bWaitingForNarrationCompletionはここでは解除しない。ContinueEventAfterEndNarration内の
+	// BeginWarpFadeが「既に暗転済み」として検知し、二重に暗転演出せず自分でtrueを解除して続行する
+	ContinueEventAfterEndNarration();
+}
+
+void UMyProject1GameInstance::ContinueEventAfterEndNarration()
+{
+	ACharacter* PlayerChar = PendingEventEndReturnPlayer.Get();
+	ASleepPoint* ReturnToSleepPoint = PendingEventEndReturnSleepPoint.Get();
+	const FName ReturnID = PendingEventEndReturnWarpID;
+
+	PendingEventEndReturnPlayer.Reset();
+	PendingEventEndReturnSleepPoint.Reset();
+	PendingEventEndReturnWarpID = NAME_None;
+
+	if (ReturnToSleepPoint && PlayerChar)
+	{
+		RequestWarpToTransform(ReturnToSleepPoint->GetPreSleepInteractTransform(), PlayerChar);
+	}
+	else if (!ReturnID.IsNone() && PlayerChar)
 	{
 		RequestWarp(ReturnID, PlayerChar, true);
 	}
+	else if (bWaitingForNarrationCompletion)
+	{
+		// 戻り先が無い（またはPlayerCharacterを喪失した）が、bShowNarrationOnEndにより既に暗転済み
+		// （bWaitingForNarrationCompletion中）だったケース。ここで明転を再開しないと画面が真っ暗なまま固まる。
+		// まだ画面が真っ暗な今のうちに、保留中の時間経過・疲労反映を確定させる（HandleWarpFadeOutCompleteと同じ順序）
+		ApplyPendingSleepTimeAdvanceIfNeeded();
+
+		bWaitingForNarrationCompletion = false;
+		OnNarrationReadyToFadeIn.Broadcast();
+		GetTimerManager().SetTimer(WarpFadeInTimerHandle, this,
+			&UMyProject1GameInstance::HandleWarpFadeInComplete, WarpFadeInDuration, false);
+	}
+	else
+	{
+		// 戻り先が無く、ナレーションによる暗転も無かったケースの保険。既に画面は暗転していないため、
+		// HandleWarpFadeInComplete側の呼び出しを待たず、ここで保留中の時間経過・疲労反映を確定させる
+		ApplyPendingSleepTimeAdvanceIfNeeded();
+	}
+}
+
+void UMyProject1GameInstance::RebindActiveEventPlayer(ACharacter* NewPlayerCharacter)
+{
+	if (!bHasActiveEvent || !NewPlayerCharacter) return;
+
+	ActiveEventPlayer = NewPlayerCharacter;
 }
 
 // ----------------------------------------------------
@@ -1016,6 +1860,9 @@ void UMyProject1GameInstance::PlayAnimSequenceEvent(FName AnimEventID, ACharacte
 		}
 	}
 
+	// EventFaceMorphsが設定されていればイベント中だけ表情モーフを上書きする（未設定なら何もしない）
+	ApplyAnimEventFaceMorphs(*AnimEvent);
+
 	// 再生中はPrimary/Secondary（NPC）のCapsule同士が、Offsetで近づいた位置関係のまま重なることがあるため、
 	// CharacterMovementComponentによる押し出し（Depenetration）で位置がズレないよう、Pawnチャンネルへの
 	// 応答だけを一時的にIgnoreにする（Capsule自体のコリジョンは切らないため、地面判定・MovementModeは維持される）。
@@ -1062,6 +1909,42 @@ void UMyProject1GameInstance::PlayAnimSequenceEvent(FName AnimEventID, ACharacte
 	{
 		PlayAnimEventStep(0);
 	}
+}
+
+void UMyProject1GameInstance::ApplyAnimEventFaceMorphs(const FAnimEventDefinition& AnimEvent)
+{
+	AnimEventAppliedMorphs.Reset();
+
+	for (const FAnimEventFaceMorph& MorphEntry : AnimEvent.EventFaceMorphs)
+	{
+		if (MorphEntry.MorphTargetName.IsNone()) continue;
+
+		ACharacter* MorphTargetCharacter = ResolveAnimEventTargetCharacter(MorphEntry.PlayTarget, AnimEventPrimaryCharacter, AnimEventSecondaryContextActor);
+		USkeletalMeshComponent* MorphMesh = MorphTargetCharacter ? MorphTargetCharacter->GetMesh() : nullptr;
+		if (!MorphMesh) continue;
+
+		// GetMorphTargetは未設定の場合-1.0fを返すため、その場合は0.0fとして扱う
+		const float OriginalValue = FMath::Max(MorphMesh->GetMorphTarget(MorphEntry.MorphTargetName), 0.0f);
+
+		FAnimEventAppliedMorph& Applied = AnimEventAppliedMorphs.AddDefaulted_GetRef();
+		Applied.MeshComp = MorphMesh;
+		Applied.MorphTargetName = MorphEntry.MorphTargetName;
+		Applied.OriginalValue = OriginalValue;
+
+		MorphMesh->SetMorphTarget(MorphEntry.MorphTargetName, MorphEntry.Value);
+	}
+}
+
+void UMyProject1GameInstance::RestoreAnimEventFaceMorphs()
+{
+	for (const FAnimEventAppliedMorph& Applied : AnimEventAppliedMorphs)
+	{
+		if (USkeletalMeshComponent* MeshComp = Applied.MeshComp.Get())
+		{
+			MeshComp->SetMorphTarget(Applied.MorphTargetName, Applied.OriginalValue);
+		}
+	}
+	AnimEventAppliedMorphs.Reset();
 }
 
 bool UMyProject1GameInstance::IsPlayingAnimSequenceEventFor(const ACharacter* Character) const
@@ -1128,6 +2011,9 @@ void UMyProject1GameInstance::PlayAnimEventStep(int32 StepIndex)
 				MyPrimaryCharacter->MusicComp->ExitOverrideMusic();
 			}
 		}
+
+		// EventFaceMorphsで上書きした表情モーフを元の値へ戻す
+		RestoreAnimEventFaceMorphs();
 
 		// MeshLocationOffset/MeshRotationOffsetで動かした分を、キャッシュしておいた基準値へ戻す
 		if (ACharacter* PrimaryCharacter = AnimEventPrimaryCharacter.Get())
@@ -1198,6 +2084,7 @@ void UMyProject1GameInstance::PlayAnimEventStep(int32 StepIndex)
 	UAnimMontage* Montage = SelectedEntry ? SelectedEntry->Montage : nullptr;
 
 	SyncAnimEventEquipmentVisibility(TargetCharacter, SelectedEntry && SelectedEntry->bHideAllEquipmentDuringPlay);
+	SyncAnimEventTemporaryEquipment(TargetCharacter, SelectedEntry ? SelectedEntry->TemporaryEquipItemIDs : TArray<FName>());
 
 	UAnimInstance* AnimInst = (TargetCharacter && TargetCharacter->GetMesh()) ? TargetCharacter->GetMesh()->GetAnimInstance() : nullptr;
 
@@ -1480,6 +2367,9 @@ void UMyProject1GameInstance::DestroyAnimEventExtraActors()
 		}
 	}
 	AnimEventHiddenEquipmentCharacter.Reset();
+
+	// SyncAnimEventTemporaryEquipmentがFAnimSequenceEntry::TemporaryEquipItemIDsで上書きした一時装備を元へ戻す
+	RestoreAnimEventTemporaryEquipment();
 }
 
 // FAnimSequenceEntry::bHideAllEquipmentDuringPlayに従って、TargetCharacterの装備表示状態を同期する（GameInstance.h参照）
@@ -1505,6 +2395,94 @@ void UMyProject1GameInstance::SyncAnimEventEquipmentVisibility(ACharacter* Targe
 			AnimEventHiddenEquipmentCharacter = TargetCharacter;
 		}
 	}
+}
+
+// FAnimSequenceEntry::TemporaryEquipItemIDsに従って、TargetCharacterへ再生中だけの一時装備を反映する（GameInstance.h参照）
+void UMyProject1GameInstance::SyncAnimEventTemporaryEquipment(ACharacter* TargetCharacter, const TArray<FName>& ItemIDs)
+{
+	ACharacter* CurrentlyApplied = AnimEventTemporaryEquipCharacter.Get();
+	const bool bWantsTemporaryEquip = (ItemIDs.Num() > 0) && TargetCharacter;
+
+	// 対象が切り替わった、または今回は一時装備が不要な場合は、前回上書きした装備を先に元へ戻す
+	if (CurrentlyApplied && (CurrentlyApplied != TargetCharacter || !bWantsTemporaryEquip))
+	{
+		RestoreAnimEventTemporaryEquipment();
+	}
+
+	if (!bWantsTemporaryEquip)
+	{
+		return;
+	}
+
+	AMyProject1Character* MyTargetCharacter = Cast<AMyProject1Character>(TargetCharacter);
+	if (!MyTargetCharacter || !MyTargetCharacter->EquipmentDataTable || !MyTargetCharacter->InventoryComp || !MyTargetCharacter->InventoryComp->ItemDataTable)
+	{
+		return;
+	}
+
+	for (const FName& ItemID : ItemIDs)
+	{
+		// TemporaryEquipItemIDsの参照先はDT_Items（ItemDataTable）のItemIDのため、まず実在確認する
+		if (!MyTargetCharacter->InventoryComp->ItemDataTable->FindRow<FItemData>(ItemID, TEXT("SyncAnimEventTemporaryEquipment_ItemLookup")))
+		{
+			continue;
+		}
+
+		// 実際の見た目・装備先スロットはDT_Equipments側の設定を使う（装備品はDT_ItemsとDT_EquipmentsでRowNameを共有する規約。ShopNPCBase::GetAvailableShopItems等と同じ）
+		FEquipmentData* EquipData = MyTargetCharacter->EquipmentDataTable->FindRow<FEquipmentData>(ItemID, TEXT("SyncAnimEventTemporaryEquipment"));
+		if (!EquipData)
+		{
+			continue;
+		}
+
+		// 同じStepチェーン内で複数回呼ばれても、元々の装備は最初の1回だけ記録する（2回目以降は上書き後の状態を記録してしまうため）
+		if (!AnimEventTemporaryEquipPreviousItems.Contains(EquipData->TargetSlot))
+		{
+			AnimEventTemporaryEquipPreviousItems.Add(EquipData->TargetSlot, MyTargetCharacter->GetEquippedItemID(EquipData->TargetSlot));
+		}
+
+		MyTargetCharacter->EquipItem(ItemID, *EquipData);
+
+		// bHideAllEquipmentDuringPlayで他の装備が非表示中でも、一時装備したスロットだけは見せる
+		// （EquipItem自体は表示/非表示を変更しないため、SyncAnimEventEquipmentVisibilityが
+		// 先に非表示化していた場合に隠れたままになってしまうのを防ぐ）
+		MyTargetCharacter->SetEquipmentSlotVisible(EquipData->TargetSlot, true);
+	}
+
+	AnimEventTemporaryEquipCharacter = TargetCharacter;
+}
+
+// SyncAnimEventTemporaryEquipmentが上書きした一時装備を、AnimEventTemporaryEquipPreviousItemsの記録から元へ戻す（GameInstance.h参照）
+void UMyProject1GameInstance::RestoreAnimEventTemporaryEquipment()
+{
+	if (AMyProject1Character* MyTargetCharacter = Cast<AMyProject1Character>(AnimEventTemporaryEquipCharacter.Get()))
+	{
+		if (MyTargetCharacter->EquipmentDataTable)
+		{
+			for (const TPair<EEquipmentSlot, FName>& Pair : AnimEventTemporaryEquipPreviousItems)
+			{
+				if (Pair.Value.IsNone())
+				{
+					MyTargetCharacter->UnequipItem(Pair.Key);
+				}
+				else if (FEquipmentData* PrevEquipData = MyTargetCharacter->EquipmentDataTable->FindRow<FEquipmentData>(Pair.Value, TEXT("RestoreAnimEventTemporaryEquipment")))
+				{
+					MyTargetCharacter->EquipItem(Pair.Value, *PrevEquipData);
+				}
+
+				// bHideAllEquipmentDuringPlayがこのキャラクターに対して引き続き有効な場合、
+				// SyncAnimEventTemporaryEquipmentがSetEquipmentSlotVisible(true)で強制表示していたスロットを
+				// 非表示状態へ合わせ直す（ロック装備は元々非表示化の対象外のため除く）
+				if (AnimEventHiddenEquipmentCharacter.Get() == MyTargetCharacter && !MyTargetCharacter->IsSlotLocked(Pair.Key))
+				{
+					MyTargetCharacter->SetEquipmentSlotVisible(Pair.Key, false);
+				}
+			}
+		}
+	}
+
+	AnimEventTemporaryEquipCharacter.Reset();
+	AnimEventTemporaryEquipPreviousItems.Reset();
 }
 
 // 進行中のAnimSequenceEvent（PlayAnimEventStepのStepチェーン）を、全Step完了を待たずに強制的に中断する。
@@ -1551,6 +2529,9 @@ void UMyProject1GameInstance::AbortCurrentAnimEventStepChain()
 			PrimaryMovement->SetMovementMode(AnimEventPrimaryOriginalMovementMode, AnimEventPrimaryOriginalCustomMovementMode);
 		}
 	}
+
+	// EventBGM同様、EventFaceMorphsで上書きしていた表情モーフを元の値へ戻す
+	RestoreAnimEventFaceMorphs();
 	if (ACharacter* SecondaryCharacter = Cast<ACharacter>(AnimEventSecondaryContextActor.Get()))
 	{
 		if (AAIController* SecondaryAI = Cast<AAIController>(SecondaryCharacter->GetController()))
@@ -1730,6 +2711,7 @@ void UMyProject1GameInstance::PlayAnimSequenceRowDirect(FName RowName, ACharacte
 	UAnimInstance* AnimInst = TargetMesh ? TargetMesh->GetAnimInstance() : nullptr;
 
 	SyncAnimEventEquipmentVisibility(TargetCharacter, Entry->bHideAllEquipmentDuringPlay);
+	SyncAnimEventTemporaryEquipment(TargetCharacter, Entry->TemporaryEquipItemIDs);
 
 	if (Entry->Montage && TargetMesh && AnimInst)
 	{
@@ -2061,6 +3043,25 @@ void UMyProject1GameInstance::TransitionToAnimEventStep(int32 NextStepIndex)
 {
 	PendingAnimEventNextStepIndex = NextStepIndex;
 
+	// NextStepIndexが最終Stepを超える（＝この暗転でAnimSequenceEvent全体が完了し、この直後
+	// OnAnimSequenceEventFinished→ResolveActiveEventへ続く）場合、この暗転はEnd暗転セリフ・戻り先ワープへ
+	// そのまま引き継ぐ必要があるため、他のナレーション系と同じbWaitingForNarrationCompletionを立てておく。
+	// こうすることで、直後にResolveActiveEventが呼ぶBeginWarpFadeが「既に暗転済み」として検知し、
+	// 二重にOnWarpFadeOutRequestedを鳴らして画面を明転→再暗転させることなく、暗転を維持したまま
+	// End暗転セリフ（またはbShowNarrationOnEndが無ければ戻り先ワープ）へ直結できる。
+	// ただしこれは「進行中イベント（EventDistributor等）経由でPlayAnimSequenceEventが始まった」場合
+	// （bHasActiveEvent && bAnimEventSequenceStarted。HandleAnimSequenceEventFinishedForActiveEvent参照）
+	// だけに限る。QuestItemPointやDialogのPlayAnimSequenceアクションのような、ワープ/イベント抽選を
+	// 経由しない単発呼び出しではこの先ResolveActiveEvent（→BeginWarpFade）が呼ばれずbWaitingForNarrationCompletionを
+	// 解除する経路が無いため、trueのまま残ると暗転が永久に戻らなくなる
+	const FAnimEventDefinition* AnimEvent = AnimEventDataTable
+		? AnimEventDataTable->FindRow<FAnimEventDefinition>(CurrentAnimEventID, TEXT("TransitionToAnimEventStep"))
+		: nullptr;
+	if ((!AnimEvent || !AnimEvent->Steps.IsValidIndex(NextStepIndex)) && bHasActiveEvent && bAnimEventSequenceStarted)
+	{
+		bWaitingForNarrationCompletion = true;
+	}
+
 	// ワープと同じ暗転合図をUIへ送る（試験実装）。WBP_LoadingScreen側が暗転→維持→明転を自走してくれる想定
 	OnWarpFadeOutRequested.Broadcast();
 
@@ -2115,6 +3116,10 @@ void UMyProject1GameInstance::BeginAnimEventSequenceIfNeeded()
 
 	bAnimEventSequenceStarted = true;
 
+	// テレポート直後の一瞬だけ無効化していたCameraBoomの衝突判定をここで戻す。AnimEvent再生中もプレイヤーは
+	// カメラを回せるため、無効のままだと壁を素通しして見えてはいけない裏側まで見えてしまう
+	RestoreDirectWarpCameraCollisionTestIfNeeded(ActiveEventPlayer.Get());
+
 	if (Definition->AnimEventID.IsNone())
 	{
 		// アニメーションイベントが未設定なら、演出なしでそのまま成立させる（安全策）
@@ -2127,7 +3132,9 @@ void UMyProject1GameInstance::BeginAnimEventSequenceIfNeeded()
 		OnAnimSequenceEventFinished.AddDynamic(this, &UMyProject1GameInstance::HandleAnimSequenceEventFinishedForActiveEvent);
 	}
 
-	PlayAnimSequenceEvent(Definition->AnimEventID, ActiveEventPlayer.Get(), ActiveEventContextActor.Get(), false, ActiveEventExtraMeshOverride, bActiveEventHideContextActorDuringAnimEvent);
+	// bFadeInBeforeStart=true：ワープ明転直後の急なStep0開始を避け、ステップ切り替えと同じ暗転をStep0の前にも挟む
+	// （TransitionToAnimEventStep(0)経由。PlayAnimSequenceEvent参照）
+	PlayAnimSequenceEvent(Definition->AnimEventID, ActiveEventPlayer.Get(), ActiveEventContextActor.Get(), true, ActiveEventExtraMeshOverride, bActiveEventHideContextActorDuringAnimEvent);
 }
 
 void UMyProject1GameInstance::HandleAnimSequenceEventFinishedForActiveEvent(bool bCompletedNormally)

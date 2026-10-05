@@ -22,6 +22,7 @@ class UStaticMeshComponent;
 class USkeletalMeshComponent;
 class UCableComponent;
 class AShopNPCBase;
+class ASleepPoint;
 class UAnimInstance;
 struct FInputActionValue;
 
@@ -258,6 +259,10 @@ public:
 	// 重複可のバフを連続使用した際に、使用ごとへ振る通し番号（次に使う値）
 	int32 NextBuffStackID = 1;
 
+	// bLockExtraStatCeilingの時限効果が発動中のExtraStatごとの固定値（SetExtraStatが加算・減算を無視してこの値にする。複数なら最後の要素）。
+	// 保存対象外（時限バフ自体がセーブされないのと同じ扱い）
+	TMap<FName, TArray<float>> ExtraStatCeilings;
+
 	// 疲労段階バフ専用に予約したStackID（NextBuffStackIDは1から増える一方なので、負の値なら衝突しない）
 	static constexpr int32 FatigueBuffStackID = -1;
 
@@ -338,6 +343,18 @@ public:
 	/** 睡眠1時間あたりに蓄積疲労度(BaseEnergy)を回復させる割合（MaxEnergyに対する%） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Fatigue")
 	float FatigueDecreasePercentPerSleepHour = 20.0f;
+
+	// --- ExStats17設定（ゲーム内時間の経過で自然に減少するステータス。旧SP自然減少ロジックの移設先） ---
+
+	/** ゲーム内1時間あたりに自然減少するExStats17の量 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats|ExStats17")
+	float ExStats17DecreasePerHour = 2.0f;
+
+	/** ゲーム内時間が経過した分（分単位）だけExtraStats["ExStats17"]を減少させる。
+	 *  通常時はUMyProject1GameInstance::UpdateInGameTimeが「時」が変わった瞬間にMinutesElapsed=60で呼び、
+	 *  待機/睡眠による時間スキップ時はApplyPendingSleepTimeAdvanceIfNeededが実際にスキップした分数で呼ぶ */
+	UFUNCTION(BlueprintCallable, Category = "Stats|ExStats17")
+	void ApplyExStats17DecayForElapsedMinutes(int32 MinutesElapsed);
 
 	// --- 疲労度によるペナルティ設定（3段階：軽度50超／中度75以上／重度90以上） ---
 
@@ -501,6 +518,12 @@ public:
 	
 	UFUNCTION(BlueprintCallable, Category = "Combat|Buff")
 	void ApplyItemBuff(FString ItemName, UTexture2D* Icon, const TArray<FItemEffect>& Effects, float Duration);
+
+	/** ApplyItemBuffの食品区分つき版（C++専用。ApplyItemBuffのBlueprintピンを変えないために分けている） */
+	void ApplyItemBuffWithKind(FString ItemName, UTexture2D* Icon, const TArray<FItemEffect>& Effects, float Duration, EFoodBuffKind FoodKind);
+
+	/** 効果が切れていない「食べ物」のバフがあるか（満腹で次の食べ物を食べられない判定用） */
+	bool HasActiveMealBuff() const;
 
 	UFUNCTION(BlueprintCallable, Category = "Character|Audio")
 	void PlayFootstepSound();
@@ -687,12 +710,13 @@ public:
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Equipment")
 	TArray<FName> GetAllPiercingEquipmentRowNames();
 
-	// 医者ショップ：呪われピアスを有料で除去する（UnlockLevel判定→UnlockPrice支払い→消滅。インベントリには戻さない）。
+	// 医者ショップ：呪われピアスを有料で除去する（UnlockLevel判定→UnlockPrice支払い→装備を外す。インベントリには残る。
+	// ただし FEquipmentData::bDestroyOnShopRemoval が true の行はインベントリからも1個消える）。
 	// EquipRowName は現在装備中の呪われピアスの行名。装備中スロットは内部で解決する。
 	UFUNCTION(BlueprintCallable, Category = "Equipment")
 	bool TryDoctorRemovePiercing(FName EquipRowName, int32 ShopLevel);
 
-	// 医者ショップ：ピアス装備を DT_Items の Price ＋ PriceMarkup で購入し、その場で装着する。
+	// 医者ショップ：ピアス装備を DT_Items の Price ＋ PriceMarkup で購入（インベントリに入る）し、その場で装着する。
 	UFUNCTION(BlueprintCallable, Category = "Equipment")
 	bool TryDoctorAddPiercing(FName EquipRowName, int32 PriceMarkup);
 
@@ -852,6 +876,23 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Equipment")
 	void SetAllEquipmentComponentsVisible(bool bVisible);
 
+	// 指定した1スロットのパーツだけ表示/非表示を切り替える（SetAllEquipmentComponentsVisibleの単一スロット版）。
+	// DT_AnimSequences再生中、bHideAllEquipmentDuringPlayで全体を隠しつつ、
+	// FAnimSequenceEntry::TemporaryEquipItemIDsで一時装備させたスロットだけ見せたい場合に使う
+	// （UMyProject1GameInstance::SyncAnimEventTemporaryEquipment参照）
+	UFUNCTION(BlueprintCallable, Category = "Equipment")
+	void SetEquipmentSlotVisible(EEquipmentSlot Slot, bool bVisible);
+
+	// 薄地装備（OverlayTexture方式）はメッシュを持たず、USkinOverlayComponentが体のテクスチャへ描き込むため、
+	// SetAllEquipmentComponentsVisible/SetEquipmentSlotVisibleで非表示にされたスロットはここに記録し、
+	// USkinOverlayComponent::ExecuteRefreshBodyMaterialsがこのスロットのオーバーレイを描かないようにする
+	bool IsEquipmentSlotOverlayHidden(EEquipmentSlot Slot) const { return HiddenOverlaySlots.Contains(Slot); }
+
+private:
+	TSet<EEquipmentSlot> HiddenOverlaySlots;
+
+public:
+
 	/** ショップやNPCから呼ばれる、タトゥー/傷跡/治療/ピアスの購入・追加を試みる共通窓口 */
 	UFUNCTION(BlueprintCallable, Category = "Skin Overlay|Shop")
 	void TryAddSkinOverlay(FName RowName, bool bIsShopPurchase, int32 OverridePrice = 0, FString DisplayName = TEXT(""), EShopModeCategory ShopCategory = EShopModeCategory::Tattoo);
@@ -915,6 +956,18 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Time")
 	bool TryOpenTimeSkipMenu(bool bIsSleepMode);
+
+	/** ASleepPoint::TryInteractが、睡眠メニューを開けた直後に「どのSleepPointで眠ろうとしているか」を記憶させる。
+	 *  UMyProject1GameInstance::ExecuteWarpProcessが睡眠による時間スキップ完了時にGetPendingSleepPointContextで
+	 *  参照し、そのSleepPointのbTriggerEventPoolOnSleepがtrueならEventDistributorComponentの抽選を発生させる */
+	void SetPendingSleepPointContext(ASleepPoint* InSleepPoint);
+
+	/** SetPendingSleepPointContextで記憶した値を返す */
+	ASleepPoint* GetPendingSleepPointContext() const;
+
+private:
+	// SetPendingSleepPointContext/GetPendingSleepPointContextが読み書きする値
+	TWeakObjectPtr<ASleepPoint> PendingSleepPointContext;
 
 protected:
 	/** インプットのセットアップ */
@@ -1087,6 +1140,11 @@ protected:
 	// （イベント分岐で敗北→施設へワープさせたいだけで、Actor自体は消したくない場合に使う）
 	virtual void OnDeath(bool bAllowDestroy = true);
 
+	// プレイヤーがHP0になったが、イベントディストリビュータ（敵側のUEventDistributorComponent）で処理されない場合の復帰処理。
+	// 全快した上で、現在のレベルのAPlayerStartへ暗転を挟んで戻す。PlayerStartTagが"DefeatRespawn"のAPlayerStartが
+	// あればそれを優先し、なければ倒れた位置から最も近いAPlayerStartを使う
+	void HandleDefeatWithoutEvent();
+
 	// 死亡フラグ（AnimBPから読めるように UPROPERTY を追加！）
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
 	bool bIsDead = false;
@@ -1225,6 +1283,9 @@ public:
 	void UpdateCycleState();
 
 protected:
+		// UpdateCycleStateが最後に適用したフェーズ（段階×ルール行）の識別値。同じ状態(A〜D)が続くフェーズ切り替えも検出するため
+		int32 LastCyclePhaseKey = INDEX_NONE;
+
 		// モーフターゲットを更新する内部処理
 		void UpdateMorphTargetFromStat(FName StatName, float Value);
 

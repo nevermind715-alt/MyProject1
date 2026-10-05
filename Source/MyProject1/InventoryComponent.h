@@ -134,6 +134,11 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	bool TrySpendGil(int32 Amount);
 
+	/** 所持金を強制的に減らす（盗まれる等）。TrySpendGilと違い不足していても失敗させず、
+	 *  実際に持っている分だけ減らして0未満にはしない。戻り値は実際に減った額（ログ表示用） */
+	UFUNCTION(BlueprintCallable, Category = "Inventory")
+	int32 RemoveGil(int32 Amount);
+
 	// アイテムを使う関数
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	bool UseItem(FName ItemID);

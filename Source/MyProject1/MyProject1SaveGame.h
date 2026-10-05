@@ -92,4 +92,14 @@ public:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Save|Time")
 	ECycleState CurrentCycleState = ECycleState::StateA;
+
+	// --- 妊娠サイクルの進行状況 ---
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Save|Time")
+	ECycleMode CycleMode = ECycleMode::Normal;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Save|Time")
+	int32 CycleStartDay = 0;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Save|Time")
+	int32 CycleModeEndDay = -1;
 };

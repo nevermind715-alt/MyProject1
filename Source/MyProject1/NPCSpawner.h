@@ -176,6 +176,28 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Overrides|AI Sensors")
 	float SpawnerHearingRange = 3000.0f;
 
+	/** 空欄でなければ、スポーンした敵のUEventDistributorComponent（設定されていれば）のEventPoolIDをこの値で上書きする */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Overrides|Event")
+	FName SpawnerEventPoolID;
+
+	/** trueの場合、スポーンした敵自身のジョブメッシュ（DT_Jobs::FJobAttributes::CharacterMesh。NM抽選時はRareJobRow側）を
+	 *  UEventDistributorComponent::ExtraParticipantMeshOverrideDefaultへ自動設定する。これにより、この敵が
+	 *  戦闘敗北で発動したAnimEventのFAnimEventPairing（Extra参加者）に、個別設定の代わりにこの敵自身の見た目を使わせられる */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Overrides|Event")
+	bool bOverrideExtraParticipantMeshWithOwnMesh = false;
+
+	/** 空欄でなければ、このスポナーが湧かせた敵に倒された際、EventDistributorChance(%)の抽選に外れた場合は
+	 *  イベントディストリビュータを起動せず、このWarpID（DT_WarpDestinationsの行名。町の治療院など）へ
+	 *  ワープしてリスタートさせる。スポーンした敵のUEventDistributorComponent::WarpToRestartIDへ上書きされる */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Overrides|Event")
+	FName WarpToRestartID;
+
+	/** イベントディストリビュータを起動する確率（%）。WarpToRestartIDが空欄でない場合のみ使用され、
+	 *  抽選に外れると代わりにWarpToRestartIDへワープしてリスタートする。初期値100＝常にイベントディストリビュータを
+	 *  起動する（従来動作のまま）。スポーンした敵のUEventDistributorComponent::EventDistributorChanceへ上書きされる */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Overrides|Event", meta = (ClampMin = "0.0", ClampMax = "100.0"))
+	float EventDistributorChance = 100.0f;
+
 protected:
 	// --- 内部処理 ---
 

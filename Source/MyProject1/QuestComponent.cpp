@@ -84,6 +84,22 @@ void UQuestComponent::ClearObjectiveClearedFlag(const FQuestData& Data) const
 	}
 }
 
+void UQuestComponent::TryAutoReport(const FQuestData& Data, FName QuestID)
+{
+	if (!Data.bAutoReportOnObjectiveCleared || Data.QuestType == EQuestType::Delivery) return;
+
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().SetTimerForNextTick([WeakThis = TWeakObjectPtr<UQuestComponent>(this), QuestID]()
+		{
+			if (UQuestComponent* Self = WeakThis.Get())
+			{
+				Self->ReportQuest(QuestID);
+			}
+		});
+	}
+}
+
 bool UQuestComponent::GetQuestData(FName QuestID, FQuestData& OutData)
 {
 	if (QuestID.IsNone() || !QuestDataTable) return false;
@@ -447,6 +463,7 @@ void UQuestComponent::UpdateKillObjective(FName EnemyID)
 				{
 					Progress.CurrentAmount = Data.RequiredAmount; // 上限で止める
 					Progress.Status = EQuestStatus::ObjectiveCleared; // 報告待ち状態へ
+					TryAutoReport(Data, Progress.QuestID);
 
 					// 目的達成フラグの付与（報告を待たずにNPCSpawner等を反応させる用）
 					if (OwnerChar && !Data.ObjectiveClearedFlag.IsNone())
@@ -697,6 +714,7 @@ void UQuestComponent::UpdateGatherObjective(FName ItemID, int32 AmountAdded)
 				{
 					Progress.CurrentAmount = Data.RequiredAmount; // 上限で止める
 					Progress.Status = EQuestStatus::ObjectiveCleared; // 報告待ち状態へ
+					TryAutoReport(Data, Progress.QuestID);
 
 					// 目的達成フラグの付与（報告を待たずにNPCSpawner等を反応させる用）
 					if (OwnerChar && !Data.ObjectiveClearedFlag.IsNone())
@@ -892,6 +910,7 @@ void UQuestComponent::UpdateAchievementObjective(FName CompletedQuestID)
 		if (Progress.CurrentAmount >= RequiredCount)
 		{
 			Progress.Status = EQuestStatus::ObjectiveCleared; // 報告待ち状態へ
+			TryAutoReport(Data, Progress.QuestID);
 
 			if (OwnerChar)
 			{
@@ -942,6 +961,7 @@ void UQuestComponent::CheckInitialAchievementProgress(FName QuestID)
 		if (Progress.CurrentAmount >= RequiredCount)
 		{
 			Progress.Status = EQuestStatus::ObjectiveCleared;
+			TryAutoReport(Data, Progress.QuestID);
 
 			if (AMyProject1Character* OwnerChar = Cast<AMyProject1Character>(GetOwner()))
 			{
@@ -1060,7 +1080,8 @@ bool UQuestComponent::ApplyFailurePenaltyStat(ETargetStat Stat, FName ExtraStatN
 	case ETargetStat::Hostility: Stats.Hostility += Amount; StatName = TEXT("敵対度"); break;
 	case ETargetStat::Charm:     Stats.Charm += Amount;     StatName = TEXT("魅力");   break;
 	case ETargetStat::Mental:    Stats.Mental += Amount;    StatName = TEXT("精神力"); break;
-	case ETargetStat::Alcohol:   Stats.Alcohol += Amount;   StatName = TEXT("酒量");   break;
+	case ETargetStat::SP:        Stats.SP += Amount;        StatName = TEXT("SP");     break;
+	case ETargetStat::Alcohol:   Stats.Alcohol += Amount;   StatName = TEXT("飲酒量");   break;
 	case ETargetStat::STR:       Stats.STR += Amount;       StatName = TEXT("STR");    break;
 	case ETargetStat::VIT:       Stats.VIT += Amount;       StatName = TEXT("VIT");    break;
 	case ETargetStat::DEX:       Stats.DEX += Amount;       StatName = TEXT("DEX");    break;
@@ -1079,14 +1100,14 @@ bool UQuestComponent::ApplyFailurePenaltyStat(ETargetStat Stat, FName ExtraStatN
 			UE_LOG(LogTemp, Warning, TEXT("【Quest】強制失敗ペナルティのExtraStat '%s' がプレイヤーに登録されていません。"), *ExtraStatName.ToString());
 			return false;
 		}
-		*CurrentVal += Amount;
+		*CurrentVal = FMath::Clamp(*CurrentVal + Amount, 0.0f, 100.0f);
 		StatName = Stats.GetExtraStatDisplayName(ExtraStatName);
 		break;
 	}
 	default:
 		// AttackPower/DefensePower等の自動再計算されるステータスや未対応の値が指定された場合は
 		// 黙って書き換えず、設定ミスとして警告だけ出す
-		UE_LOG(LogTemp, Warning, TEXT("【Quest】強制失敗ペナルティに未対応のステータス指定 (%d) があります。名声・好感度・敵対度・魅力・精神力・酒量・STR/VIT/DEX/AGI・カスタムステータス のいずれかを指定してください。"), (int32)Stat);
+		UE_LOG(LogTemp, Warning, TEXT("【Quest】強制失敗ペナルティに未対応のステータス指定 (%d) があります。名声・好感度・敵対度・魅力・精神力・飲酒量・STR/VIT/DEX/AGI・カスタムステータス のいずれかを指定してください。"), (int32)Stat);
 		return false;
 	}
 

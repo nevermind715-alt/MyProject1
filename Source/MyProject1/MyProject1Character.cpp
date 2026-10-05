@@ -15,7 +15,8 @@
 #include "RpgDamageCalculator.h" 
 #include "Engine/LocalPlayer.h"
 #include "PhysicalMaterials/PhysicalMaterial.h"
-#include "Kismet/GameplayStatics.h" 
+#include "Kismet/GameplayStatics.h"
+#include "GameFramework/PlayerStart.h"
 #include "GameFramework/Pawn.h"     
 #include "GameFramework/CharacterMovementComponent.h" 
 #include "Kismet/KismetSystemLibrary.h"
@@ -25,6 +26,7 @@
 #include "MyProject1HUD.h"
 #include "ShopNPCBase.h"
 #include "QuestNPCBase.h"
+#include "SleepPoint.h"
 #include "Blueprint/UserWidget.h"
 #include "QuestComponent.h"
 #include "DialogComponent.h"
@@ -296,10 +298,23 @@ void AMyProject1Character::BeginPlay()
 			bRestoredFromSnapshot = GameInst->ApplyPendingCharacterLoad(this);
 
 			// イベント分岐で敗北→別レベルの施設へワープしてきた場合、直前（HP0）のスナップショットが
-			// そのまま復元されただけの状態になるため、到着時にHPを立て直す（bIsDeadは新規生成でfalseのまま）
+			// そのまま復元されただけの状態になるため、到着時にHP・Staminaを全快させる
+			// （bIsDeadは新規生成でfalseのまま）
 			if (GameInst->bHasActiveEvent)
 			{
-				Revive(1.0f);
+				Revive(MyStats.MaxHP);
+				MyStats.Stamina = MyStats.MaxStamina;
+				if (OnStaminaChangedDelegate.IsBound())
+				{
+					OnStaminaChangedDelegate.Broadcast(MyStats.Stamina, MyStats.MaxStamina);
+				}
+
+				// StartEvent時点でGameInstanceが記憶したActiveEventPlayerは、別レベルへのOpenLevelで
+				// 破棄された旧Character（HP0時点のもの）を指したままになっている。放置するとこの後の
+				// BeginAnimEventSequenceIfNeeded〜PlayAnimSequenceEventがPlayerCharacter=nullptrとして
+				// 失敗し、AnimEventが再生されないままResolveActiveEventもSuccessActions/ReturnWarpIDを
+				// 実行できず、プレイヤーが施設に取り残される。ここで今生成されたこのCharacterへ差し替える
+				GameInst->RebindActiveEventPlayer(this);
 			}
 		}
 
@@ -526,6 +541,16 @@ bool AMyProject1Character::TryOpenTimeSkipMenu(bool bIsSleepMode)
 
 	HUD->OpenTimeSkipMenu(bIsSleepMode);
 	return true;
+}
+
+void AMyProject1Character::SetPendingSleepPointContext(ASleepPoint* InSleepPoint)
+{
+	PendingSleepPointContext = InSleepPoint;
+}
+
+ASleepPoint* AMyProject1Character::GetPendingSleepPointContext() const
+{
+	return PendingSleepPointContext.Get();
 }
 
 void AMyProject1Character::OnToggleMenuPressed()
@@ -1266,15 +1291,109 @@ float AMyProject1Character::TakeDamage(float DamageAmount, FDamageEvent const& D
 				// 敵側に設定がなければ、意図しない挙動変更を避けるため従来通りの下の分岐へフォールスルーする
 				if (IsPlayerControlled())
 				{
+					// ワープの暗転が始まる何秒も前（戦闘不能になったこの瞬間）にメニューを閉じてみる実験用の変更。
+					// 元々はGameInstance::BeginWarpFade（暗転開始と同時）で閉じていたが、挙動確認のためここへ移動した
+					if (APlayerController* DefeatedPC = Cast<APlayerController>(GetController()))
+					{
+						if (AMyProject1HUD* HUD = Cast<AMyProject1HUD>(DefeatedPC->GetHUD()))
+						{
+							HUD->ForceCloseAllMenusForWarp();
+						}
+					}
+
 					if (UEventDistributorComponent* KillerEventComp = Killer->FindComponentByClass<UEventDistributorComponent>())
 					{
 						if (!KillerEventComp->EventPoolID.IsNone())
 						{
 							OnDeath(false);
-							KillerEventComp->TriggerEventPool(this);
+
+							// WarpToRestartIDが設定されていれば、EventDistributorChance(%)の抽選でイベント
+							// ディストリビュータを起動するかを決める。外れた場合はイベントを起動せず、
+							// WarpToRestartIDへワープしてリスタートさせる（町の治療院など）
+							if (!KillerEventComp->WarpToRestartID.IsNone() &&
+								FMath::FRandRange(0.0f, 100.0f) > KillerEventComp->EventDistributorChance)
+							{
+								// 全快・ワープを即座に行うと、bIsDead=trueになった直後にfalseへ戻ってしまい、
+								// 敵側（AMyAIController::Tick）がIsDead()を検知してHasWon/攻撃停止する猶予がなくなる
+								// （そのままだと敵の攻撃が継続して見えてしまう）。倒れるAnimationが再生し終わるのを
+								// 待つ意味も兼ね、しばらくbIsDead=trueのまま待ってから全快・暗転・ワープへ進む
+								constexpr float DefeatAnimationSeconds = 6.0f;
+								constexpr float PostAnimationDelaySeconds = 3.0f;
+
+								FName RestartWarpID = KillerEventComp->WarpToRestartID;
+								TWeakObjectPtr<AMyProject1Character> WeakPlayer(this);
+
+								FTimerHandle DefeatWarpTimerHandle;
+								GetWorldTimerManager().SetTimer(DefeatWarpTimerHandle, [WeakPlayer, RestartWarpID]()
+									{
+										AMyProject1Character* Player = WeakPlayer.Get();
+										if (!Player) return;
+
+										// 全快処理自体は別レベルワープのスナップショット取得（CapturePlayerStateSnapshot）に
+										// 間に合わせるため暗転前に行う必要があるが、そのまま見せると暗転がまだ薄く透けている
+										// 段階でキャラクターが起き上がる様子が見えてしまう。見た目だけ一旦非表示にし、
+										// 暗転で画面が真っ暗になった頃合い（WarpFadeOutDuration経過後）に再表示する
+										Player->SetActorHiddenInGame(true);
+
+										// リスタート先（治療院など）で全快させてからワープする。CapturePlayerStateSnapshot
+										// がこの後の別レベルワープ時にこの回復後のMyStatsをそのまま保存するため、
+										// 同一レベル・別レベルどちらのワープ先でも全快状態で復帰する
+										Player->Revive(Player->MyStats.MaxHP);
+										Player->MyStats.Stamina = Player->MyStats.MaxStamina;
+										if (Player->OnStaminaChangedDelegate.IsBound())
+										{
+											Player->OnStaminaChangedDelegate.Broadcast(Player->MyStats.Stamina, Player->MyStats.MaxStamina);
+										}
+
+										if (UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(Player->GetGameInstance()))
+										{
+											// 同一レベル内ワープの場合はこのCharacter自身がそのまま使われ続けるため、
+											// 画面が真っ暗になった頃合いで再表示する（別レベルワープの場合はOpenLevelで
+											// このActor自体が破棄されるため、このタイマーが発火しなくても新レベルの
+											// 新規Characterは最初から表示状態なので問題ない）
+											FTimerHandle UnhideTimerHandle;
+											Player->GetWorldTimerManager().SetTimer(UnhideTimerHandle, [WeakPlayer]()
+												{
+													if (AMyProject1Character* RevivedPlayer = WeakPlayer.Get())
+													{
+														RevivedPlayer->SetActorHiddenInGame(false);
+													}
+												}, GameInst->WarpFadeOutDuration + 0.1f, false);
+
+											GameInst->RequestWarp(RestartWarpID, Player);
+										}
+									}, DefeatAnimationSeconds + PostAnimationDelaySeconds, false);
+							}
+							else
+							{
+								// OnDeath(false)直後に即座にTriggerEventPool→StartEvent（bShowNarrationOnStart）が
+								// 走ると、倒れる演出（HoverHeightの落下等）を見る間もなく暗転が始まってしまう。
+								// WarpToRestartID分岐（DefeatAnimationSeconds待ち）と同じ考え方で、少し待ってから
+								// 発火することで倒れる様子を見せる
+								constexpr float EventTriggerDelaySeconds = 6.0f;
+
+								TWeakObjectPtr<AMyProject1Character> WeakPlayer(this);
+								TWeakObjectPtr<UEventDistributorComponent> WeakEventComp(KillerEventComp);
+
+								FTimerHandle EventTriggerTimerHandle;
+								GetWorldTimerManager().SetTimer(EventTriggerTimerHandle, [WeakPlayer, WeakEventComp]()
+									{
+										AMyProject1Character* Player = WeakPlayer.Get();
+										UEventDistributorComponent* EventComp = WeakEventComp.Get();
+										if (!Player || !EventComp) return;
+
+										EventComp->TriggerEventPool(Player);
+									}, EventTriggerDelaySeconds, false);
+							}
+
 							return ActualDamage;
 						}
 					}
+
+					// 敵側にUEventDistributorComponentが無い／EventPoolIDが未設定の場合は、
+					// 倒れたまま止まらないようPlayerStartへ復帰させる
+					HandleDefeatWithoutEvent();
+					return ActualDamage;
 				}
 
 				// --- 経験値の動的計算 ---
@@ -1348,7 +1467,13 @@ float AMyProject1Character::TakeDamage(float DamageAmount, FDamageEvent const& D
 				Killer->HandleTargetDeath();
 			}
 		}
-		
+
+		// 倒した相手がキャラクターでない（罠・環境ダメージ等、EventInstigator無し）場合のプレイヤー敗北も、
+		// 倒れたまま止まらないようPlayerStartへ復帰させる
+		if (IsPlayerControlled() && !bIsDead)
+		{
+			HandleDefeatWithoutEvent();
+		}
 	}
 
 	return ActualDamage;
@@ -1471,6 +1596,94 @@ void AMyProject1Character::Revive(float RestoreHP)
 		OnHPChangedDelegate.Broadcast(MyStats.HP, MyStats.MaxHP);
 	}
 	NotifyStatsChanged();
+}
+
+void AMyProject1Character::HandleDefeatWithoutEvent()
+{
+	// イベント分岐側（TakeDamage）と同じく、メニューを先に閉じる（閉じ処理は冪等）
+	if (APlayerController* DefeatedPC = Cast<APlayerController>(GetController()))
+	{
+		if (AMyProject1HUD* HUD = Cast<AMyProject1HUD>(DefeatedPC->GetHUD()))
+		{
+			HUD->ForceCloseAllMenusForWarp();
+		}
+	}
+
+	OnDeath(false);
+
+	// 復帰先：PlayerStartTagまたはActor Tagsに"DefeatRespawn"を持つAPlayerStartを優先し、無ければ倒れた位置から最も近いAPlayerStart。
+	// 現在のレベルにAPlayerStartが無い場合はログを出して何もせず、倒れた状態のままにする
+	TArray<AActor*> PlayerStarts;
+	UGameplayStatics::GetAllActorsOfClass(this, APlayerStart::StaticClass(), PlayerStarts);
+
+	const FName DefeatRespawnTag(TEXT("DefeatRespawn"));
+	const APlayerStart* RespawnStart = nullptr;
+	float BestDistSq = TNumericLimits<float>::Max();
+	for (AActor* Actor : PlayerStarts)
+	{
+		const APlayerStart* Start = Cast<APlayerStart>(Actor);
+		if (Start && (Start->PlayerStartTag == DefeatRespawnTag || Start->ActorHasTag(DefeatRespawnTag)))
+		{
+			RespawnStart = Start;
+			break;
+		}
+	}
+	if (!RespawnStart)
+	{
+		for (AActor* Actor : PlayerStarts)
+		{
+			const float DistSq = FVector::DistSquared(Actor->GetActorLocation(), GetActorLocation());
+			if (DistSq < BestDistSq)
+			{
+				BestDistSq = DistSq;
+				RespawnStart = Cast<APlayerStart>(Actor);
+			}
+		}
+	}
+	if (!RespawnStart)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("HandleDefeatWithoutEvent: APlayerStart not found in the current level"));
+		return;
+	}
+
+	// 倒れるアニメーションを見せてから暗転→全快→復帰させる（イベント分岐のWarpToRestartID処理と同じ待ち時間）
+	constexpr float DefeatAnimationSeconds = 6.0f;
+	constexpr float PostAnimationDelaySeconds = 3.0f;
+
+	const FTransform RespawnTransform(RespawnStart->GetActorRotation(), RespawnStart->GetActorLocation());
+	TWeakObjectPtr<AMyProject1Character> WeakPlayer(this);
+
+	FTimerHandle DefeatRespawnTimerHandle;
+	GetWorldTimerManager().SetTimer(DefeatRespawnTimerHandle, [WeakPlayer, RespawnTransform]()
+		{
+			AMyProject1Character* Player = WeakPlayer.Get();
+			if (!Player) return;
+
+			// 全快した姿が暗転の薄い段階で見えないよう、暗転が済むまで見た目だけ非表示にする
+			// （WarpToRestartID分岐と同じ考え方）
+			Player->SetActorHiddenInGame(true);
+
+			Player->Revive(Player->MyStats.MaxHP);
+			Player->MyStats.Stamina = Player->MyStats.MaxStamina;
+			if (Player->OnStaminaChangedDelegate.IsBound())
+			{
+				Player->OnStaminaChangedDelegate.Broadcast(Player->MyStats.Stamina, Player->MyStats.MaxStamina);
+			}
+
+			if (UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(Player->GetGameInstance()))
+			{
+				FTimerHandle UnhideTimerHandle;
+				Player->GetWorldTimerManager().SetTimer(UnhideTimerHandle, [WeakPlayer]()
+					{
+						if (AMyProject1Character* RevivedPlayer = WeakPlayer.Get())
+						{
+							RevivedPlayer->SetActorHiddenInGame(false);
+						}
+					}, GameInst->WarpFadeOutDuration + 0.1f, false);
+
+				GameInst->RequestWarpToTransform(RespawnTransform, Player, /*bIsEventContext=*/false);
+			}
+		}, DefeatAnimationSeconds + PostAnimationDelaySeconds, false);
 }
 
 
@@ -2073,7 +2286,8 @@ bool AMyProject1Character::SetAdventurerRank(FName TargetRankRowName)
 				{
 					if (!Bonus.ExtraStatName.IsNone())
 					{
-						MyStats.ExtraStats.FindOrAdd(Bonus.ExtraStatName) += Bonus.Amount;
+						float& RankBonusStat = MyStats.ExtraStats.FindOrAdd(Bonus.ExtraStatName);
+						RankBonusStat = FMath::Clamp(RankBonusStat + Bonus.Amount, 0.0f, 100.0f);
 					}
 					continue;
 				}
@@ -2084,10 +2298,11 @@ bool AMyProject1Character::SetAdventurerRank(FName TargetRankRowName)
 				case ETargetStat::DEX:          MyStats.DEX += Bonus.Amount;          break;
 				case ETargetStat::VIT:          MyStats.VIT += Bonus.Amount;          break;
 				case ETargetStat::AGI:          MyStats.AGI += Bonus.Amount;          break;
-				case ETargetStat::Accuracy:     MyStats.Accuracy += Bonus.Amount;     break;
-				case ETargetStat::Evasion:      MyStats.Evasion += Bonus.Amount;      break;
-				case ETargetStat::AttackPower:  MyStats.BaseAttackPower += Bonus.Amount;  break;
-				case ETargetStat::DefensePower: MyStats.BaseDefensePower += Bonus.Amount; break;
+				// Accuracy/Evasion/AttackPower/DefensePowerは％補正（RefreshEquipmentStatsの装備補正と同じ計算方式）
+				case ETargetStat::Accuracy:     MyStats.Accuracy *= (1.0f + Bonus.Amount / 100.0f);     break;
+				case ETargetStat::Evasion:      MyStats.Evasion *= (1.0f + Bonus.Amount / 100.0f);      break;
+				case ETargetStat::AttackPower:  MyStats.BaseAttackPower *= (1.0f + Bonus.Amount / 100.0f);  break;
+				case ETargetStat::DefensePower: MyStats.BaseDefensePower *= (1.0f + Bonus.Amount / 100.0f); break;
 				case ETargetStat::Stamina:      MyStats.Stamina += Bonus.Amount;      break;
 				case ETargetStat::HP:           MyStats.MaxHP += Bonus.Amount;        break;
 				case ETargetStat::Favor:        MyStats.Favor += Bonus.Amount;        break;
@@ -2298,6 +2513,16 @@ void AMyProject1Character::TalkToLog(const FString& Message)
 
 void AMyProject1Character::ApplyItemBuff(FString ItemName, UTexture2D* Icon, const TArray<FItemEffect>& Effects, float Duration)
 {
+	ApplyItemBuffWithKind(ItemName, Icon, Effects, Duration, EFoodBuffKind::None);
+}
+
+bool AMyProject1Character::HasActiveMealBuff() const
+{
+	return ActiveBuffs.ContainsByPredicate([](const FActiveBuff& Buff) { return Buff.FoodKind == EFoodBuffKind::Meal; });
+}
+
+void AMyProject1Character::ApplyItemBuffWithKind(FString ItemName, UTexture2D* Icon, const TArray<FItemEffect>& Effects, float Duration, EFoodBuffKind FoodKind)
+{
 	if (bIsDead || Duration <= 0.0f) return;
 
 	// 効果のどれか1つでも「重複可」がチェックされていれば、このアイテムは重ねがけを許可する
@@ -2335,7 +2560,25 @@ void AMyProject1Character::ApplyItemBuff(FString ItemName, UTexture2D* Icon, con
 	// 既にあれば増やさず、一番遅く切れる使用分にアイコンの消去タイミングを付け替えるだけにする。
 	auto AddOrRefreshBuffIcon = [&](UTexture2D* IconToUse)
 	{
-		if (bAllowStacking)
+		// 飲み物は種類が違っても食品カテゴリのアイコンを1つに統合する（最初に出たアイコンを保持し、
+		// 一番遅く切れる飲み物の期限切れまで残す）
+		if (FoodKind == EFoodBuffKind::Drink)
+		{
+			for (FActiveBuff& ExistingBuff : ActiveBuffs)
+			{
+				if (ExistingBuff.FoodKind == EFoodBuffKind::Drink)
+				{
+					if (NewExpirationTime >= ExistingBuff.ExpirationTime)
+					{
+						ExistingBuff.ExpirationTime = NewExpirationTime;
+						ExistingBuff.StackID = ThisStackID;
+					}
+					bHasAddedBuffIcon = true;
+					return;
+				}
+			}
+		}
+		else if (bAllowStacking)
 		{
 			for (FActiveBuff& ExistingBuff : ActiveBuffs)
 			{
@@ -2357,6 +2600,7 @@ void AMyProject1Character::ApplyItemBuff(FString ItemName, UTexture2D* Icon, con
 		NewBuff.BuffIcon = IconToUse;
 		NewBuff.ExpirationTime = NewExpirationTime;
 		NewBuff.StackID = ThisStackID;
+		NewBuff.FoodKind = FoodKind;
 		ActiveBuffs.Add(NewBuff);
 		bHasAddedBuffIcon = true;
 	};
@@ -2366,29 +2610,42 @@ void AMyProject1Character::ApplyItemBuff(FString ItemName, UTexture2D* Icon, con
 	{
 		switch (Effect.TargetStat)
 		{
-		case ETargetStat::Accuracy:    MyStats.Accuracy += Effect.EffectAmount;    break;
+		// Accuracy/Evasion/AttackPower/DefensePowerは％補正（RefreshEquipmentStatsの装備補正と同じ計算方式）
+		case ETargetStat::Accuracy:    MyStats.Accuracy *= (1.0f + Effect.EffectAmount / 100.0f);    break;
 		case ETargetStat::STR:         MyStats.STR += Effect.EffectAmount;         break;
 		case ETargetStat::DEX:         MyStats.DEX += Effect.EffectAmount;         break;
 		case ETargetStat::VIT:         MyStats.VIT += Effect.EffectAmount;         break;
 		case ETargetStat::AGI:         MyStats.AGI += Effect.EffectAmount;         break;
-		case ETargetStat::Evasion:     MyStats.Evasion += Effect.EffectAmount;     break;
-		case ETargetStat::AttackPower: MyStats.BaseAttackPower += Effect.EffectAmount; break;
-		case ETargetStat::DefensePower: MyStats.BaseDefensePower += Effect.EffectAmount; break;
+		case ETargetStat::Evasion:     MyStats.Evasion *= (1.0f + Effect.EffectAmount / 100.0f);     break;
+		case ETargetStat::AttackPower: MyStats.BaseAttackPower *= (1.0f + Effect.EffectAmount / 100.0f); break;
+		case ETargetStat::DefensePower: MyStats.BaseDefensePower *= (1.0f + Effect.EffectAmount / 100.0f); break;
 		case ETargetStat::Stamina:     MyStats.Stamina += Effect.EffectAmount;     break;
 		case ETargetStat::Alcohol:     MyStats.Alcohol += Effect.EffectAmount;     break;
 		case ETargetStat::Fame:        MyStats.Fame += Effect.EffectAmount;        break;
 		case ETargetStat::Favor:       MyStats.Favor += Effect.EffectAmount;       break;
 		case ETargetStat::Charm:       MyStats.Charm += Effect.EffectAmount;       break;
 		case ETargetStat::Mental:      MyStats.Mental += Effect.EffectAmount;      break;
+		case ETargetStat::SP:          MyStats.SP += Effect.EffectAmount;          break;
 		case ETargetStat::FatigueGainRate:     MyStats.FatigueGainRateBonus += Effect.EffectAmount;     break;
 		case ETargetStat::FatigueRecoveryRate: MyStats.FatigueRecoveryRateBonus += Effect.EffectAmount; break;
 		case ETargetStat::OGaugeGainRate:      MyStats.OGaugeGainRateBonus += Effect.EffectAmount;      break;
 		case ETargetStat::OGaugeRecoveryRate:  MyStats.OGaugeRecoveryRateBonus += Effect.EffectAmount;  break;
 		case ETargetStat::MovementSpeedRate:   MyStats.MovementSpeedRateBonus += Effect.EffectAmount;   break;
+		case ETargetStat::CriticalRate:        MyStats.CriticalRateBonus += Effect.EffectAmount;        break;
+		case ETargetStat::AttackSpeedRate:     MyStats.AttackSpeedRateBonus += Effect.EffectAmount;     break;
 		case ETargetStat::CustomExtraStat:
 			if (!Effect.ExtraStatName.IsNone())
 			{
-				MyStats.ExtraStats.FindOrAdd(Effect.ExtraStatName) += Effect.EffectAmount;
+				if (Effect.bLockExtraStatCeiling)
+				{
+					ExtraStatCeilings.FindOrAdd(Effect.ExtraStatName).Add(Effect.EffectAmount);
+					// 現在値が上限を超えていれば、SetExtraStatの切り詰めでここで下げる
+					SetExtraStat(Effect.ExtraStatName, GetExtraStat(Effect.ExtraStatName));
+				}
+				else
+				{
+					MyStats.ExtraStats.FindOrAdd(Effect.ExtraStatName) += Effect.EffectAmount;
+				}
 			}
 			break;
 		default: break;
@@ -2434,29 +2691,48 @@ void AMyProject1Character::ExpireItemBuff(FString ItemName, TArray<FItemEffect> 
 	{
 		switch (Effect.TargetStat)
 		{
-		case ETargetStat::Accuracy:    MyStats.Accuracy -= Effect.EffectAmount;    break;
+		// Accuracy/Evasion/AttackPower/DefensePowerは％補正（適用時の乗算を割り算で打ち消す）
+		case ETargetStat::Accuracy:    MyStats.Accuracy /= (1.0f + Effect.EffectAmount / 100.0f);    break;
 		case ETargetStat::STR:         MyStats.STR -= Effect.EffectAmount;         break;
 		case ETargetStat::DEX:         MyStats.DEX -= Effect.EffectAmount;         break;
 		case ETargetStat::VIT:         MyStats.VIT -= Effect.EffectAmount;         break;
 		case ETargetStat::AGI:         MyStats.AGI -= Effect.EffectAmount;         break;
-		case ETargetStat::Evasion:     MyStats.Evasion -= Effect.EffectAmount;     break;
-		case ETargetStat::AttackPower: MyStats.BaseAttackPower -= Effect.EffectAmount; break;
-		case ETargetStat::DefensePower: MyStats.BaseDefensePower -= Effect.EffectAmount; break;
+		case ETargetStat::Evasion:     MyStats.Evasion /= (1.0f + Effect.EffectAmount / 100.0f);     break;
+		case ETargetStat::AttackPower: MyStats.BaseAttackPower /= (1.0f + Effect.EffectAmount / 100.0f); break;
+		case ETargetStat::DefensePower: MyStats.BaseDefensePower /= (1.0f + Effect.EffectAmount / 100.0f); break;
 		case ETargetStat::Stamina:     MyStats.Stamina -= Effect.EffectAmount;     break;
 		case ETargetStat::Alcohol:     MyStats.Alcohol -= Effect.EffectAmount;     break;
 		case ETargetStat::Fame:        MyStats.Fame -= Effect.EffectAmount;        break;
 		case ETargetStat::Favor:       MyStats.Favor -= Effect.EffectAmount;       break;
 		case ETargetStat::Charm:       MyStats.Charm -= Effect.EffectAmount;       break;
 		case ETargetStat::Mental:      MyStats.Mental -= Effect.EffectAmount;      break;
+		case ETargetStat::SP:          MyStats.SP -= Effect.EffectAmount;          break;
 		case ETargetStat::FatigueGainRate:     MyStats.FatigueGainRateBonus -= Effect.EffectAmount;     break;
 		case ETargetStat::FatigueRecoveryRate: MyStats.FatigueRecoveryRateBonus -= Effect.EffectAmount; break;
 		case ETargetStat::OGaugeGainRate:      MyStats.OGaugeGainRateBonus -= Effect.EffectAmount;      break;
 		case ETargetStat::OGaugeRecoveryRate:  MyStats.OGaugeRecoveryRateBonus -= Effect.EffectAmount;  break;
 		case ETargetStat::MovementSpeedRate:   MyStats.MovementSpeedRateBonus -= Effect.EffectAmount;   break;
+		case ETargetStat::CriticalRate:        MyStats.CriticalRateBonus -= Effect.EffectAmount;        break;
+		case ETargetStat::AttackSpeedRate:     MyStats.AttackSpeedRateBonus -= Effect.EffectAmount;     break;
 		case ETargetStat::CustomExtraStat:
 			if (!Effect.ExtraStatName.IsNone())
 			{
-				MyStats.ExtraStats.FindOrAdd(Effect.ExtraStatName) -= Effect.EffectAmount;
+				if (Effect.bLockExtraStatCeiling)
+				{
+					// 固定を解除するだけで、値は元に戻さない
+					if (TArray<float>* Ceilings = ExtraStatCeilings.Find(Effect.ExtraStatName))
+					{
+						Ceilings->RemoveSingle(Effect.EffectAmount);
+						if (Ceilings->IsEmpty())
+						{
+							ExtraStatCeilings.Remove(Effect.ExtraStatName);
+						}
+					}
+				}
+				else
+				{
+					MyStats.ExtraStats.FindOrAdd(Effect.ExtraStatName) -= Effect.EffectAmount;
+				}
 			}
 			break;
 		default: break;
@@ -2689,6 +2965,31 @@ void AMyProject1Character::ApplyFatigueForSkippedMinutes(int32 MinutesSkipped, b
 	{
 		RecalculateFatigueAdjustedCombatStats();
 		NotifyStatsChanged();
+
+		// 睡眠で実際に疲労度が下がった時だけ、最後の暗転明け（呼び出し元のUMyProject1GameInstance::
+		// ApplyPendingSleepTimeAdvanceIfNeeded参照）でこのメッセージが出る
+		if (bIsSleep)
+		{
+			OnReceiveLogMessage(TEXT("疲労度が回復した！"), ELogMessageType::System);
+		}
+	}
+}
+
+// --- ゲーム内時間の経過（分）に応じてExtraStats["ExStats17"]を自然減少させる（1時間あたりExStats17DecreasePerHour） ---
+void AMyProject1Character::ApplyExStats17DecayForElapsedMinutes(int32 MinutesElapsed)
+{
+	if (MinutesElapsed <= 0 || IsDead() || !IsPlayerControlled()) return;
+
+	static const FName ExStats17Key(TEXT("ExStats17"));
+	float& ExStats17Value = MyStats.ExtraStats.FindOrAdd(ExStats17Key);
+
+	float OldValue = ExStats17Value;
+	float HoursElapsed = MinutesElapsed / 60.0f;
+	ExStats17Value = FMath::Max(0.0f, ExStats17Value - ExStats17DecreasePerHour * HoursElapsed);
+
+	if (ExStats17Value != OldValue)
+	{
+		NotifyStatsChanged();
 	}
 }
 
@@ -2803,6 +3104,9 @@ void AMyProject1Character::ApplyInstantOGaugeEffect(const FItemEffect& Effect)
 		MyStats.MentalBonus += ClampAmountToCap(MyStats.MentalBonus, Effect.EffectAmount, Effect.CapValue);
 		RefreshEquipmentStats();
 		break;
+	case ETargetStat::SP:
+		MyStats.SP += ClampAmountToCap(MyStats.SP, Effect.EffectAmount, Effect.CapValue);
+		break;
 	case ETargetStat::CustomExtraStat:
 		if (!Effect.ExtraStatName.IsNone())
 		{
@@ -2814,12 +3118,13 @@ void AMyProject1Character::ApplyInstantOGaugeEffect(const FItemEffect& Effect)
 			}
 		}
 		break;
+	// AttackPower/DefensePowerは％補正（CapValueは補正後の絶対値の上限として扱う）
 	case ETargetStat::AttackPower:
-		MyStats.BaseAttackPower += ClampAmountToCap(MyStats.BaseAttackPower, Effect.EffectAmount, Effect.CapValue);
+		MyStats.BaseAttackPower += ClampAmountToCap(MyStats.BaseAttackPower, MyStats.BaseAttackPower * (Effect.EffectAmount / 100.0f), Effect.CapValue);
 		RecalculateFatigueAdjustedCombatStats();
 		break;
 	case ETargetStat::DefensePower:
-		MyStats.BaseDefensePower += ClampAmountToCap(MyStats.BaseDefensePower, Effect.EffectAmount, Effect.CapValue);
+		MyStats.BaseDefensePower += ClampAmountToCap(MyStats.BaseDefensePower, MyStats.BaseDefensePower * (Effect.EffectAmount / 100.0f), Effect.CapValue);
 		RecalculateFatigueAdjustedCombatStats();
 		break;
 	default:
@@ -2840,10 +3145,12 @@ float AMyProject1Character::GetModifiedAttackSpeed() const
 	if (MyStats.Energy >= FatigueThreshold2)
 	{
 		// デバフ②：速度5%ダウン（＝攻撃間隔が5%長くなる）
-		return BaseSpeed * (1.0f + FatigueSpeedPenalty2);
+		BaseSpeed *= (1.0f + FatigueSpeedPenalty2);
 	}
 
-	// 90未満なら速度ペナルティ無し
+	// 装備等の攻撃速度％補正を適用（＋なら攻撃間隔が短くなる＝速くなる）
+	BaseSpeed /= FMath::Max(0.1f, 1.0f + MyStats.AttackSpeedRateBonus / 100.0f);
+
 	return BaseSpeed;
 }
 
@@ -3096,6 +3403,14 @@ void AMyProject1Character::ApplyDefaultEquipment()
 		if (!EquipData) continue;
 		if (CurrentEquippedItems.Contains(EquipData->TargetSlot)) continue;
 
+		// 通常の装備（ショップ購入・拾得品）はEquipItem()で身につけてもインベントリからは取り除かれず、
+		// 外した時にそのままインベントリへ戻る設計（TryUnequipItem/UnequipItemはInventoryComp未操作）。
+		// 初期装備もここでインベントリに入れておかないと、外した瞬間に所持データごと消えて再装備できなくなる。
+		if (InventoryComp)
+		{
+			InventoryComp->AddItem(RowName, 1);
+		}
+
 		// EquipItem()末尾でRefreshEquipmentStats()も呼ばれるため、StatModifiersも通常どおり反映される
 		EquipItem(RowName, *EquipData);
 	}
@@ -3151,8 +3466,12 @@ void AMyProject1Character::EnsureEquippedItemsInInventory()
 		if (!InventoryComp->EnsureAtLeast(Pair.Value, GetEquippedCount(Pair.Value)))
 		{
 			// 髪型などItemDataTableに無いIDは正常。装備品なのにここに出る場合は、DT_EquipmentsとDT_ItemsのRow名が一致していない。
-			UE_LOG(LogTemp, Warning, TEXT("[EquipInv] 装備 '%s' (スロット%d) をカバンに補充できなかった。ItemDataTable=%s（nullなら未設定）。同名の行が無い、またはカバンが満杯。"),
-				*Pair.Value.ToString(), static_cast<int32>(Pair.Key), *GetNameSafe(InventoryComp->ItemDataTable));
+			const TCHAR* Reason = !InventoryComp->ItemDataTable ? TEXT("ItemDataTableが未設定")
+				: !InventoryComp->ItemDataTable->FindRowUnchecked(Pair.Value) ? TEXT("ItemDataTableに同名の行が無い")
+				: TEXT("カバンが満杯、または追加に失敗");
+			UE_LOG(LogTemp, Warning, TEXT("[EquipInv] 装備 '%s' (スロット%d) をカバンに補充できなかった。理由: %s (ItemDataTable=%s, スロット数=%d/%d)"),
+				*Pair.Value.ToString(), static_cast<int32>(Pair.Key), Reason, *GetNameSafe(InventoryComp->ItemDataTable),
+				InventoryComp->InventoryContent.Num(), InventoryComp->MaxSlots);
 		}
 	}
 }
@@ -3766,9 +4085,19 @@ bool AMyProject1Character::TryDoctorRemovePiercing(FName EquipRowName, int32 Sho
 		return false;
 	}
 
-	// 呪われピアスの除去＝消滅（インベントリには戻さない）
+	// 装備を外す。インベントリには手を付けない（購入品はインベントリに残ったまま）
 	ForceRemoveLockedEquipment(TargetSlot, /*bReturnToInventory=*/false);
-	OnReceiveLogMessage(FString::Printf(TEXT("%s を外してもらった。"), *DisplayName), ELogMessageType::System);
+
+	// 除去時に壊れる設定の行は、インベントリからも1個消す
+	if (EquipData->bDestroyOnShopRemoval)
+	{
+		InventoryComp->RemoveItem(EquipRowName, 1);
+		OnReceiveLogMessage(FString::Printf(TEXT("%s は外す際に壊れてしまった。"), *DisplayName), ELogMessageType::System);
+	}
+	else
+	{
+		OnReceiveLogMessage(FString::Printf(TEXT("%s を外してもらった。"), *DisplayName), ELogMessageType::System);
+	}
 
 	// 既存の施術ショップUIはこのデリゲートでリストを更新する
 	if (OnSkinOverlayUIChangedDelegate.IsBound())
@@ -3811,7 +4140,14 @@ bool AMyProject1Character::TryDoctorAddPiercing(FName EquipRowName, int32 PriceM
 		return false;
 	}
 
-	// 店で買ってその場で装着（インベントリ経由なし）
+	// 買い物と同じ扱い：購入したピアスをインベントリに入れてから装着する（通常の装備と同じく、装備中もインベントリに残る）。
+	// 入らなかった場合（カバン満杯・入手済みのレア品等）は支払いを返金して中止する
+	if (!InventoryComp->AddItem(EquipRowName, 1))
+	{
+		InventoryComp->AddGil(FinalPrice);
+		OnReceiveLogMessage(TEXT("ピアスを受け取れなかったため、施術は中止された。"), ELogMessageType::System);
+		return false;
+	}
 	EquipItem(EquipRowName, *EquipData);
 	OnReceiveLogMessage(FString::Printf(TEXT("%s を装着した。%dギルを支払った。"), *DisplayName, FinalPrice), ELogMessageType::System);
 
@@ -4153,6 +4489,83 @@ void AMyProject1Character::SetAllEquipmentComponentsVisible(bool bVisible)
 		if (InnerUpperMeshComp) InnerUpperMeshComp->SetVisibility(IsSlotLocked(EEquipmentSlot::InnerUpper));
 		if (InnerLowerMeshComp) InnerLowerMeshComp->SetVisibility(IsSlotLocked(EEquipmentSlot::InnerLower));
 	}
+
+	// 薄地装備（OverlayTexture方式）はメッシュを持たないため、上のSetVisibilityでは隠れない。
+	// 非表示にするスロットを記録し、体のテクスチャへの描き込み側（USkinOverlayComponent）に反映させる。
+	// ロック装備は他のパーツと同じく非表示の対象外
+	const TSet<EEquipmentSlot> PreviousHiddenOverlaySlots = HiddenOverlaySlots;
+	HiddenOverlaySlots.Reset();
+	if (!bVisible)
+	{
+		for (const TPair<EEquipmentSlot, FName>& Pair : CurrentEquippedItems)
+		{
+			if (!IsSlotLocked(Pair.Key))
+			{
+				HiddenOverlaySlots.Add(Pair.Key);
+			}
+		}
+	}
+	// 状態が変わった時だけ体のテクスチャを描き直す（アニメ切り替えごとの無駄な再描画を避ける）
+	const bool bOverlayHiddenChanged = HiddenOverlaySlots.Num() != PreviousHiddenOverlaySlots.Num() || !PreviousHiddenOverlaySlots.Includes(HiddenOverlaySlots);
+	if (SkinOverlayComp && bOverlayHiddenChanged)
+	{
+		SkinOverlayComp->RefreshBodyMaterials();
+	}
+}
+
+void AMyProject1Character::SetEquipmentSlotVisible(EEquipmentSlot Slot, bool bVisible)
+{
+	switch (Slot)
+	{
+	case EEquipmentSlot::Head:  if (HeadMeshComp)  HeadMeshComp->SetVisibility(bVisible);  break;
+	case EEquipmentSlot::Torso: if (TorsoMeshComp) TorsoMeshComp->SetVisibility(bVisible); break;
+	case EEquipmentSlot::InnerUpper: if (InnerUpperMeshComp) InnerUpperMeshComp->SetVisibility(bVisible); break;
+	case EEquipmentSlot::InnerLower: if (InnerLowerMeshComp) InnerLowerMeshComp->SetVisibility(bVisible); break;
+	case EEquipmentSlot::Waist: if (WaistMeshComp) WaistMeshComp->SetVisibility(bVisible); break;
+	case EEquipmentSlot::Hands: if (HandsMeshComp) HandsMeshComp->SetVisibility(bVisible); break;
+	case EEquipmentSlot::Legs:  if (LegsMeshComp)  LegsMeshComp->SetVisibility(bVisible);  break;
+	case EEquipmentSlot::Feet:  if (FeetMeshComp)  FeetMeshComp->SetVisibility(bVisible);  break;
+
+	case EEquipmentSlot::Neck:
+		if (NeckSkeletalMeshComp) NeckSkeletalMeshComp->SetVisibility(bVisible);
+		if (NeckMeshComp) NeckMeshComp->SetVisibility(bVisible);
+		break;
+
+	case EEquipmentSlot::Wrist:
+		if (WristSkeletalMeshComp) WristSkeletalMeshComp->SetVisibility(bVisible);
+		if (WristMeshComp) WristMeshComp->SetVisibility(bVisible);
+		break;
+
+	case EEquipmentSlot::Ankle:
+		if (AnkleSkeletalMeshComp) AnkleSkeletalMeshComp->SetVisibility(bVisible);
+		if (AnkleMeshComp) AnkleMeshComp->SetVisibility(bVisible);
+		break;
+
+	case EEquipmentSlot::Extra1: if (Extra1MeshComp) Extra1MeshComp->SetVisibility(bVisible); break;
+	case EEquipmentSlot::Extra2: if (Extra2MeshComp) Extra2MeshComp->SetVisibility(bVisible); break;
+	case EEquipmentSlot::Extra3: if (Extra3MeshComp) Extra3MeshComp->SetVisibility(bVisible); break;
+	case EEquipmentSlot::Extra4: if (Extra4MeshComp) Extra4MeshComp->SetVisibility(bVisible); break;
+	case EEquipmentSlot::Extra5: if (Extra5MeshComp) Extra5MeshComp->SetVisibility(bVisible); break;
+
+	default:
+		break;
+	}
+
+	// 薄地装備（OverlayTexture方式）の非表示状態もメッシュと同じに合わせる（SetAllEquipmentComponentsVisible参照）
+	bool bOverlayHiddenChanged = false;
+	if (bVisible)
+	{
+		bOverlayHiddenChanged = HiddenOverlaySlots.Remove(Slot) > 0;
+	}
+	else if (!HiddenOverlaySlots.Contains(Slot))
+	{
+		HiddenOverlaySlots.Add(Slot);
+		bOverlayHiddenChanged = true;
+	}
+	if (SkinOverlayComp && bOverlayHiddenChanged)
+	{
+		SkinOverlayComp->RefreshBodyMaterials();
+	}
 }
 
 
@@ -4230,7 +4643,7 @@ void AMyProject1Character::RefreshEquipmentStats()
 	{
 		if (UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetGameInstance()))
 		{
-			for (const FCyclePhaseSettings& Rule : GameInst->CyclePhaseRules)
+			for (const FCyclePhaseSettings& Rule : GameInst->GetActiveCyclePhaseRules())
 			{
 				if (CurrentCycleDay >= Rule.MinDay && CurrentCycleDay <= Rule.MaxDay)
 				{
@@ -4336,14 +4749,18 @@ void AMyProject1Character::RefreshEquipmentStats()
 	MyStats.OGaugeGainRateBonus = GetBonus(ETargetStat::OGaugeGainRate);
 	MyStats.OGaugeRecoveryRateBonus = GetBonus(ETargetStat::OGaugeRecoveryRate);
 	MyStats.MovementSpeedRateBonus = GetBonus(ETargetStat::MovementSpeedRate);
+	MyStats.CriticalRateBonus = GetBonus(ETargetStat::CriticalRate);
+	MyStats.AttackSpeedRateBonus = GetBonus(ETargetStat::AttackSpeedRate);
 
-	// 5. STRやVITから派生する戦闘力（攻撃力・防御力）を計算
+	// 5. STRやVITから派生する戦闘力（攻撃力・防御力・命中率・回避率）を計算
 	// ※AttackPower/DefensePower自体はRecalculateFatigueAdjustedCombatStats()が疲労補正込みで確定させるので、
 	//   ここではBase側（疲労補正前の素の値）だけを更新する
-	MyStats.BaseAttackPower = MyStats.STR * 2.0f + GetBonus(ETargetStat::AttackPower);
-	MyStats.BaseDefensePower = (MyStats.VIT * 2.0f) + GetBonus(ETargetStat::DefensePower); // 装備のDEFはここに直接足す
-	MyStats.Accuracy = MyStats.DEX * 1.5f + GetBonus(ETargetStat::Accuracy);
-	MyStats.Evasion = MyStats.AGI * 1.5f + GetBonus(ETargetStat::Evasion);
+	// ※装備等のAttackPower/DefensePower/Accuracy/Evasion補正は加算ではなく％補正として扱う
+	//   （+10なら素の値の1.1倍。単純な+加算だと数値のバランス調整が煩雑になるため％方式に統一）
+	MyStats.BaseAttackPower = (MyStats.STR * 2.0f) * (1.0f + GetBonus(ETargetStat::AttackPower) / 100.0f);
+	MyStats.BaseDefensePower = (MyStats.VIT * 2.0f) * (1.0f + GetBonus(ETargetStat::DefensePower) / 100.0f);
+	MyStats.Accuracy = (MyStats.DEX * 1.5f) * (1.0f + GetBonus(ETargetStat::Accuracy) / 100.0f);
+	MyStats.Evasion = (MyStats.AGI * 1.5f) * (1.0f + GetBonus(ETargetStat::Evasion) / 100.0f);
 
 	// 6. HPの補正（元々満タンなら満タンを維持、最大値を超えていたら丸める）
 	if (bWasFullHP)
@@ -4443,16 +4860,31 @@ void AMyProject1Character::UpdateCycleState()
 	UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetGameInstance());
 	if (!GameInst) return;
 
-	// 1. TotalElapsedDays から「1〜30」などの数値を割り出す
-	// 💡全体のサイクル日数も、エディタ側で設定されたルールの一番大きい終了日から自動計算するようにします
-	int32 MaxCycleDays = 30; // ルールが空の時のための保険のデフォルト値
-	if (GameInst->CyclePhaseRules.Num() > 0)
-	{
-		// リストの最後の要素の MaxDay を全体のサイクル日数とする（例：最後の要素が「21〜30」なら30日サイクル）
-		MaxCycleDays = GameInst->CyclePhaseRules.Last().MaxDay;
-	}
+	// 妊娠中／産後の回復期フラグを、GameInstanceの現在の段階に合わせる
+	GameInst->SyncCycleModeFlags(this);
 
-	CurrentCycleDay = (GameInst->TotalElapsedDays % MaxCycleDays) + 1;
+	// 現在の段階（通常／妊娠中／産後の回復期）に対応するフェーズ表
+	const TArray<FCyclePhaseSettings>& ActiveRules = GameInst->GetActiveCyclePhaseRules();
+
+	// 1. TotalElapsedDays から「1〜30」などの数値を割り出す（計算は表示側とも共通のGameInstance::GetCurrentCycleDay）
+	CurrentCycleDay = GameInst->GetCurrentCycleDay();
+
+	// 妊娠の進行度（0〜100）をExStats15へ反映する。ExStats15にはExtraStatMorphLinksで腹部のモーフが連動している。
+	// 妊娠中は毎回セットするので、ロード／別マップ移動で作り直されたメッシュにもモーフが再適用される。
+	// 出産して産後の回復期に入ったら0へ戻す（産後の間、値が残っていれば毎回0へ直す）
+	static const FName PregnancyProgressStatKey(TEXT("ExStats15"));
+	if (GameInst->CycleMode == ECycleMode::Pregnancy)
+	{
+		const int32 PregnancyTotalDays = GameInst->CycleModeEndDay - GameInst->CycleStartDay;
+		const float PregnancyProgress = PregnancyTotalDays > 0
+			? FMath::Clamp(static_cast<float>(GameInst->TotalElapsedDays - GameInst->CycleStartDay) / PregnancyTotalDays * 100.0f, 0.0f, 100.0f)
+			: 0.0f;
+		SetExtraStat(PregnancyProgressStatKey, PregnancyProgress);
+	}
+	else if (GameInst->CycleMode == ECycleMode::Postpartum && GetExtraStat(PregnancyProgressStatKey) != 0.0f)
+	{
+		SetExtraStat(PregnancyProgressStatKey, 0.0f);
+	}
 
 	// 古い状態を記憶しておく（切り替わった時だけログを出すため）
 	ECycleState OldState = CurrentCycleState;
@@ -4460,15 +4892,19 @@ void AMyProject1Character::UpdateCycleState()
 	// 2.エディタで設定したルールを上から順にチェックする！
 	bool bFoundMatchingState = false;
 	FText NewPhaseMessage;
+	int32 MatchedRuleIndex = -1;
 
-	for (const FCyclePhaseSettings& Rule : GameInst->CyclePhaseRules)
+	for (int32 RuleIndex = 0; RuleIndex < ActiveRules.Num(); ++RuleIndex)
 	{
+		const FCyclePhaseSettings& Rule = ActiveRules[RuleIndex];
+
 		// 今の日数が、設定された「MinDay 〜 MaxDay」の範囲内に入っているかチェック
 		if (CurrentCycleDay >= Rule.MinDay && CurrentCycleDay <= Rule.MaxDay)
 		{
 			CurrentCycleState = Rule.TargetState;
 			GameInst->CurrentCycleState = Rule.TargetState;
 			NewPhaseMessage = Rule.PhaseChangeMessage;
+			MatchedRuleIndex = RuleIndex;
 			bFoundMatchingState = true;
 			break; // 一致するものが見つかったのでループを抜ける
 		}
@@ -4482,7 +4918,13 @@ void AMyProject1Character::UpdateCycleState()
 	}
 
 	// 3. もし状態が切り替わったら、ステータス補正を再計算してログでお知らせ（メッセージ・補正はエディタのCyclePhaseRulesで設定）
-	if (OldState != CurrentCycleState)
+	// 状態(A〜D)が同じでも、段階（通常／妊娠中／回復期）やルール(行)が変わればフェーズ切り替えとして扱う。
+	// 初回(LastCyclePhaseKey == INDEX_NONE)は、状態が変わった時だけ従来どおり扱う
+	const int32 NewPhaseKey = static_cast<int32>(GameInst->CycleMode) * 10000 + (MatchedRuleIndex + 1);
+	const bool bPhaseChanged = (OldState != CurrentCycleState) || (LastCyclePhaseKey != INDEX_NONE && LastCyclePhaseKey != NewPhaseKey);
+	LastCyclePhaseKey = NewPhaseKey;
+
+	if (bPhaseChanged)
 	{
 		RefreshEquipmentStats();
 
@@ -4505,6 +4947,16 @@ float AMyProject1Character::GetExtraStat(FName StatName) const
 
 void AMyProject1Character::SetExtraStat(FName StatName, float Value)
 {
+	// ExtraStatsは0〜100に収める
+	Value = FMath::Clamp(Value, 0.0f, 100.0f);
+
+	// 固定（bLockExtraStatCeilingの時限効果）が発動中なら、加算・減算を無視して固定値（0〜100に収める）にする。
+	// 複数発動中の場合は最後に発動した効果の値を使う
+	if (const TArray<float>* LockedValues = ExtraStatCeilings.Find(StatName))
+	{
+		Value = FMath::Clamp(LockedValues->Last(), 0.0f, 100.0f);
+	}
+
 	// 値を追加、または既存のキーがあれば上書きする
 	MyStats.ExtraStats.Add(StatName, Value);
 

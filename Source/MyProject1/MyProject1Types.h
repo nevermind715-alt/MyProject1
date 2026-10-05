@@ -80,6 +80,15 @@ enum class ECycleState : uint8
 	StateD      UMETA(DisplayName = "状態D")
 };
 
+// --- サイクルの大きな段階（通常の月齢サイクル → 妊娠 → 産後の回復期 → 通常に戻る） ---
+UENUM(BlueprintType)
+enum class ECycleMode : uint8
+{
+	Normal      UMETA(DisplayName = "通常（月齢サイクル）"),
+	Pregnancy   UMETA(DisplayName = "妊娠中"),
+	Postpartum  UMETA(DisplayName = "産後の回復期")
+};
+
 UENUM(BlueprintType)
 enum class EShopModeCategory : uint8
 {
@@ -368,6 +377,10 @@ struct FCharacterStats
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats")
 	float Mental = 1.0f;
 
+	// --- SP（仮称。StatusScreenのTxt_SPValueに表示する新規ステータス） ---
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats")
+	float SP = 0.0f;
+
 	/** ランクアップ等で恒久的に加算される分（RefreshEquipmentStatsの再計算で消えないよう、装備ボーナスとは別に保持する） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats")
 	float MentalBonus = 0.0f;
@@ -404,6 +417,14 @@ struct FCharacterStats
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats|RateBonus")
 	float MovementSpeedRateBonus = 0.0f;
+
+	// --- 装備／タトゥー・ピアス／月齢フェーズ／消費アイテムの時限効果から合算される、
+	//     クリティカル発生率・攻撃速度に対する％補正（+20なら1.2倍として使う） ---
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats|RateBonus")
+	float CriticalRateBonus = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats|RateBonus")
+	float AttackSpeedRateBonus = 0.0f;
 
 	// --- 予備・カスタムステータス枠 ---
 	// 好きな名前（FName）と数値（float）を自由にペアにして追加できるリスト
@@ -468,6 +489,7 @@ struct FCharacterStats
 		if (StatName == FName(TEXT("Hostility")))     { OutValue = Hostility; return true; }
 		if (StatName == FName(TEXT("Charm")))         { OutValue = Charm; return true; }
 		if (StatName == FName(TEXT("Mental")))        { OutValue = Mental; return true; }
+		if (StatName == FName(TEXT("SP")))            { OutValue = SP; return true; }
 		if (StatName == FName(TEXT("Alcohol")))       { OutValue = Alcohol; return true; }
 		if (StatName == FName(TEXT("Energy")))        { OutValue = Energy; return true; }
 		if (StatName == FName(TEXT("OGauge")))        { OutValue = OGauge; return true; }
@@ -596,12 +618,15 @@ enum class ETargetStat : uint8
 	CustomExtraStat UMETA(DisplayName = "カスタムステータス (ExtraStats)"),
 	DefensePower UMETA(DisplayName = "防御力"),
 	Mental      UMETA(DisplayName = "精神力 (Mental)"),
-	Alcohol     UMETA(DisplayName = "酒量 (Alcohol)"),
+	Alcohol     UMETA(DisplayName = "飲酒量 (Alcohol)"),
 	FatigueGainRate     UMETA(DisplayName = "疲労上昇速度％ (FatigueGainRate)"),
 	FatigueRecoveryRate UMETA(DisplayName = "疲労回復速度％ (FatigueRecoveryRate)"),
 	OGaugeGainRate      UMETA(DisplayName = "O・Gauge上昇速度％ (OGaugeGainRate)"),
 	OGaugeRecoveryRate  UMETA(DisplayName = "O・Gauge回復速度％ (OGaugeRecoveryRate)"),
-	MovementSpeedRate   UMETA(DisplayName = "移動速度％ (MovementSpeedRate)")
+	MovementSpeedRate   UMETA(DisplayName = "移動速度％ (MovementSpeedRate)"),
+	SP          UMETA(DisplayName = "SP"),
+	CriticalRate    UMETA(DisplayName = "クリティカル発生率％ (CriticalRate)"),
+	AttackSpeedRate UMETA(DisplayName = "攻撃速度％ (AttackSpeedRate)")
 };
 
 // Stats to Changeで変化させる対象。NPCを選ぶと、会話相手であるそのNPC自身のMyStats（個体ごとのFavor/Hostility等）を書き換える
@@ -670,6 +695,12 @@ struct FItemEffect
 	    チェックなし（デフォルト）の場合は、既に効果が発動中なら再使用しても効果なし（従来通り） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Buff")
 	bool bAllowStacking = false;
+
+	/** CustomExtraStat専用（効果時間が0より大きい場合のみ有効）。チェックを入れると、加算ではなく「効果中はExtraStatをEffectAmountの値に固定する」効果になる。
+	    発動時に現在値がEffectAmountになり、効果中は他から加算・減算されても無視される（EffectAmountは0〜100に収める。0以下なら0に固定）。
+	    効果が切れても値は元に戻らず、そのまま（固定中の値）になる */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Buff", meta = (EditCondition = "TargetStat == ETargetStat::CustomExtraStat"))
+	bool bLockExtraStatCeiling = false;
 };
 
 // ==========================================
@@ -783,11 +814,24 @@ struct FAbilityData : public FTableRowBase
 	TArray<FItemEffect> Effects;
 };
 
+// 食品由来のバフの区分（食べ物は同時に1つまで、飲み物はアイコンを1つに統合するための判別用）
+UENUM(BlueprintType)
+enum class EFoodBuffKind : uint8
+{
+	None   UMETA(DisplayName = "食品以外"),
+	Meal   UMETA(DisplayName = "食べ物"),
+	Drink  UMETA(DisplayName = "飲み物")
+};
+
 // --- アクティブなバフ・デバフを管理する構造体 ---
 USTRUCT(BlueprintType)
 struct FActiveBuff
 {
 	GENERATED_BODY()
+
+	// 食品由来のバフかどうか（食べ物の同時摂取制限・飲み物のアイコン統合に使う）
+	UPROPERTY(BlueprintReadOnly, Category = "Buff")
+	EFoodBuffKind FoodKind = EFoodBuffKind::None;
 
 	// バフの名前（"プロテス" など。解除時の検索用にも使います）
 	UPROPERTY(BlueprintReadOnly, Category = "Buff")
@@ -871,6 +915,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item")
 	bool bCanUse = true;
 
+	/** trueなら飲み物扱い。食べ物（ItemTypeがFoodでfalse）は効果が切れるまで次を食べられないが、飲み物はこの制限の対象外で、バフアイコンも1つに統合される */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item")
+	bool bIsDrink = false;
+
 	// --- 拘束具・呪物の「鍵」設定（UseItem()で装備ロックを解除する） ---
 	// ※このアイテムはItemTypeがConsumable/Potion/Foodのいずれかである必要がある（UseItem()の使用可否ゲート）
 
@@ -935,6 +983,9 @@ enum class EDialogActionType : uint8
 	RemoveItem      UMETA(DisplayName = "アイテムを奪う（インベントリから削除）"),
 	// ActionPayloadに渡す金額（￥）を数値の文字列で入れる（例："500"）。プレイヤーの所持金に加算する（報酬の前金など）
 	AddGil          UMETA(DisplayName = "お金を渡す（ActionPayload=金額）"),
+	// AddGilと対。ActionPayloadに渡す金額（￥）を数値の文字列で入れる。プレイヤーの所持金から減らす（盗まれる等）。
+	// 実際の所持金より多い額を指定した場合は、持っている分だけが減る（マイナスにはならない）
+	RemoveGil       UMETA(DisplayName = "お金を奪う（ActionPayload=金額）"),
 	// ActionPayloadにEventDistributorComponentのEventPoolID（DT_EventPoolsの行名）を入れる。
 	// 話しかけている相手（CurrentNPC）のUEventDistributorComponentを探して抽選を開始する
 	// （ActionPayloadが空欄なら、そのコンポーネント自身が持つEventPoolIDにフォールバックする）
@@ -951,7 +1002,10 @@ enum class EDialogActionType : uint8
 	// エリアChangeと同じ暗転（OnWarpFadeOutRequested）を挟み、画面が真っ暗になった状態でFadeNarrationTextを
 	// ナレーション表示する。既存の逐次表示システム（改行区切り・クリック/決定入力で1行ずつ送る）をそのまま使い、
 	// 全行読み終えると明転→NextDialogIDへ継続する（NextDialogIDが空なら会話を終了する）
-	ShowTextDuringFade UMETA(DisplayName = "暗転中にセリフを表示する（ActionPayload未使用。FadeNarrationTextを使用）")
+	ShowTextDuringFade UMETA(DisplayName = "暗転中にセリフを表示する（ActionPayload未使用。FadeNarrationTextを使用）"),
+	// RemoveGilと同じ処理（ActionPayloadに金額を入れ、プレイヤーの所持金から減らす）だが、
+	// 盗まれたのではなく料金の支払いなので、ログは「○○￥ 支払った！」と表示する
+	PayGil          UMETA(DisplayName = "お金を支払う（ActionPayload=金額）")
 };
 
 // --- 選択肢1つ分のデータ ---
@@ -994,6 +1048,11 @@ struct FDialogChoice
 	// 必須フラグ（空欄ならフラグ不要。文字が入っていれば、そのフラグを持っている時だけ選べる）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Condition")
 	FName RequiredFlag;
+
+	// 必要所持金（￥）。0なら条件なし。プレイヤーの所持金がこの額に満たない間は、この選択肢を選べない
+	// （支払い自体はActionType=PayGilで行う。この値は選択可否の判定にだけ使う）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Condition", meta = (ClampMin = "0"))
+	int32 RequiredGil = 0;
 
 	// 選んだ時に何をするか
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog")
@@ -1320,6 +1379,12 @@ struct FQuestData : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Objective", meta = (EditCondition = "QuestType != EQuestType::Achievement && QuestType != EQuestType::Delivery"))
 	int32 RequiredAmount = 1;
 
+	// trueにすると、目的を達成した時に依頼主への報告を待たず、自動で報告（報酬付与・クリア）まで進める。
+	// ObjectiveClearedFlagを「達成〜報告の間だけ立つトリガー」として使うクエストでは、達成と同時に外れるため併用しないこと。
+	// Deliveryは現状「依頼主への報告」を残す仕様のため対象外（設定しても無効）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Objective", meta = (EditCondition = "QuestType != EQuestType::Delivery"))
+	bool bAutoReportOnObjectiveCleared = false;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Reward")
 	int32 RewardExperience = 0;
 
@@ -1623,6 +1688,15 @@ struct FWarpDestination : public FTableRowBase
 	// RequiredFlagを持っていない時にログへ流す台詞（空欄なら既定の文言を使う）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Warp")
 	FString RequiredFlagMessage;
+
+	// trueの場合、このWarpIDへのワープ実行時（暗転して画面が真っ暗になった直後、実際の移動より前）に
+	// FadeNarrationTextを表示する（FEventDefinition::bShowNarrationOnStartと同じ暗転セリフUIを流用）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Warp")
+	bool bShowFadeNarrationOnWarp = false;
+
+	// bShowFadeNarrationOnWarp時に表示する暗転セリフ
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Warp", meta = (EditCondition = "bShowFadeNarrationOnWarp", MultiLine = true))
+	FText FadeNarrationText;
 };
 
 // --- ワープ一覧UI用の軽量データ（デバッグメニュー等、C++からBPへ一覧を渡す用） ---
@@ -1665,7 +1739,10 @@ enum class EEventClearCondition : uint8
 	TimeElapsed UMETA(DisplayName = "制限時間の経過で成立"),
 	Interact    UMETA(DisplayName = "施設内のインタラクトで成立"),
 	Both        UMETA(DisplayName = "どちらか早い方で成立"),
-	AnimationSequence UMETA(DisplayName = "アニメーションシーケンス完走で成立")
+	AnimationSequence UMETA(DisplayName = "アニメーションシーケンス完走で成立"),
+	// ワープを一切経由せず、StartEventが呼ばれたその場でSuccessActionsだけを即時実行して終了する。
+	// 睡眠中に金品を盗まれる等、施設への強制送致を伴わない即時イベント用（WarpID/ReturnWarpID/AnimEventIDは未使用）
+	Instant     UMETA(DisplayName = "即時成立（ワープなし）")
 };
 
 // 抽選プールの候補1件分（DT_EventPools用）
@@ -1743,15 +1820,23 @@ struct FEventDefinition : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event")
 	EEventType EventType = EEventType::Escape;
 
-	// 飛ばす施設のWarpID（DT_WarpDestinationsの行名）
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event")
+	// 飛ばす施設のWarpID（DT_WarpDestinationsの行名）。ClearCondition=Instantの場合はワープしないため空欄でよい。
+	// bUseContextActorLocationInsteadOfWarpがtrueの場合はこちらではなくEventContextActorの座標を使うため空欄でよい
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event", meta = (EditCondition = "ClearCondition != EEventClearCondition::Instant && !bUseContextActorLocationInsteadOfWarp"))
 	FName WarpID;
+
+	// trueの場合、WarpID（DT_WarpDestinations）を使わず、StartEventのEventContextActor（TriggerEventPoolを
+	// 呼んだOwnerActor。例：BP_SleepPoint）自身のActorTransformへ、暗転を挟んでワープする。
+	// このイベントが成立/失敗した後の戻り先は、EventContextActorがASleepPointの場合はReturnWarpIDではなく、
+	// プレイヤーがそのSleepPointにインタラクトした時点の座標へ戻す（ASleepPoint::GetPreSleepInteractTransform参照）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event", meta = (EditCondition = "ClearCondition != EEventClearCondition::Instant"))
+	bool bUseContextActorLocationInsteadOfWarp = false;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event")
 	EEventClearCondition ClearCondition = EEventClearCondition::Interact;
 
 	// ClearCondition=TimeElapsed/Both時の制限時間（秒）。0以下なら無制限（＝実質Interactのみ）
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event", meta = (EditCondition = "ClearCondition != EEventClearCondition::Interact"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event", meta = (EditCondition = "ClearCondition != EEventClearCondition::Interact && ClearCondition != EEventClearCondition::Instant"))
 	float TimeLimitSeconds = 0.0f;
 
 	// 成立（クリア）時に実行するアクション群
@@ -1769,6 +1854,38 @@ struct FEventDefinition : public FTableRowBase
 	// ClearCondition=AnimationSequence時に再生するアニメーションイベント（DT_AnimEventsの行名）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event", meta = (EditCondition = "ClearCondition == EEventClearCondition::AnimationSequence"))
 	FName AnimEventID;
+
+	// trueの場合、StartEventで暗転して画面が真っ暗になった直後（実際のワープ移動より前）にEventStartNarrationTextを
+	// 表示する。ASleepPoint::EventEncounterNarrationTextと同じ仕組み（クリック等での読み進めはせず、
+	// EventStartNarrationDisplaySeconds秒間表示した後、自動的に消えてワープを実行する）。
+	// ClearCondition=Instantの場合はワープせず、暗転→（開始セリフ）→SuccessActions実行→（終了セリフ）→明転の順で進む
+	// （StartEventのInstant分岐参照）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event")
+	bool bShowNarrationOnStart = false;
+
+	// bShowNarrationOnStart時に表示する暗転セリフ
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event", meta = (EditCondition = "bShowNarrationOnStart", MultiLine = true))
+	FText EventStartNarrationText;
+
+	// EventStartNarrationTextを表示しておく秒数（この秒数後、自動的に消えてワープを実行する）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event", meta = (EditCondition = "bShowNarrationOnStart", ClampMin = "0.1"))
+	float EventStartNarrationDisplaySeconds = 3.0f;
+
+	// trueの場合、イベント終了時（成立・不成立どちらでも、ResolveActiveEventでReturnWarpID等の戻り先へ
+	// ワープする直前）に暗転してEventEndNarrationTextを表示する。bShowNarrationOnStartと同じ仕組み
+	// （クリック等での読み進めはせず、EventEndNarrationDisplaySeconds秒間表示した後、自動的に消えて
+	// 戻り先（ReturnWarpID等）へワープする）。ClearCondition=Instantの場合はワープがないため、SuccessActions実行の
+	// 直後（まだ暗転中）にEventEndNarrationTextを表示してから明転する
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event")
+	bool bShowNarrationOnEnd = false;
+
+	// bShowNarrationOnEnd時に表示する暗転セリフ
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event", meta = (EditCondition = "bShowNarrationOnEnd", MultiLine = true))
+	FText EventEndNarrationText;
+
+	// EventEndNarrationTextを表示しておく秒数（この秒数後、自動的に消えて戻り先へワープする）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event", meta = (EditCondition = "bShowNarrationOnEnd", ClampMin = "0.1"))
+	float EventEndNarrationDisplaySeconds = 3.0f;
 };
 
 // ==========================================
@@ -1880,6 +1997,16 @@ struct FAnimSequenceEntry : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent")
 	bool bHideAllEquipmentDuringPlay = false;
 
+	// この行の再生対象キャラクターに、再生中だけ着せるDT_Items（ItemDataTable）のItemID一覧
+	// （装備品はDT_ItemsとDT_Equipmentsで同じ行名を共有する規約のため、実際の見た目・装備スロットは
+	// 同じIDでDT_Equipments側を引いて適用する。ShopNPCBase::GetAvailableShopItems等と同じ規約）。
+	// bHideAllEquipmentDuringPlayとは別軸の機能で、CurrentEquippedItemsの状態も一時的に上書きする
+	// （EquipEquipment同様、上書きされた元の装備はインベントリへは戻らず見た目だけ退避される）。
+	// 再生終了・強制終了のどちらでも、対象スロットの装備は自動的に元へ戻る
+	// （UMyProject1GameInstance::SyncAnimEventTemporaryEquipment参照）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent")
+	TArray<FName> TemporaryEquipItemIDs;
+
 	// このMontage再生開始と同時に1回だけ再生するサウンド（未設定なら何も鳴らさない）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent")
 	class USoundBase* Sound = nullptr;
@@ -1926,6 +2053,27 @@ struct FAnimEventStep
 	bool bLoop = false;
 };
 
+// イベント再生中だけ表情モーフを上書きする設定1件分（DT_AnimEvents用）。
+// PlayAnimSequenceEvent開始時にMorphTargetNameへValueを適用し、全ステップ完了・強制終了のどちらでも
+// 適用前の値へ自動的に戻す（FAnimEventDefinition::EventFaceMorphs参照）
+USTRUCT(BlueprintType)
+struct FAnimEventFaceMorph
+{
+	GENERATED_BODY()
+
+	// モーフを適用する対象。FAnimEventStep::PlayTargetと同じ意味（NPC＝EventDistributorComponentが付いた起点Actor）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent")
+	EStatTargetActor PlayTarget = EStatTargetActor::Player;
+
+	// 適用するモーフターゲット名
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent")
+	FName MorphTargetName;
+
+	// 適用する値
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent")
+	float Value = 0.0f;
+};
+
 // アニメーションイベント1つ分の実体データ（DT_AnimEvents用）
 USTRUCT(BlueprintType)
 struct FAnimEventDefinition : public FTableRowBase
@@ -1939,6 +2087,11 @@ struct FAnimEventDefinition : public FTableRowBase
 	// イベント再生中に流すBGM（未設定なら何もオーバーライドせず、フィールド/部屋BGMがそのまま流れ続ける）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent")
 	TSoftObjectPtr<class USoundBase> EventBGM;
+
+	// イベント再生中だけ上書きする表情モーフ（未設定なら何もしない）。
+	// PlayAnimSequenceEvent開始時に適用し、全ステップ完了・強制終了のどちらでも元の値へ自動的に戻す
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent")
+	TArray<FAnimEventFaceMorph> EventFaceMorphs;
 };
 
 // --- セーブ画面のスロット一覧UI用の軽量データ（C++からBPへ1スロット分の見出し情報を渡す用） ---
@@ -2098,6 +2251,10 @@ struct FCyclePhaseSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cycle", meta = (MultiLine = "true"))
 	FText PhaseChangeMessage;
 
+	/** メインウィンドウの状態表示（Text_ki）に出すフェーズ名（例：排卵期）。空なら通常サイクルは「状態A」等、妊娠中／産後は各段階の既定名を表示する */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cycle")
+	FText PhaseDisplayName;
+
 	/** このフェーズの間だけ有効なステータス補正（装備と同じ仕組みで、フェーズが変わると自動的に元に戻る） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cycle")
 	TArray<FEquipmentStatModifier> StatModifiers;
@@ -2201,6 +2358,10 @@ struct FEquipmentData : public FTableRowBase
 	/** ショップ解除に必要な職人レベル（AShopNPCBase::ShopLevelがこの値以上でないと解除できない） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment|Lock", meta = (EditCondition = "bCannotUnequipManually", ClampMin = "1"))
 	int32 UnlockLevel = 1;
+
+	/** trueにすると、医者ショップ（ピアス）で除去された時に壊れた扱いになり、インベントリからも1個消える。falseなら除去後もインベントリに残る */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment|Lock", meta = (EditCondition = "bCannotUnequipManually"))
+	bool bDestroyOnShopRemoval = false;
 
 	// ============================================================================
 	// 拘束具（足枷等）による移動制限・アニメーション変更

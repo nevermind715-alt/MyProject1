@@ -131,6 +131,10 @@ private:
 	    ダイアログ／CompletionRemoveFlagの手動設定なしで成立させる */
 	void ClearObjectiveClearedFlag(const FQuestData& Data) const;
 
+	/** 目的達成（ObjectiveCleared遷移）直後に呼ぶ。bAutoReportOnObjectiveCleared（Delivery以外）なら次のティックでReportQuestする。
+	    遷移箇所はActiveQuestsのrange-for内のため、ReportQuestのRemoveAtでイテレータが壊れないよう即時には呼ばない */
+	void TryAutoReport(const FQuestData& Data, FName QuestID);
+
 	/** 強制失敗時のペナルティとして、プレイヤーのFCharacterStatsに指定ステータスの増減を適用する
 	    （DialogComponentのステータス変化と同じ加算方式。StatがCustomExtraStatの時はExtraStatNameのキーを増減。適用したらtrueを返す） */
 	bool ApplyFailurePenaltyStat(ETargetStat Stat, FName ExtraStatName, float Amount) const;

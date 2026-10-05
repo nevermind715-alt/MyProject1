@@ -304,6 +304,16 @@ bool UInventoryComponent::TrySpendGil(int32 Amount)
 	return false;
 }
 
+int32 UInventoryComponent::RemoveGil(int32 Amount)
+{
+	const int32 ActualAmount = FMath::Clamp(Amount, 0, Gil);
+	if (ActualAmount <= 0) return 0;
+
+	Gil -= ActualAmount;
+	OnInventoryUpdated.Broadcast();
+	return ActualAmount;
+}
+
 bool UInventoryComponent::UseItem(FName ItemID)
 {
 	if (GetItemQuantity(ItemID) <= 0) return false;
@@ -331,6 +341,19 @@ bool UInventoryComponent::UseItem(FName ItemID)
 		{
 			FString CannotUseMsg = FString::Printf(TEXT("%s は使用できない！"), *ItemInfo->Name);
 			RpgInterface->OnReceiveLogMessage(CannotUseMsg, ELogMessageType::System);
+		}
+		return false;
+	}
+
+	// --- 食べ物（飲み物以外のFood）は、前の食事の効果が切れるまで次を食べられない ---
+	// 即時効果の適用・アイテム消費より前に弾く（食べられないのにアイテムだけ減るのを防ぐ）
+	const bool bIsMeal = (ItemInfo->ItemType == EItemType::Food && !ItemInfo->bIsDrink);
+	if (bIsMeal && OwnerChar->HasActiveMealBuff())
+	{
+		if (IRpgCharacterInterface* RpgInterface = Cast<IRpgCharacterInterface>(GetOwner()))
+		{
+			FString FullMsg = FString::Printf(TEXT("まだお腹がいっぱいで、%s は食べられない。"), *ItemInfo->Name);
+			RpgInterface->OnReceiveLogMessage(FullMsg, ELogMessageType::System);
 		}
 		return false;
 	}
@@ -498,14 +521,33 @@ bool UInventoryComponent::UseItem(FName ItemID)
 			bAnyEffectApplied = true;
 			break;
 
+		case ETargetStat::SP:
+			if (Effect.EffectDuration > 0.0f)
+			{
+				TimedEffects.Add(Effect);
+			}
+			else
+			{
+				OwnerChar->MyStats.SP += ClampAmountToCap(OwnerChar->MyStats.SP, Effect.EffectAmount, Effect.CapValue);
+			}
+			bAnyEffectApplied = true;
+			break;
+
 		case ETargetStat::CustomExtraStat:
 			if (!Effect.ExtraStatName.IsNone())
 			{
-				float CurrentValue = OwnerChar->GetExtraStat(Effect.ExtraStatName);
-				float AddAmount = ClampAmountToCap(CurrentValue, Effect.EffectAmount, Effect.CapValue);
-				if (AddAmount != 0.0f)
+				if (Effect.EffectDuration > 0.0f)
 				{
-					OwnerChar->AddExtraStat(Effect.ExtraStatName, AddAmount);
+					TimedEffects.Add(Effect);
+				}
+				else
+				{
+					float CurrentValue = OwnerChar->GetExtraStat(Effect.ExtraStatName);
+					float AddAmount = ClampAmountToCap(CurrentValue, Effect.EffectAmount, Effect.CapValue);
+					if (AddAmount != 0.0f)
+					{
+						OwnerChar->AddExtraStat(Effect.ExtraStatName, AddAmount);
+					}
 				}
 				bAnyEffectApplied = true;
 			}
@@ -526,6 +568,7 @@ bool UInventoryComponent::UseItem(FName ItemID)
 
 			// 攻撃力・防御力は永続効果ならBaseAttackPower/BaseDefensePowerに積み、疲労補正込みの表示値を再計算する
 			// （時限効果は他と同じくApplyItemBuff経由でBase側に積まれる：TimedEffects参照）
+			// ※EffectAmountは％補正として扱う（CapValueは補正後の絶対値の上限）
 		case ETargetStat::AttackPower:
 			if (Effect.EffectDuration > 0.0f)
 			{
@@ -533,7 +576,7 @@ bool UInventoryComponent::UseItem(FName ItemID)
 			}
 			else
 			{
-				OwnerChar->MyStats.BaseAttackPower += ClampAmountToCap(OwnerChar->MyStats.BaseAttackPower, Effect.EffectAmount, Effect.CapValue);
+				OwnerChar->MyStats.BaseAttackPower += ClampAmountToCap(OwnerChar->MyStats.BaseAttackPower, OwnerChar->MyStats.BaseAttackPower * (Effect.EffectAmount / 100.0f), Effect.CapValue);
 				OwnerChar->RecalculateFatigueAdjustedCombatStats();
 			}
 			bAnyEffectApplied = true;
@@ -546,7 +589,7 @@ bool UInventoryComponent::UseItem(FName ItemID)
 			}
 			else
 			{
-				OwnerChar->MyStats.BaseDefensePower += ClampAmountToCap(OwnerChar->MyStats.BaseDefensePower, Effect.EffectAmount, Effect.CapValue);
+				OwnerChar->MyStats.BaseDefensePower += ClampAmountToCap(OwnerChar->MyStats.BaseDefensePower, OwnerChar->MyStats.BaseDefensePower * (Effect.EffectAmount / 100.0f), Effect.CapValue);
 				OwnerChar->RecalculateFatigueAdjustedCombatStats();
 			}
 			bAnyEffectApplied = true;
@@ -582,7 +625,8 @@ bool UInventoryComponent::UseItem(FName ItemID)
 
 	if (TimedEffects.Num() > 0)
 	{
-		OwnerChar->ApplyItemBuff(ItemInfo->Name, ItemInfo->Icon, TimedEffects, TimedEffects[0].EffectDuration);
+		const EFoodBuffKind FoodKind = ItemInfo->bIsDrink ? EFoodBuffKind::Drink : (bIsMeal ? EFoodBuffKind::Meal : EFoodBuffKind::None);
+		OwnerChar->ApplyItemBuffWithKind(ItemInfo->Name, ItemInfo->Icon, TimedEffects, TimedEffects[0].EffectDuration, FoodKind);
 	}
 
 	return bAnyEffectApplied;

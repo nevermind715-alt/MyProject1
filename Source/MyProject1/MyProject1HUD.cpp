@@ -237,6 +237,35 @@ void AMyProject1HUD::ForceCloseCommandMenuForInteract()
     }
 }
 
+void AMyProject1HUD::ForceCloseAllMenusForWarp()
+{
+    // OpenTimeSkipMenuの「他のメニューが開いていたら全て閉じる」処理と同じ並び順（サブメニュー→
+    // コマンドメニュー本体の順）。Toggle系はどれも「開いている時に呼ぶと閉じる」性質を持ち、
+    // 閉じる際にマウスカーソル・入力モードを通常のゲーム操作状態へ戻す処理を内包している。
+    if (ActiveSubMenuWidget && ActiveSubMenuWidget->IsInViewport())
+    {
+        ActiveSubMenuWidget->RemoveFromParent();
+        ActiveSubMenuWidget = nullptr;
+    }
+    if (InventoryMenuWidget && InventoryMenuWidget->IsInViewport()) ToggleInventoryMenu();
+    if (EquipmentMenuWidget && EquipmentMenuWidget->IsInViewport()) ToggleEquipmentMenu();
+    if (StatusMenuWidget && StatusMenuWidget->IsInViewport()) ToggleStatusMenu();
+    if (QuestMenuWidget && QuestMenuWidget->IsInViewport()) ToggleQuestMenu();
+    if (SaveMenuWidget && SaveMenuWidget->IsInViewport()) ToggleSaveMenu();
+    if (ChestMenuWidget && ChestMenuWidget->IsInViewport()) ToggleChestMenu();
+    if (TreatmentMenuWidget && TreatmentMenuWidget->IsInViewport()) ToggleTreatmentMenu();
+    if (TattooMenuWidget && TattooMenuWidget->IsInViewport()) ToggleTattooMenu();
+    if (RestraintShopMenuWidget && RestraintShopMenuWidget->IsInViewport()) ToggleRestraintShopMenu();
+    if (ItemShopMenuWidget && ItemShopMenuWidget->IsInViewport()) ToggleItemShopMenu();
+    if (CommandMenuWidget && CommandMenuWidget->IsInViewport()) ToggleCommandMenu();
+
+    // 待機/睡眠メニューはToggle系とは別系統（CloseTimeSkipMenu()がカーソル・入力モード復元を担う）
+    if (TimeSkipMenuWidget && TimeSkipMenuWidget->IsInViewport())
+    {
+        TimeSkipMenuWidget->CloseTimeSkipMenu();
+    }
+}
+
 // --- 待機/睡眠メニュー ---
 void AMyProject1HUD::OpenTimeSkipMenu(bool bIsSleepMode)
 {

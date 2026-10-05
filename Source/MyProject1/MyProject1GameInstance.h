@@ -16,6 +16,8 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnWarpFadeOutRequested);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnNarrationReadyToFadeIn);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_FiveParams(FOnInGameTimeChanged, int32, Year, int32, Month, int32, Day, int32, Hour, int32, Minute);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnDayChangedSignature);
+// 状態表示（フェーズ名）が変わりうるタイミング（日付変更／妊娠開始）で鳴る。メインウィンドウの状態表示の更新用
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnCycleDisplayChangedSignature);
 
 // PlayAnimSequenceEventの完了通知。bCompletedNormally=trueは全ステップ再生完了、falseは対象/アセット不備などで開始できなかった場合
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnAnimSequenceEventFinished, bool, bCompletedNormally);
@@ -60,6 +62,75 @@ public:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Time|Calendar")
 	ECycleState CurrentCycleState;
+
+	// --- 妊娠サイクル（通常の月齢サイクル → 妊娠10ヶ月 → 産後の回復期 → 通常に戻って抽選再開） ---
+
+	/** 現在のサイクルの段階。Normal以外の間は月齢サイクルの進行と妊娠抽選が止まる */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Time|Pregnancy")
+	ECycleMode CycleMode = ECycleMode::Normal;
+
+	/** 現在の段階（CycleMode）が始まった日のTotalElapsedDays。Normalの月齢サイクルの起点も兼ねる（0＝ゲーム開始日） */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Time|Pregnancy")
+	int32 CycleStartDay = 0;
+
+	/** 妊娠中／産後の回復期が終わる日のTotalElapsedDays（この日になったら次の段階へ進む）。Normalの間は-1 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Time|Pregnancy")
+	int32 CycleModeEndDay = -1;
+
+	/** 妊娠中に使うフェーズ表（MinDay/MaxDayは妊娠開始日を1日目とした日数）。空でも進行自体は動く */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Time|Pregnancy")
+	TArray<FCyclePhaseSettings> PregnancyPhaseRules;
+
+	/** 産後の回復期に使うフェーズ表（MinDay/MaxDayは回復期開始日を1日目とした日数）。空でも進行自体は動く */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Time|Pregnancy")
+	TArray<FCyclePhaseSettings> PostpartumPhaseRules;
+
+	/** 妊娠期間（ゲーム内カレンダーの月数） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Time|Pregnancy", meta = (ClampMin = "1"))
+	int32 PregnancyDurationMonths = 10;
+
+	/** 産後の回復期間（日数） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Time|Pregnancy", meta = (ClampMin = "1"))
+	int32 PostpartumRecoveryDays = 30;
+
+	/** 妊娠抽選：状態Aの日の午前1時に、ExStats17がこの値以上なら抽選する */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Time|Pregnancy")
+	float ConceptionRequiredExStat17 = 20.0f;
+
+	/** 妊娠抽選の当選確率（0.07＝7％） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Time|Pregnancy", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float ConceptionChance = 0.07f;
+
+	/** 妊娠中にプレイヤーへ付与するフラグ */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Time|Pregnancy")
+	FName PregnantFlagName = TEXT("Pregnant");
+
+	/** 産後の回復期にプレイヤーへ付与するフラグ */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Time|Pregnancy")
+	FName PostpartumFlagName = TEXT("Postpartum");
+
+	/** 妊娠中のフェーズ名が未設定（FCyclePhaseSettings::PhaseDisplayNameが空）の時に、状態表示へ出す名前 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Time|Pregnancy")
+	FText PregnancyModeDisplayName = FText::FromString(TEXT("妊娠中"));
+
+	/** 産後の回復期のフェーズ名が未設定の時に、状態表示へ出す名前 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Time|Pregnancy")
+	FText PostpartumModeDisplayName = FText::FromString(TEXT("産後"));
+
+	UPROPERTY(BlueprintAssignable, Category = "Time|Pregnancy")
+	FOnCycleDisplayChangedSignature OnCycleDisplayChanged;
+
+	/** 現在のサイクル日数（通常＝CycleStartDayからの経過日を周期で折り返した1〜N、妊娠中／産後＝開始日を1日目とした経過日数） */
+	int32 GetCurrentCycleDay() const;
+
+	/** メインウィンドウの状態表示に出す名前。現在の段階と日数に一致するルールのPhaseDisplayNameを返す */
+	FText GetCurrentCycleDisplayName() const;
+
+	/** 現在のCycleModeに対応するフェーズ表（Normal＝CyclePhaseRules） */
+	const TArray<FCyclePhaseSettings>& GetActiveCyclePhaseRules() const;
+
+	/** 現在のCycleModeに合わせて、妊娠中／産後の回復期フラグをプレイヤーに付与・削除する（Character::UpdateCycleStateから呼ぶ） */
+	void SyncCycleModeFlags(class AMyProject1Character* Character) const;
 
 	/** 待機/睡眠などで時間を一気に進める。日をまたぐ場合は日数分だけAdvanceDayを個別に呼ぶので、
 	 *  日付ベースの仕組み（月齢/CurrentCycleStateやOnDayChangedDelegate依存のクエスト等）も正しく動く。
@@ -157,6 +228,22 @@ public:
 	 *  保留していた明転タイマーをここで開始し、明転完了後はHandleWarpFadeInCompleteが
 	 *  NarrationComponent->ResumeAfterFadeNarration(NextDialogID)を呼んで会話を継続させる */
 	void ResumeFadeInAfterNarration(class UDialogComponent* NarrationComponent, FName NextDialogID);
+
+	// --- ASleepPointの睡眠イベント専用の暗転セリフ ---
+	// 新しいUIを追加せず、既存の暗転セリフ表示（UDialogComponent::OnFadeNarrationLine/OnFadeNarrationClosed。
+	// ActionType=ShowTextDuringFadeで使っているのと同じUI）をそのまま鳴らして流用する。
+	// TryStartDialog等の会話開始フロー自体は経由しない（UDialogComponentの内部状態は変更しない）ため、
+	// 会話システムとの不整合は発生しない。クリック/決定入力での読み進めも行わず、一定時間表示したら自動的に
+	// OnFadeNarrationClosedを鳴らして閉じ、イベントを発動する
+
+	/** ASleepPoint::BeginPendingSleepEventから、既に画面が真っ暗な状態で呼ばれる。PlayerCharacterの
+	 *  UDialogComponent::OnFadeNarrationLineへNarrationTextをそのまま送り、DisplaySeconds秒後に自動で
+	 *  OnFadeNarrationClosedを鳴らし、ASleepPoint::OnSleepEventNarrationFinishedを呼んでイベントを発動する */
+	void BeginSleepEventNarration(const FText& NarrationText, float DisplaySeconds, class ASleepPoint* SleepPointContext, class AMyProject1Character* PlayerCharacter);
+
+	/** ASleepPoint::StartPendingSleepEventから、睡眠イベント（暗転セリフ→イベント発動）がClearCondition=Instant
+	 *  等で既に完了した場合に呼ばれる。ResumeFadeInAfterNarrationと同様、保留していた明転タイマーをここで開始する */
+	void ResumeFadeInAfterSleepEvent();
 
 	/** DT_WarpDestinationsの全行を、UI表示用の軽量データ一覧として取得する（デバッグメニュー等がBP側で一覧を組み立てる際に使う） */
 	UFUNCTION(BlueprintCallable, Category = "Warp")
@@ -288,18 +375,36 @@ public:
 	/** EventDistributorComponentの抽選で決まったEventIDを渡し、対応する施設（WarpID）へワープしてイベントを開始する。
 	 *  ClearCondition=TimeElapsed/Bothの場合はTimeLimitSeconds後に自動でResolveActiveEvent(true)を呼ぶ。
 	 *  ClearCondition=AnimationSequenceの場合は暗転明け後にAnimEventIDのステップ再生を開始し、完走で自動成立する。
+	 *  ClearCondition=Instantの場合はワープを一切経由せず、その場でSuccessActionsだけを即時実行してすぐ終了する
+	 *  （bHasActiveEventも立てない。睡眠中に金品を盗まれる等、施設への強制送致を伴わない即時イベント用）。
 	 *  EventContextActorはTriggerEventPoolを呼び出したOwnerActor（NPC/敵など）。FAnimEventStep::PlayTarget=NPC時の再生対象になる。
 	 *  ExtraParticipantMeshOverrideは、ClearCondition=AnimationSequenceで再生するAnimEventIDのExtra参加者
 	 *  （ExtraPairings）のメッシュ差し替えに使う（BeginAnimEventSequenceIfNeeded→PlayAnimSequenceEventへそのまま渡す）。
 	 *  bHideContextActorDuringAnimEventが設定されていれば、そのAnimEvent再生中だけEventContextActor自身を
-	 *  非表示にする（同じくBeginAnimEventSequenceIfNeeded→PlayAnimSequenceEventへそのまま渡す） */
+	 *  非表示にする（同じくBeginAnimEventSequenceIfNeeded→PlayAnimSequenceEventへそのまま渡す）。
+	 *  FEventDefinition::bShowNarrationOnStartが設定されていれば、実際のワープ要求より先にBeginEventStartNarrationで
+	 *  暗転セリフを表示し、その完了後にワープする（ClearCondition=Instantは対象外） */
 	UFUNCTION(BlueprintCallable, Category = "Event")
 	void StartEvent(FName EventID, class ACharacter* PlayerCharacter, class AActor* EventContextActor = nullptr, TSoftObjectPtr<class USkeletalMesh> ExtraParticipantMeshOverride = nullptr, bool bHideContextActorDuringAnimEvent = false);
 
 	/** 施設側のクリア判定（インタラクト等）、または制限時間切れから呼ばれる。bSuccess=trueなら成立、falseなら不成立として
-	 *  対応するアクション群（SuccessActions/FailureActions）を実行し、ReturnWarpIDへ戻す */
+	 *  対応するアクション群（SuccessActions/FailureActions）を実行し、ReturnWarpIDへ戻す。
+	 *  FEventDefinition::bShowNarrationOnEndが設定されていれば、戻り先への実際のワープ要求より先に
+	 *  BeginEventEndNarrationで暗転セリフを表示し、その完了後に戻り先へワープする */
 	UFUNCTION(BlueprintCallable, Category = "Event")
 	void ResolveActiveEvent(bool bSuccess);
+
+	/** StartEvent実行後にWarpIDが別レベルを指していた場合、OpenLevelで旧レベルのPlayerCharacterが破棄され
+	 *  新しいCharacterが生成されるため、StartEvent時点で記憶したActiveEventPlayer（TWeakObjectPtr）が
+	 *  無効なまま残ってしまう（結果、BeginAnimEventSequenceIfNeeded以降が全てPlayerCharacter=nullptrとして
+	 *  失敗し、AnimEventが再生されないままResolveActiveEventがSuccessActions/ReturnWarpIDを実行できず、
+	 *  プレイヤーが施設に取り残される）。AMyProject1Character::BeginPlayの、新レベル到着時にbHasActiveEvent
+	 *  を見てRevive(1.0f)を呼ぶのと同じタイミングから呼び、ActiveEventPlayerをこの新しいCharacterへ
+	 *  差し替える。bHasActiveEventがfalseの間（イベント進行中でない通常のBeginPlay）は何もしない。
+	 *  ActiveEventContextActor（倒した敵など）は別レベルには存在しないため差し替え対象外（対応する
+	 *  PlayTarget=NPCのAnimEventステップは、そのレベルではNPC不在として扱われる） */
+	UFUNCTION(BlueprintCallable, Category = "Event")
+	void RebindActiveEventPlayer(class ACharacter* NewPlayerCharacter);
 
 	// --- アニメーションシーケンス再生（イベント分岐システムとは独立） ---
 	// DT_AnimSequences（行名=個別ID、Tagでカテゴリ分類）とDT_AnimEvents（行名=AnimEventID、Steps列）の2テーブルで管理する。
@@ -386,6 +491,11 @@ private:
 	/** ActiveEventTimeLimitTimerHandleから呼ばれ、制限時間経過による成立（ResolveActiveEvent(true)）を行う */
 	void HandleActiveEventTimeUp();
 
+	/** FEventDefinition::SuccessActions/FailureActionsの1件分（FEventAction）を順に実行する共通処理。
+	 *  ResolveActiveEvent（ワープ経由イベントの成立/失敗時）と、StartEvent（ClearCondition=Instant時）の
+	 *  両方から呼ぶ。PlayerCharaがIRpgCharacterInterfaceを実装していない場合は何もしない */
+	void ExecuteEventActionList(const TArray<struct FEventAction>& Actions, class ACharacter* PlayerChar);
+
 	// 進行中イベントがClearCondition=AnimationSequenceの場合に、既にPlayAnimSequenceEventを開始済みか
 	// （BeginAnimEventSequenceIfNeededの二重起動ガード。アニメーション再生自体の進行状態ではない）
 	bool bAnimEventSequenceStarted = false;
@@ -437,6 +547,14 @@ private:
 	// キャラクターの記憶。有効な間だけ、DestroyAnimEventExtraActors（全Step完了・強制終了どちらの後片付けからも呼ばれる）で再表示する
 	TWeakObjectPtr<class ACharacter> AnimEventHiddenEquipmentCharacter;
 
+	// SyncAnimEventTemporaryEquipmentがFAnimSequenceEntry::TemporaryEquipItemIDsで一時装備を上書きした
+	// キャラクターの記憶。有効な間だけ、DestroyAnimEventExtraActors（全Step完了・強制終了どちらの後片付けからも呼ばれる）で元へ戻す
+	TWeakObjectPtr<class ACharacter> AnimEventTemporaryEquipCharacter;
+
+	// AnimEventTemporaryEquipCharacterへ一時装備を上書きする直前、スロットごとに元々装備していたRowName
+	// （未装備だったスロットはNAME_None）。RestoreAnimEventTemporaryEquipmentで元の状態へ戻すために使う
+	TMap<EEquipmentSlot, FName> AnimEventTemporaryEquipPreviousItems;
+
 	// FAnimSequenceEntry::PropMeshでスポーンした小道具（椅子等、Player側のみ）。
 	// 行の再生開始時にSpawnOrUpdateAnimSequencePropでスポーン/更新し、DestroyAnimEventExtraActorsで一緒に破棄する
 	TWeakObjectPtr<class AStaticMeshActor> CurrentAnimSequencePropActor;
@@ -444,6 +562,16 @@ private:
 	// PlayAnimSequenceEventがFAnimEventDefinition::EventBGMでBGMをオーバーライドしたか
 	// （trueの場合のみ、全ステップ完了時にAMyProject1Character::MusicComp->ExitRoomMusic()で元のBGMへ戻す）
 	bool bAnimEventOverrodeMusic = false;
+
+	// PlayAnimSequenceEventがFAnimEventDefinition::EventFaceMorphsで上書きしたモーフターゲット1件分の、
+	// 適用前の元の値。RestoreAnimEventFaceMorphsが全ステップ完了・強制終了のどちらでもこの値へ戻す
+	struct FAnimEventAppliedMorph
+	{
+		TWeakObjectPtr<class USkeletalMeshComponent> MeshComp;
+		FName MorphTargetName;
+		float OriginalValue = 0.0f;
+	};
+	TArray<FAnimEventAppliedMorph> AnimEventAppliedMorphs;
 
 	// PlayAnimSequenceEventの引数ExtraParticipantMeshOverrideのキャッシュ。設定されている間は、
 	// このAnimEventID再生中にGetOrSpawnAnimEventExtraActorがスポーンするExtra参加者（FAnimEventPairing）の
@@ -507,6 +635,14 @@ private:
 	/** AnimEventDataTableのStepsをStepIndexから再生する。範囲外（=全ステップ再生完了）ならOnAnimSequenceEventFinished(true)をBroadcastする */
 	void PlayAnimEventStep(int32 StepIndex);
 
+	/** FAnimEventDefinition::EventFaceMorphsに従って表情モーフを上書きし、適用前の値をAnimEventAppliedMorphsへ
+	 *  キャッシュする（PlayAnimSequenceEvent開始時に呼ぶ） */
+	void ApplyAnimEventFaceMorphs(const FAnimEventDefinition& AnimEvent);
+
+	/** ApplyAnimEventFaceMorphsで上書きしたモーフターゲットをAnimEventAppliedMorphsの値へ戻し、空にする。
+	 *  全ステップ完了時（PlayAnimEventStep）・強制終了時（AbortCurrentAnimEventStepChain）の両方から呼ぶ */
+	void RestoreAnimEventFaceMorphs();
+
 	/** bLoop=trueのステップでAnimEventStepDurationTimerHandleから呼ばれる。タイマー自体はStep.Durationから
 	 *  WarpFadeOutDuration分を差し引いた時点で発火するようセットされており、ここではまだモンタージュを止めず
 	 *  次のステップへの暗転（TransitionToAnimEventStep）を開始するだけにする。実際にモンタージュを止めるのは
@@ -552,6 +688,17 @@ private:
 	 *  PlayAnimSequenceRowDirect（単発再生）とPlayAnimEventStep（Stepごとの抽選再生）の両方から、
 	 *  再生対象を解決した直後に呼ぶ想定 */
 	void SyncAnimEventEquipmentVisibility(class ACharacter* TargetCharacter, bool bWantHidden);
+
+	/** FAnimSequenceEntry::TemporaryEquipItemIDsに従って、TargetCharacterへ再生中だけの一時装備を反映する。
+	 *  ItemIDsが空、または前回とは異なるキャラクターが指定された場合は、前回一時装備を上書きしたキャラクターが
+	 *  いればRestoreAnimEventTemporaryEquipmentで元の装備へ戻してから切り替える。
+	 *  PlayAnimSequenceRowDirect（単発再生）とPlayAnimEventStep（Stepごとの抽選再生）の両方から、
+	 *  再生対象を解決した直後に呼ぶ想定 */
+	void SyncAnimEventTemporaryEquipment(class ACharacter* TargetCharacter, const TArray<FName>& ItemIDs);
+
+	/** SyncAnimEventTemporaryEquipmentがAnimEventTemporaryEquipCharacterへ上書きした一時装備を、
+	 *  AnimEventTemporaryEquipPreviousItemsの記録を使って元へ戻す（DestroyAnimEventExtraActorsからも呼ばれる） */
+	void RestoreAnimEventTemporaryEquipment();
 
 	/** 進行中のAnimSequenceEvent（PlayAnimEventStepのStepチェーン）を、全Step完了を待たずに強制的に中断する。
 	 *  タイマー解除・入力ロック解除・NPCのAIロジック再開・Extra参加者破棄・状態リセットまでをまとめて行う。
@@ -651,6 +798,12 @@ private:
 	/** 明転が終わったタイミングでタイマーから呼ばれ、入力を戻す */
 	void HandleWarpFadeInComplete();
 
+	/** bPendingSleepTimeAdvanceApplyがtrueで、かつイベント（bHasActiveEvent）が進行中でなければ、
+	 *  保留していたAdvanceTimeBy・ApplyFatigueForSkippedMinutesをここで確定させる。
+	 *  HandleWarpFadeInComplete（通常の最後の明転）と、ResolveActiveEvent（イベント後にワープが
+	 *  発生しない場合の保険）の両方から呼ぶ（冪等） */
+	void ApplyPendingSleepTimeAdvanceIfNeeded();
+
 	// 暗転が終わるまで待機している「付与予定のフラグ」と「付与対象」の記憶（RequestFadeThenGrantFlag用）
 	FName ReservedFlagToGrant;
 	TWeakObjectPtr<class AMyProject1Character> ReservedFlagGrantTarget;
@@ -664,12 +817,176 @@ private:
 	TWeakObjectPtr<class ACharacter> ReservedTimeSkipCharacter;
 	bool ReservedTimeSkipIsSleep = false;
 
+	/** AdvanceTimeBy・ApplyFatigueForSkippedMinutesの適用待ち状態（ApplyPendingSleepTimeAdvanceIfNeeded用）。
+	 *  睡眠でイベントが当選した場合、暗転直後にまだ時計を進めてしまうと、AnimEvent演出中なのに時計表示だけ
+	 *  起床時間になってしまうため、実際に画面へ戻る最後の明転まで適用を保留する */
+	bool bPendingSleepTimeAdvanceApply = false;
+	int32 PendingSleepTimeAdvanceMinutes = 0;
+	TWeakObjectPtr<class ACharacter> PendingSleepTimeAdvanceCharacter;
+	bool PendingSleepTimeAdvanceIsSleep = false;
+
+	// ASleepPointの睡眠イベント専用の暗転セリフ（BeginSleepEventNarration用）の表示中タイマーと対象の記憶
+	FTimerHandle SleepEventNarrationTimerHandle;
+	TWeakObjectPtr<class ASleepPoint> SleepEventNarrationSource;
+	TWeakObjectPtr<class AMyProject1Character> SleepEventNarrationPlayer;
+
+	/** SleepEventNarrationTimerHandleがDisplaySeconds経過で発火した時に呼ばれる。
+	 *  PlayerCharacterのUDialogComponent::OnFadeNarrationClosedをBroadcastし、
+	 *  SleepEventNarrationSource->OnSleepEventNarrationFinishedを呼ぶ */
+	void HandleSleepEventNarrationTimerComplete();
+
+	/** StartEventでFEventDefinition::bShowNarrationOnStartが真だった場合にtrueにし、BeginWarpFadeで
+	 *  新規に暗転を要求する。暗転が完了した（画面が真っ暗になった）タイミングでExecuteWarpProcessがこれを見て
+	 *  消化し、BeginEventStartNarrationへつなぐ（ReservedNarrationComponentと同じ「暗転後に処理を差し込む」パターン） */
+	bool bPendingEventStartNarration = false;
+
+	// FEventDefinition::bShowNarrationOnStart用の暗転セリフ（BeginEventStartNarration）の表示中タイマー
+	FTimerHandle EventStartNarrationTimerHandle;
+
+	/** StartEventでClearCondition=Instantかつ bShowNarrationOnStart/bShowNarrationOnEnd の行が当選した場合にtrueにし、BeginWarpFadeで
+	 *  暗転を要求する。暗転完了後にExecuteWarpProcessがこれを消化してBeginInstantEventNarrationへつなぐ。
+	 *  InstantはbHasActiveEventを立てない（ActiveEventIDを使わない）ため、対象のEventID/プレイヤーはここに別途記憶する */
+	bool bPendingInstantEventNarration = false;
+	FName PendingInstantEventID;
+	TWeakObjectPtr<class ACharacter> PendingInstantEventPlayer;
+	FTimerHandle InstantEventNarrationTimerHandle;
+
+	/** ExecuteWarpProcessから、暗転済みのタイミングで呼ばれる。PendingInstantEventIDのEventStartNarrationTextを
+	 *  UDialogComponent::OnFadeNarrationLineへ送り、表示秒数後にHandleInstantEventNarrationTimerCompleteを呼ぶ */
+	void BeginInstantEventNarration();
+
+	/** 開始セリフ（無ければ最短待機）の後に呼ばれる。SuccessActionsを実行し、bShowNarrationOnEndなら終了セリフを表示して
+	 *  HandleInstantEventEndNarrationTimerCompleteを待ち、無ければそのまま明転を開始する */
+	void HandleInstantEventNarrationTimerComplete();
+
+	/** 終了セリフを閉じて明転を開始する */
+	void HandleInstantEventEndNarrationTimerComplete();
+
+	/** Instantイベントの予約情報を片付けて明転を開始する */
+	void FinishInstantEventNarration();
+
+	/** ExecuteWarpProcessから、暗転済み（画面が真っ暗）のタイミングで呼ばれる。ActiveEventIDからDefinitionを
+	 *  引き直し、EventStartNarrationTextをUDialogComponent::OnFadeNarrationLineへ送ってEventStartNarrationDisplaySeconds
+	 *  秒間表示する（ASleepPoint::BeginSleepEventNarrationと同じUI流用）。Definition/UDialogComponentが
+	 *  取得できない異常系は演出なしで即座にContinueEventAfterStartNarrationへ進む（bWaitingForNarrationCompletionは
+	 *  trueのままにしておくことで、その中のBeginWarpFadeが「既に暗転済み」として二重暗転せずそのまま続行する） */
+	void BeginEventStartNarration();
+
+	/** EventStartNarrationTimerHandleがEventStartNarrationDisplaySeconds経過で発火した時に呼ばれる。
+	 *  ActiveEventPlayerのUDialogComponent::OnFadeNarrationClosedをBroadcastしてから、
+	 *  ContinueEventAfterStartNarrationで元々行うはずだったワープ要求を実行する */
+	void HandleEventStartNarrationTimerComplete();
+
+	/** StartEventで暗転セリフ表示（bShowNarrationOnStart）が不要な場合、または暗転セリフの表示完了後に、
+	 *  StartEventで既にセット済みのActiveEventID/ActiveEventPlayer/ActiveEventContextActorを元に
+	 *  実際のワープ要求（RequestWarp/RequestWarpToTransform）を行う */
+	void ContinueEventAfterStartNarration();
+
+	/** ResolveActiveEventでFEventDefinition::bShowNarrationOnEndが真だった場合にtrueにし、BeginWarpFadeで
+	 *  新規に暗転を要求する。暗転が完了した（画面が真っ暗になった）タイミングでExecuteWarpProcessがこれを見て
+	 *  消化し、BeginEventEndNarrationへつなぐ（bPendingEventStartNarrationと同じ「暗転後に処理を差し込む」パターン） */
+	bool bPendingEventEndNarration = false;
+
+	// FEventDefinition::bShowNarrationOnEnd用の暗転セリフ（BeginEventEndNarration）の表示中タイマー
+	FTimerHandle EventEndNarrationTimerHandle;
+
+	// 暗転が終わるまで待機している「イベント終了後の戻り先」と「表示するセリフ」の記憶
+	// （ResolveActiveEvent→ContinueEventAfterEndNarration用）。ActiveEventID等はナレーション表示前に
+	// ResolveActiveEventで既にクリアされてしまうため、ここに個別に退避しておく
+	TWeakObjectPtr<class ACharacter> PendingEventEndReturnPlayer;
+	FName PendingEventEndReturnWarpID;
+	TWeakObjectPtr<class ASleepPoint> PendingEventEndReturnSleepPoint;
+	FText PendingEventEndNarrationText;
+	float PendingEventEndNarrationDisplaySeconds = 3.0f;
+
+	/** ExecuteWarpProcessから、暗転済み（画面が真っ暗）のタイミングで呼ばれる。PendingEventEndNarrationTextを
+	 *  UDialogComponent::OnFadeNarrationLineへ送ってPendingEventEndNarrationDisplaySeconds秒間表示する
+	 *  （BeginEventStartNarrationと同じUI流用）。UDialogComponentが取得できない異常系は演出なしで即座に
+	 *  ContinueEventAfterEndNarrationへ進む（bWaitingForNarrationCompletionはtrueのままにしておくことで、
+	 *  その中のBeginWarpFadeが「既に暗転済み」として二重暗転せずそのまま続行する） */
+	void BeginEventEndNarration();
+
+	/** EventEndNarrationTimerHandleがPendingEventEndNarrationDisplaySeconds経過で発火した時に呼ばれる。
+	 *  PendingEventEndReturnPlayerのUDialogComponent::OnFadeNarrationClosedをBroadcastしてから、
+	 *  ContinueEventAfterEndNarrationで元々行うはずだった戻り先へのワープ要求を実行する */
+	void HandleEventEndNarrationTimerComplete();
+
+	/** ResolveActiveEventで暗転セリフ表示（bShowNarrationOnEnd）が不要な場合、または暗転セリフの表示完了後に、
+	 *  PendingEventEndReturnPlayer/PendingEventEndReturnWarpID/PendingEventEndReturnSleepPointを元に
+	 *  実際の戻り先ワープ要求（RequestWarp/RequestWarpToTransform）を行う。戻り先が無い場合は、
+	 *  ナレーションのために暗転していた画面をここで明転させて終える */
+	void ContinueEventAfterEndNarration();
+
+	/** RequestWarpでFWarpDestination::bShowFadeNarrationOnWarpが真だった場合にtrueにし、BeginWarpFadeで
+	 *  新規に暗転を要求する。暗転が完了した（画面が真っ暗になった）タイミングでExecuteWarpProcessがこれを見て
+	 *  消化し、BeginWarpDestinationNarrationへつなぐ（bPendingEventStartNarrationと同じパターン） */
+	bool bPendingWarpDestinationNarration = false;
+
+	// FWarpDestination::bShowFadeNarrationOnWarp用の暗転セリフ（BeginWarpDestinationNarration）の表示中タイマー
+	FTimerHandle WarpDestinationNarrationTimerHandle;
+
+	/** ExecuteWarpProcessから、暗転済み（画面が真っ暗）のタイミングで呼ばれる。ReservedWarpIDからWarpDestination
+	 *  行を引き直し、FadeNarrationTextをUDialogComponent::OnFadeNarrationLineへ送って表示する
+	 *  （ASleepPoint::BeginSleepEventNarration/BeginEventStartNarrationと同じUI流用）。行/UDialogComponentが
+	 *  取得できない異常系は演出なしで即座にContinueWarpAfterDestinationNarrationへ進む
+	 *  （bWaitingForNarrationCompletionはtrueのままにしておくことで、その中のBeginWarpFadeが
+	 *  「既に暗転済み」として二重暗転せずそのまま続行する） */
+	void BeginWarpDestinationNarration();
+
+	/** WarpDestinationNarrationTimerHandleが表示秒数経過で発火した時に呼ばれる。ReservedPlayerの
+	 *  UDialogComponent::OnFadeNarrationClosedをBroadcastしてから、ContinueWarpAfterDestinationNarrationで
+	 *  元々行うはずだったReservedWarpIDへの実移動を続行させる */
+	void HandleWarpDestinationNarrationTimerComplete();
+
+	/** RequestWarpで暗転セリフ表示（bShowFadeNarrationOnWarp）が不要な場合、または暗転セリフの表示完了後に、
+	 *  RequestWarpで既にセット済みのReservedWarpID/ReservedPlayerを使い、BeginWarpFadeを呼び直して
+	 *  ExecuteWarpProcess側の実際の移動処理（ReservedWarpID分岐）へ進ませる */
+	void ContinueWarpAfterDestinationNarration();
+
 	// 暗転が終わるまで待機している「ワープ元のWallWarpLink」と「対象キャラクター」の記憶（RequestFadeThenWallWarp用）
 	TWeakObjectPtr<class AWallWarpLink> ReservedWallWarpLink;
 	TWeakObjectPtr<class ACharacter> ReservedWallWarpCharacter;
 
 	// 暗転が終わるまで待機している「ナレーション表示開始を通知する相手」の記憶（RequestFadeThenShowNarration用）
 	TWeakObjectPtr<class UDialogComponent> ReservedNarrationComponent;
+
+	// 暗転が終わるまで待機している「直接指定のワープ先Transform」と「対象」の記憶（RequestWarpToTransform用）
+	FTransform ReservedDirectWarpTransform;
+	TWeakObjectPtr<class ACharacter> ReservedDirectWarpCharacter;
+
+	/** 直接指定ワープの予約が「イベント用（寝る位置等へのテレポート）」か。falseの場合（戦闘敗北時のPlayerStartへの
+	 *  復帰など）は、重力0・CameraBoom衝突無効化といったイベント専用の一時変更を行わない */
+	bool bReservedDirectWarpIsEventContext = true;
+
+	/** RequestWarpToTransformでのテレポート直後～PlayAnimSequenceEventがMovementModeを止めるまでの間、
+	 *  床が近くに見つからずFalling状態になって重力で落下して見えるのを防ぐために0へ変更した、元のGravityScale。
+	 *  MovementMode自体はPlayAnimSequenceEvent側の「元のモードを記憶して戻す」処理と衝突するため触らない。
+	 *  ResolveActiveEventで元に戻す（FEventDefinition::bUseContextActorLocationInsteadOfWarp用） */
+	float ReservedDirectWarpOriginalGravityScale = 1.0f;
+
+	/** RequestWarpToTransformでのテレポート直後、CameraBoom（SpringArm）がEventContextActor（BP_SleepPoint等）
+	 *  やその周囲の壁等と衝突判定してカメラを引き寄せてしまう（カメラがキャラに埋まる）のを防ぐために
+	 *  falseへ変更した、元のbDoCollisionTest。ResolveActiveEventで元に戻す
+	 *  （FEventDefinition::bUseContextActorLocationInsteadOfWarp用） */
+	bool bReservedDirectWarpOriginalCameraCollisionTest = true;
+
+	/** 上記bReservedDirectWarpOriginalCameraCollisionTestへ復元すべき無効化がまだ済んでいないか。
+	 *  AnimEvent再生開始時点（BeginAnimEventSequenceIfNeeded）でtrueならすぐ復元する。ClearCondition=
+	 *  AnimationSequence以外（AnimEvent再生を経由しない）の場合はResolveActiveEventでの復元に任せる */
+	bool bReservedDirectWarpCameraCollisionOverrideActive = false;
+
+	/** WarpIDでDT_WarpDestinationsを引く代わりに、DestinationTransformを直接ワープ先として暗転を挟んで移動する。
+	 *  FEventDefinition::bUseContextActorLocationInsteadOfWarp時のStartEvent、およびその戻り先
+	 *  （ASleepPointへインタラクトした時点の座標）への復帰（ResolveActiveEvent）から使う。
+	 *  bIsEventContext=falseは戦闘敗北時のPlayerStartへの復帰用（AMyProject1Character::HandleDefeatWithoutEvent、
+	 *  外部から呼ぶためここだけpublic） */
+public:
+	void RequestWarpToTransform(const FTransform& DestinationTransform, class ACharacter* PlayerCharacter, bool bIsEventContext = true);
+private:
+
+	/** bReservedDirectWarpCameraCollisionOverrideActiveがtrueならCameraBoomのbDoCollisionTestを元へ戻す。
+	 *  AnimEvent再生開始時（BeginAnimEventSequenceIfNeeded）とResolveActiveEventの両方から呼ぶ（冪等） */
+	void RestoreDirectWarpCameraCollisionTestIfNeeded(class ACharacter* PlayerCharacter);
 
 	/** ShowTextDuringFadeのナレーション表示中（BeginFadeNarration実行後〜ResumeFadeInAfterNarrationまで）true。
 	 *  HandleWarpFadeOutCompleteはこれがtrueの間、通常なら自動セットするFadeInタイマーを保留する */
@@ -691,6 +1008,19 @@ protected:
 
 	// 日付を1日進める内部処理
 	void AdvanceDay();
+
+	// 午前1時を通過した時に呼ぶ。状態A・通常段階・ExStats17条件を満たせば妊娠抽選を行う
+	void RollConception();
+
+	// 妊娠開始／出産（産後の回復期へ）／回復期終了（通常へ）の段階切り替え。
+	// フラグの付け外しはここでは行わず、Character::UpdateCycleState → SyncCycleModeFlags が段階に合わせて同期する
+	// （日付変更中などプレイヤーが存在しないタイミングで段階が切り替わってもフラグがズレないようにするため）
+	void BeginPregnancy();
+	void BeginPostpartum();
+	void EndPostpartum();
+
+	// プレイヤーキャラクターを取得（見つからなければnullptr）
+	class AMyProject1Character* FindPlayerCharacter() const;
 
 	// その月が何日あるか（月末）を判定する計算関数
 	int32 GetDaysInMonth(int32 Year, int32 Month);

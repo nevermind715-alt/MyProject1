@@ -131,6 +131,12 @@ private:
 	/** ナレーション終了後、明転を経て継続する次の会話ID（NoneならCloseDialog） */
 	FName PendingNarrationNextDialogID;
 
+	/** 暗転で真っ暗になった瞬間（BeginFadeNarration）に適用するステータス変化。ExecuteActionCoreが暗転要求時に保存する */
+	ETargetStat PendingNarrationStatToChange = ETargetStat::None;
+	EStatTargetActor PendingNarrationStatTargetActor = EStatTargetActor::Player;
+	FName PendingNarrationExtraStatName;
+	float PendingNarrationStatChangeAmount = 0.0f;
+
 	/** 現在のナレーション行をUIへ送信する（OnFadeNarrationLineをBroadcast） */
 	void ShowFadeNarrationLine();
 

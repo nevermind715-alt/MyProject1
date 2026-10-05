@@ -6,6 +6,7 @@
 #include "MaineWindowWidget.generated.h"
 
 class UInventoryComponent;
+class UMyProject1GameInstance;
 
 UCLASS()
 class MYPROJECT1_API UMaineWindowWidget : public UUserWidget
@@ -17,6 +18,10 @@ protected:
 	UPROPERTY(meta = (BindWidgetOptional))
 	UTextBlock* Text_Shojikin;
 
+	// 月経周期／妊娠中などの現在の状態名（WBP側の変数名Text_kiと一致させる。名前はGameInstanceのCyclePhaseRules等で設定）
+	UPROPERTY(meta = (BindWidgetOptional))
+	UTextBlock* Text_ki;
+
 	virtual void NativeConstruct() override;
 	virtual void NativeDestruct() override;
 
@@ -24,6 +29,12 @@ private:
 	UPROPERTY()
 	UInventoryComponent* CachedInventoryComp;
 
+	UPROPERTY()
+	UMyProject1GameInstance* CachedGameInstance;
+
 	UFUNCTION()
 	void HandleInventoryUpdated();
+
+	UFUNCTION()
+	void HandleCycleDisplayChanged();
 };

@@ -346,7 +346,9 @@ void USkinOverlayComponent::ExecuteRefreshBodyMaterials()
 			for (const auto& Pair : OwnerCharacter->CurrentEquippedItems)
 			{
 				FName ItemID = Pair.Value;
-				if (!ItemID.IsNone())
+				// DT_AnimSequencesのbHideAllEquipmentDuringPlay等で非表示中のスロットは描かない
+				// （薄地装備はメッシュを持たないため、メッシュのSetVisibilityでは隠れない）
+				if (!ItemID.IsNone() && !OwnerCharacter->IsEquipmentSlotOverlayHidden(Pair.Key))
 				{
 					FEquipmentData* EquipData = OwnerCharacter->EquipmentDataTable->FindRow<FEquipmentData>(ItemID, TEXT("CanvasEquipment"));
 					if (EquipData && !EquipData->OverlayTexture.IsNull())

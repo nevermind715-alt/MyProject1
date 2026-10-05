@@ -1,5 +1,6 @@
 ﻿#include "StatusScreenWidget.h"
 #include "MyProject1Character.h" // MyStatsを取得するために必須
+#include "MyProject1GameInstance.h"
 
 void UStatusScreenWidget::UpdateAllStatus(AMyProject1Character* PlayerCharacter)
 {
@@ -38,6 +39,9 @@ void UStatusScreenWidget::UpdateAllStatus(AMyProject1Character* PlayerCharacter)
     if (Txt_Karma)       Txt_Karma->SetText(FText::AsNumber(FMath::RoundToInt(Stats.Karma)));
     if (Txt_Mental)     Txt_Mental->SetText(FText::AsNumber(FMath::RoundToInt(Stats.Mental)));
 
+    // --- SP（仮称） ---
+    if (Txt_SPValue)    Txt_SPValue->SetText(FText::AsNumber(FMath::RoundToInt(Stats.SP)));
+
     // --- 社会的・隠しステータス ---
     if (Txt_Fame)       Txt_Fame->SetText(FText::AsNumber(FMath::RoundToInt(Stats.Fame)));
     if (Txt_Favor)      Txt_Favor->SetText(FText::AsNumber(FMath::RoundToInt(Stats.Favor)));
@@ -51,7 +55,7 @@ void UStatusScreenWidget::UpdateAllStatus(AMyProject1Character* PlayerCharacter)
 
 
     // ==========================================
-    // --- 拡張枠 (Ex Stats 1 ~ 16) の動的取得 ---
+    // --- 拡張枠 (Ex Stats 1 ~ 17) の動的取得 ---
     // ==========================================
 
     // TMap（ExtraStats）から指定したキー名で値を探してFTextに変換するラムダ関数（ヘルパー）
@@ -83,7 +87,21 @@ void UStatusScreenWidget::UpdateAllStatus(AMyProject1Character* PlayerCharacter)
     if (Txt_ExStats11) Txt_ExStats11->SetText(GetExtraStatText(Stats.ExtraStats, TEXT("ExStats11")));
     if (Txt_ExStats12) Txt_ExStats12->SetText(GetExtraStatText(Stats.ExtraStats, TEXT("ExStats12")));
     if (Txt_ExStats13) Txt_ExStats13->SetText(GetExtraStatText(Stats.ExtraStats, TEXT("ExStats13")));
-    if (Txt_ExStats14) Txt_ExStats14->SetText(GetExtraStatText(Stats.ExtraStats, TEXT("ExStats14")));
+    if (Txt_ExStats14)
+    {
+        // 妊娠中だけ、ExStats14の枠に妊娠経過週（妊娠開始日からの経過日数÷7）を表示する。妊娠中でなければ従来どおりExStats14の値
+        const UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(PlayerCharacter->GetGameInstance());
+        if (GameInst && GameInst->CycleMode == ECycleMode::Pregnancy)
+        {
+            const int32 PregnancyWeeks = (GameInst->GetCurrentCycleDay() - 1) / 7;
+            Txt_ExStats14->SetText(FText::Format(NSLOCTEXT("StatusScreenWidget", "PregnancyWeeks", "{0}週"), FText::AsNumber(PregnancyWeeks)));
+        }
+        else
+        {
+            Txt_ExStats14->SetText(GetExtraStatText(Stats.ExtraStats, TEXT("ExStats14")));
+        }
+    }
     if (Txt_ExStats15) Txt_ExStats15->SetText(GetExtraStatText(Stats.ExtraStats, TEXT("ExStats15")));
     if (Txt_ExStats16) Txt_ExStats16->SetText(GetExtraStatText(Stats.ExtraStats, TEXT("ExStats16")));
+    if (Txt_ExStats17) Txt_ExStats17->SetText(GetExtraStatText(Stats.ExtraStats, TEXT("ExStats17")));
 }

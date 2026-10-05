@@ -179,6 +179,43 @@ void UGameplayActionLibrary::ExecuteAction(IRpgCharacterInterface* RpgInterface,
 		}
 		break;
 
+	case EDialogActionType::RemoveGil:
+		// ActionPayloadに入れた金額（￥）の数値文字列をプレイヤーの所持金から減らす（盗まれる等）。
+		// 実際の所持金より多い額を指定した場合は持っている分だけが減る。AddGilと同じくここでログを出す
+		{
+			const int32 GilAmount = FCString::Atoi(*ActionPayload);
+			if (GilAmount > 0)
+			{
+				if (UInventoryComponent* Inv = OwnerActor ? OwnerActor->FindComponentByClass<UInventoryComponent>() : nullptr)
+				{
+					const int32 ActualAmount = Inv->RemoveGil(GilAmount);
+					if (ActualAmount > 0)
+					{
+						RpgInterface->OnReceiveLogMessage(FString::Printf(TEXT("%d￥ 盗まれた。"), ActualAmount), ELogMessageType::System);
+					}
+				}
+			}
+		}
+		break;
+
+	case EDialogActionType::PayGil:
+		// RemoveGilと同じく所持金を減らす。ログだけ「支払った」にする（足りない場合は持っている分だけ減る）
+		{
+			const int32 GilAmount = FCString::Atoi(*ActionPayload);
+			if (GilAmount > 0)
+			{
+				if (UInventoryComponent* Inv = OwnerActor ? OwnerActor->FindComponentByClass<UInventoryComponent>() : nullptr)
+				{
+					const int32 ActualAmount = Inv->RemoveGil(GilAmount);
+					if (ActualAmount > 0)
+					{
+						RpgInterface->OnReceiveLogMessage(FString::Printf(TEXT("%d￥ 支払った！"), ActualAmount), ELogMessageType::System);
+					}
+				}
+			}
+		}
+		break;
+
 	case EDialogActionType::Close:
 		// ダイアログUIを閉じる処理は呼び出し側（DialogComponent）が個別に行う。ここでは何もしない
 		break;
@@ -264,12 +301,17 @@ void UGameplayActionLibrary::ApplyStatChange(IRpgCharacterInterface* RpgInterfac
 
 	case ETargetStat::Alcohol:
 		Stats.Alcohol += ChangeVal;
-		StatName = TEXT("酒量");
+		StatName = TEXT("飲酒量");
 		break;
 
 	case ETargetStat::Mental:
 		Stats.Mental += ChangeVal;
 		StatName = TEXT("精神力");
+		break;
+
+	case ETargetStat::SP:
+		Stats.SP += ChangeVal;
+		StatName = TEXT("SP");
 		break;
 
 	case ETargetStat::CustomExtraStat:
@@ -279,7 +321,17 @@ void UGameplayActionLibrary::ApplyStatChange(IRpgCharacterInterface* RpgInterfac
 
 			if (CurrentVal)
 			{
-				*CurrentVal += ChangeVal;
+				const float NewVal = FMath::Clamp(*CurrentVal + ChangeVal, 0.0f, 100.0f);
+				// 直接マップを書き換えるとExtraStatMorphLinksのモーフターゲットが更新されないため、
+				// プレイヤーの場合はモーフ更新を伴うSetExtraStat経由で反映する
+				if (AMyProject1Character* StatOwnerChar = Cast<AMyProject1Character>(StatOwnerInterface))
+				{
+					StatOwnerChar->SetExtraStat(ExtraStatName, NewVal);
+				}
+				else
+				{
+					*CurrentVal = NewVal;
+				}
 				StatName = Stats.GetExtraStatDisplayName(ExtraStatName);
 			}
 			else
@@ -344,11 +396,14 @@ bool UGameplayActionLibrary::TryGetTargetStatValue(IRpgCharacterInterface* RpgIn
 	case ETargetStat::Charm:               OutValue = Stats.Charm; return true;
 	case ETargetStat::Alcohol:             OutValue = Stats.Alcohol; return true;
 	case ETargetStat::Mental:              OutValue = Stats.Mental; return true;
+	case ETargetStat::SP:                  OutValue = Stats.SP; return true;
 	case ETargetStat::FatigueGainRate:     OutValue = Stats.FatigueGainRateBonus; return true;
 	case ETargetStat::FatigueRecoveryRate: OutValue = Stats.FatigueRecoveryRateBonus; return true;
 	case ETargetStat::OGaugeGainRate:      OutValue = Stats.OGaugeGainRateBonus; return true;
 	case ETargetStat::OGaugeRecoveryRate:  OutValue = Stats.OGaugeRecoveryRateBonus; return true;
 	case ETargetStat::MovementSpeedRate:   OutValue = Stats.MovementSpeedRateBonus; return true;
+	case ETargetStat::CriticalRate:        OutValue = Stats.CriticalRateBonus; return true;
+	case ETargetStat::AttackSpeedRate:     OutValue = Stats.AttackSpeedRateBonus; return true;
 	case ETargetStat::CustomExtraStat:
 		if (!ExtraStatName.IsNone())
 		{

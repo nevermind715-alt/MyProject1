@@ -69,6 +69,9 @@ FDamageResult URpgDamageCalculator::CalculateDamage(const FCharacterStats& Attac
 
 	FinalCritChance += SkillCriticalBonus;
 
+	// 装備等のクリティカル発生率％補正を適用（+20なら1.2倍）
+	FinalCritChance *= (1.0f + AttackerStats.CriticalRateBonus / 100.0f);
+
 	if (FMath::RandRange(0.0f, 100.0f) < FinalCritChance)
 	{
 		Result.bIsCritical = true;

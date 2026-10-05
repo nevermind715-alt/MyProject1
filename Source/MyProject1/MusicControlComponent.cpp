@@ -88,13 +88,11 @@ void UMusicControlComponent::SetCombatMusicActive(bool bIsCombat)
 		if (CurrentTime - LastCombatEndTime <= CombatMusicResumeThreshold)
 		{
 			// 8秒以内：続きから
-			if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Yellow, TEXT("→ 8秒以内：続きから再生します！"));
 			BattleAudioComp->SetPaused(false);
 		}
 		else
 		{
 			// 8秒経過：最初から（強制リセット）
-			if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Red, TEXT("→ 8秒経過：最初から再生します！"));
 			CurrentBattleVolume = SilentVolume;
 			BattleAudioComp->SetVolumeMultiplier(SilentVolume);
 			BattleAudioComp->SetPaused(false);
@@ -132,7 +130,9 @@ void UMusicControlComponent::EnterRoomMusic(TSoftObjectPtr<USoundBase> NewRoomMu
 
 	// 直前に出た部屋と同じ曲で、かつ一定時間以内の再入場かどうか（戦闘曲の復帰と同じ考え方）
 	double CurrentTime = GetWorld()->GetTimeSeconds();
+	// 曲が最後まで再生されて停止済み(非アクティブ)の場合、SetPaused(false)では再生が再開しないため、最初から再生し直す
 	bool bCanResume = !NewRoomMusic.IsNull() && CurrentRoomMusic == NewRoomMusic
+		&& RoomAudioComp->IsPlaying()
 		&& (CurrentTime - LastRoomExitTime <= RoomMusicResumeThreshold);
 
 	bInRoom = true;

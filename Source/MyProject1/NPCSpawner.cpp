@@ -5,6 +5,7 @@
 #include "Components/ArrowComponent.h"
 #include "Kismet/KismetMathLibrary.h"
 #include "Kismet/GameplayStatics.h"
+#include "EventDistributorComponent.h"
 
 ANPCSpawner::ANPCSpawner()
 {
@@ -113,8 +114,34 @@ void ANPCSpawner::SpawnEnemy()
 		// ---------------------------------------------------------
 		SpawnedEnemy->ApplyJobData();
 
-		
-		
+		// 空欄でなければEventPoolIDを、bOverrideExtraParticipantMeshWithOwnMeshが有効なら敵自身のジョブメッシュを、
+		// 空欄でなければWarpToRestartID（とEventDistributorChance）を、
+		// この敵のEventDistributorComponent（設定されていれば）へ上書きする
+		if (!SpawnerEventPoolID.IsNone() || bOverrideExtraParticipantMeshWithOwnMesh || !WarpToRestartID.IsNone())
+		{
+			if (UEventDistributorComponent* EventComp = SpawnedEnemy->FindComponentByClass<UEventDistributorComponent>())
+			{
+				if (!SpawnerEventPoolID.IsNone())
+				{
+					EventComp->EventPoolID = SpawnerEventPoolID;
+				}
+
+				if (bOverrideExtraParticipantMeshWithOwnMesh)
+				{
+					if (FJobAttributes* JobData = FinalJobRow.GetRow<FJobAttributes>(FinalJobRow.RowName.ToString()))
+					{
+						EventComp->ExtraParticipantMeshOverrideDefault = JobData->CharacterMesh;
+					}
+				}
+
+				if (!WarpToRestartID.IsNone())
+				{
+					EventComp->WarpToRestartID = WarpToRestartID;
+					EventComp->EventDistributorChance = EventDistributorChance;
+				}
+			}
+		}
+
 		if (bOverrideBaseLoot)
 		{
 			SpawnedEnemy->PersonalLootTable = this->SpawnerLootTable;

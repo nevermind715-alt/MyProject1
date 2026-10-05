@@ -85,6 +85,13 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "UI")
 	void ForceCloseCommandMenuForInteract();
 
+	// ワープを伴う処理（EventDistributorComponent経由のイベント発生、戦闘敗北によるワープ等）の開始時に呼ぶ。
+	// 開いているメインメニュー系UI（コマンドメニューとその全サブメニュー、待機/睡眠メニュー）を全て強制的に閉じ、
+	// マウスカーソルと入力モードを通常のゲーム操作状態に戻す。ログウィンドウ（WBP_LogWindow）はHUDが
+	// インスタンスを保持していないため対象外＝そのまま残る。
+	UFUNCTION(BlueprintCallable, Category = "UI")
+	void ForceCloseAllMenusForWarp();
+
 	// 現在開いているすべての「サブメニュー（一覧画面など）」を記憶する汎用変数
 	UPROPERTY(BlueprintReadWrite, Category = "UI")
 	class UUserWidget* ActiveSubMenuWidget;

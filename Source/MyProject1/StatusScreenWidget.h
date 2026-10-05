@@ -84,7 +84,7 @@ protected:
     UPROPERTY(meta = (BindWidget))
     UTextBlock* Txt_NextLevelXP;
 
-    // --- 拡張ステータス枠 (1 ～ 16) ---
+    // --- 拡張ステータス枠 (1 ～ 17) ---
     UPROPERTY(meta = (BindWidget))
     UTextBlock* Txt_ExStats1;
 
@@ -132,6 +132,13 @@ protected:
 
     UPROPERTY(meta = (BindWidget))
     UTextBlock* Txt_ExStats16;
+
+    UPROPERTY(meta = (BindWidget))
+    UTextBlock* Txt_ExStats17;
+
+    // --- SP（仮称）表示用。WBP側の変数名（Txt_SPValue）と完全一致させる ---
+    UPROPERTY(meta = (BindWidgetOptional))
+    UTextBlock* Txt_SPValue;
 
 public:
     // ==========================================
