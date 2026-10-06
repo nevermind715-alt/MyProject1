@@ -16,10 +16,27 @@
 // ストリーミング対象から完全に外すことで、以後は常に全ミップ常駐の状態で描画できるようにする（初回のみ実処理）。
 static void EnsureOverlayTextureFullyResident(UTexture2D* Texture)
 {
-	if (!Texture || Texture->NeverStream) return;
+	if (!Texture) return;
+
+#if WITH_EDITOR
+	// エディタではUpdateResource()やアセット初回ロード直後のテクスチャは非同期ビルド中になり、完了までは
+	// 「単色の仮テクスチャ(IsDefaultTexture)」が代わりに使われる。その状態でCanvasに描くと
+	// ColorMultiplierで染まった単色がRenderTarget全面に焼き込まれ、体全体にオーバーレイ色が乗ってしまう。
+	// 描画前に必ずビルド完了を待つ（NeverStream設定済みの2回目以降も、他NPCが同フレームで起こしたビルドを待つ）。
+	if (Texture->NeverStream)
+	{
+		Texture->BlockOnAnyAsyncBuild();
+		return;
+	}
+#else
+	if (Texture->NeverStream) return;
+#endif
 
 	Texture->NeverStream = true;
 	Texture->UpdateResource();
+#if WITH_EDITOR
+	Texture->BlockOnAnyAsyncBuild();
+#endif
 	Texture->WaitForStreaming();
 }
 
