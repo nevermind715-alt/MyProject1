@@ -6,6 +6,8 @@
 #include "Kismet/KismetMathLibrary.h"
 #include "Kismet/GameplayStatics.h"
 #include "EventDistributorComponent.h"
+#include "QuestComponent.h"
+#include "MyProject1GameInstance.h"
 
 ANPCSpawner::ANPCSpawner()
 {
@@ -117,10 +119,15 @@ void ANPCSpawner::SpawnEnemy()
 		// 空欄でなければEventPoolIDを、bOverrideExtraParticipantMeshWithOwnMeshが有効なら敵自身のジョブメッシュを、
 		// 空欄でなければWarpToRestartID（とEventDistributorChance）を、
 		// この敵のEventDistributorComponent（設定されていれば）へ上書きする
-		if (!SpawnerEventPoolID.IsNone() || bOverrideExtraParticipantMeshWithOwnMesh || !WarpToRestartID.IsNone())
+		if (!SpawnerEventPoolID.IsNone() || bOverrideExtraParticipantMeshWithOwnMesh || !WarpToRestartID.IsNone() || bHideEnemyDuringAnimEvent)
 		{
 			if (UEventDistributorComponent* EventComp = SpawnedEnemy->FindComponentByClass<UEventDistributorComponent>())
 			{
+				if (bHideEnemyDuringAnimEvent)
+				{
+					EventComp->bHideOwnerDuringAnimEventDefault = true;
+				}
+
 				if (!SpawnerEventPoolID.IsNone())
 				{
 					EventComp->EventPoolID = SpawnerEventPoolID;
@@ -139,6 +146,15 @@ void ANPCSpawner::SpawnEnemy()
 					EventComp->WarpToRestartID = WarpToRestartID;
 					EventComp->EventDistributorChance = EventDistributorChance;
 				}
+			}
+		}
+
+		// 敗北時クリーンアップが有効なら、プレイヤーを倒した後の通知を購読する
+		if (bRemoveOnPlayerDefeat || !FailQuestIDOnPlayerDefeat.IsNone() || ActorsToRemoveOnPlayerDefeat.Num() > 0)
+		{
+			if (UEventDistributorComponent* EventComp = SpawnedEnemy->FindComponentByClass<UEventDistributorComponent>())
+			{
+				EventComp->OnDefeatedPlayer.AddUObject(this, &ANPCSpawner::OnEnemyDefeatedPlayer);
 			}
 		}
 
@@ -255,6 +271,73 @@ void ANPCSpawner::OnEnemyDeath(AActor* DeadActor)
 			GetWorldTimerManager().SetTimer(RespawnTimerHandle, this, &ANPCSpawner::SpawnEnemy, RespawnTime, false);
 		}
 	}
+}
+
+void ANPCSpawner::OnEnemyDefeatedPlayer()
+{
+	AMyProject1Character* PlayerChar = Cast<AMyProject1Character>(UGameplayStatics::GetPlayerCharacter(this, 0));
+	if (PlayerChar)
+	{
+		if (!FailQuestIDOnPlayerDefeat.IsNone())
+		{
+			if (UQuestComponent* QuestComp = PlayerChar->FindComponentByClass<UQuestComponent>())
+			{
+				// CancelQuest自身はObjectiveClearedFlagしか外さない。受注で立てたAcceptFlagも外すことで、
+				// それをRequiredFlagにしているQuestItemPoint等が既存の仕組み（OnFlagRemoved）で自動的に非表示になり、
+				// セーブ／レベル遷移をまたいでも復活しない
+				FQuestData QuestData;
+				const bool bHasData = QuestComp->GetQuestData(FailQuestIDOnPlayerDefeat, QuestData);
+
+				QuestComp->CancelQuest(FailQuestIDOnPlayerDefeat);
+
+				if (bHasData && !QuestData.AcceptFlag.IsNone())
+				{
+					PlayerChar->RemoveFlag(QuestData.AcceptFlag);
+				}
+			}
+		}
+
+		// フラグ運用の場合、フラグを残したままだと別レベルから戻った時にこのスポナーが再びスポーンしてしまう。
+		// ここで外すとOnPlayerFlagRemovedが呼ばれ、次の周回に向けた再武装・討伐フラグの解除も行われる
+		if (!RequiredFlag.IsNone())
+		{
+			PlayerChar->RemoveFlag(RequiredFlag);
+		}
+	}
+
+	for (AActor* Target : ActorsToRemoveOnPlayerDefeat)
+	{
+		if (IsValid(Target))
+		{
+			Target->Destroy();
+		}
+	}
+
+	if (bRemoveOnPlayerDefeat)
+	{
+		RemoveEnemyAfterEvent();
+	}
+}
+
+void ANPCSpawner::RemoveEnemyAfterEvent()
+{
+	if (!IsValid(SpawnedEnemy)) return;
+
+	// イベント進行中は、この敵がEventContextActor（AnimEventのPlayTarget=NPC・非表示対象）として
+	// 暗転・ワープ後にも参照される（UMyProject1GameInstance::BeginAnimEventSequenceIfNeeded）。
+	// ここで消すとイベントが正常に再生されなくなるため、イベントが終わるまで待ってから削除する
+	if (UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetGameInstance()))
+	{
+		if (GameInst->bHasActiveEvent)
+		{
+			GetWorldTimerManager().SetTimer(RemoveEnemyTimerHandle, this, &ANPCSpawner::RemoveEnemyAfterEvent, 0.5f, false);
+			return;
+		}
+	}
+
+	// Destroyは討伐ではないためOnEnemyDeath（討伐フラグ付与・自動リスポーン）は呼ばれない
+	SpawnedEnemy->Destroy();
+	SpawnedEnemy = nullptr;
 }
 
 void ANPCSpawner::OnPlayerFlagAdded(FName FlagName)

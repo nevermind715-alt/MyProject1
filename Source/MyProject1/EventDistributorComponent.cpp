@@ -74,7 +74,7 @@ bool UEventDistributorComponent::TriggerEventPool(AMyProject1Character* PlayerCh
 	{
 		// GetOwner()：このコンポーネントが付いているNPC/QuestItemPoint/敵Actor。
 		// FAnimEventStep::PlayTarget=NPC時の再生対象として使われる（StartEvent参照）
-		GameInst->StartEvent(ChosenEventID, PlayerCharacter, GetOwner(), MeshOverrideToUse, bHideContextActorDuringAnimEvent);
+		GameInst->StartEvent(ChosenEventID, PlayerCharacter, GetOwner(), MeshOverrideToUse, bHideContextActorDuringAnimEvent || bHideOwnerDuringAnimEventDefault);
 		return true;
 	}
 

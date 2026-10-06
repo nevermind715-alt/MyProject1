@@ -6,6 +6,9 @@
 #include "MyProject1Types.h"
 #include "EventDistributorComponent.generated.h"
 
+/** 戦闘敗北（このコンポーネントの持ち主の敵にプレイヤーがHP0にされた）経由のイベント発動／ワープリスタートの直後に通知する */
+DECLARE_MULTICAST_DELEGATE(FOnDefeatedPlayerSignature);
+
 /**
  * NPC/QuestItemPoint/敵キャラクターなど「プレイヤーにイベントを起こすきっかけ」となるActorへ付ける汎用コンポーネント。
  * EventPoolDataTable（DT_EventPools）のEventPoolID行を重み付き抽選し、当選したイベント（DT_EventDefinitionsの行）を
@@ -39,6 +42,12 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event")
 	TSoftObjectPtr<class USkeletalMesh> ExtraParticipantMeshOverrideDefault;
 
+	/** trueの場合、TriggerEventPool呼び出し側がbHideContextActorDuringAnimEventを指定しなくても（戦闘敗北経由等）、
+	 *  AnimEvent再生中だけこのコンポーネントの持ち主（敵自身）を非表示にする。ExtraPairingsでスポーンする
+	 *  AAnimEventActorと本体が重なって見えるのを防ぐ。ANPCSpawner::bHideEnemyDuringAnimEventから設定される想定 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event")
+	bool bHideOwnerDuringAnimEventDefault = false;
+
 	/** 戦闘敗北によるTriggerEventPool呼び出し時のみ使用。WarpToRestartIDが空欄でない場合、この確率（%）の
 	 *  抽選でイベントディストリビュータを起動するかどうかを決める（AMyProject1Character::TakeDamage参照）。
 	 *  抽選に外れた場合はイベント抽選を行わず、代わりにWarpToRestartIDへワープする。
@@ -53,6 +62,11 @@ public:
 	 *  ANPCSpawner::WarpToRestartID / SpawnerOverrides|Eventから上書きされる想定 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event")
 	FName WarpToRestartID;
+
+	/** 戦闘敗北経由のTriggerEventPool呼び出し（または抽選外れのWarpToRestartID）の直後に呼ばれる。
+	 *  ANPCSpawner::bRemoveOnPlayerDefeat等が、敗北後の敵・フラグ用ポイントの削除とクエスト失敗のために購読する
+	 *  （AMyProject1Character::TakeDamage参照。Blueprint非公開のC++専用デリゲート） */
+	FOnDefeatedPlayerSignature OnDefeatedPlayer;
 
 	/** EventPoolIDOverrideが指定されていればそちらを、Noneならこのコンポーネント自身のEventPoolIDを使い、
 	 *  そのプールから重み付き抽選を行って当選したイベントを開始する（施設へワープする）。

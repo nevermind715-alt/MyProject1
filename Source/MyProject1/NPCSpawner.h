@@ -186,6 +186,12 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Overrides|Event")
 	bool bOverrideExtraParticipantMeshWithOwnMesh = false;
 
+	/** trueの場合、この敵が倒したプレイヤーのイベントでAnimEventが再生されている間、敵自身を非表示にする
+	 *  （ExtraPairingsのAAnimEventActorと重なって見えるのを防ぐ。再生終了で自動的に再表示される）。
+	 *  スポーンした敵のUEventDistributorComponent::bHideOwnerDuringAnimEventDefaultへ上書きされる */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Overrides|Event")
+	bool bHideEnemyDuringAnimEvent = false;
+
 	/** 空欄でなければ、このスポナーが湧かせた敵に倒された際、EventDistributorChance(%)の抽選に外れた場合は
 	 *  イベントディストリビュータを起動せず、このWarpID（DT_WarpDestinationsの行名。町の治療院など）へ
 	 *  ワープしてリスタートさせる。スポーンした敵のUEventDistributorComponent::WarpToRestartIDへ上書きされる */
@@ -197,6 +203,23 @@ public:
 	 *  起動する（従来動作のまま）。スポーンした敵のUEventDistributorComponent::EventDistributorChanceへ上書きされる */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Overrides|Event", meta = (ClampMin = "0.0", ClampMax = "100.0"))
 	float EventDistributorChance = 100.0f;
+
+	// --- 敗北時クリーンアップ（この敵にプレイヤーが倒され、イベント発動またはワープリスタートが行われた直後に実行） ---
+
+	/** trueなら、プレイヤーを倒したこのスポナー産の敵を、イベント発動の直後に削除する */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Overrides|Event|Defeat Cleanup")
+	bool bRemoveOnPlayerDefeat = false;
+
+	/** 空欄でなければ、敗北時にこのQuestIDのクエストを失敗扱い（CancelQuestと同じ後始末。再受注可）にする。
+	 *  クエストのAcceptFlagも外すので、それをRequiredFlagにしているQuestItemPointは自動的に非表示になる。
+	 *  進行中でなければクエスト自体は何も起きない */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Overrides|Event|Defeat Cleanup")
+	FName FailQuestIDOnPlayerDefeat;
+
+	/** 敗北時に削除するレベル上のActor（この敵を湧かせるフラグを立てるQuestItemPoint等。同じレベルに置いたものを指定する）。
+	 *  別レベルから戻った場合は再び配置されるため、永続的に消したいポイントはRequiredFlagで隠す運用と併用すること */
+	UPROPERTY(EditInstanceOnly, BlueprintReadWrite, Category = "Spawner Overrides|Event|Defeat Cleanup")
+	TArray<TObjectPtr<AActor>> ActorsToRemoveOnPlayerDefeat;
 
 protected:
 	// --- 内部処理 ---
@@ -210,6 +233,14 @@ protected:
 
 	/** RequiredFlag運用時、今のフラグ周回で既にスポーン済みかどうか */
 	bool bSpawnedForCurrentFlag = false;
+
+	/** この敵のUEventDistributorComponent::OnDefeatedPlayerの購読先。bRemoveOnPlayerDefeat等に従って
+	    クエスト失敗・RequiredFlag解除・指定Actor／敵の削除を行う（UFUNCTION不要のC++専用デリゲート） */
+	void OnEnemyDefeatedPlayer();
+
+	/** 敗北後の敵削除。イベント進行中（bHasActiveEvent）は敵がEventContextActorとして使われるため、終了まで待ってから消す */
+	void RemoveEnemyAfterEvent();
+	FTimerHandle RemoveEnemyTimerHandle;
 
 	/** プレイヤーがフラグを獲得した時に呼ばれる（OnFlagAddedの購読先）。RequiredFlag一致時のみスポーンする */
 	UFUNCTION()

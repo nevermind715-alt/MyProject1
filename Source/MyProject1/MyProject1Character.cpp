@@ -72,10 +72,12 @@ AMyProject1Character::AMyProject1Character()
 	HairMeshComp = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("HairMeshComp"));
 	HairMeshComp->SetupAttachment(GetMesh());
 	HairMeshComp->SetLeaderPoseComponent(GetMesh());
+	HairMeshComp->bUseBoundsFromLeaderPoseComponent = true;
 
 	FaceMeshComp = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("FaceMeshComp"));
 	FaceMeshComp->SetupAttachment(GetMesh());
 	FaceMeshComp->SetLeaderPoseComponent(GetMesh());
+	FaceMeshComp->bUseBoundsFromLeaderPoseComponent = true;
 
 	HeadMeshComp = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("HeadMeshComp"));
 	HeadMeshComp->SetupAttachment(GetMesh());
@@ -1322,12 +1324,19 @@ float AMyProject1Character::TakeDamage(float DamageAmount, FDamageEvent const& D
 
 								FName RestartWarpID = KillerEventComp->WarpToRestartID;
 								TWeakObjectPtr<AMyProject1Character> WeakPlayer(this);
+								TWeakObjectPtr<UEventDistributorComponent> WeakWarpEventComp(KillerEventComp);
 
 								FTimerHandle DefeatWarpTimerHandle;
-								GetWorldTimerManager().SetTimer(DefeatWarpTimerHandle, [WeakPlayer, RestartWarpID]()
+								GetWorldTimerManager().SetTimer(DefeatWarpTimerHandle, [WeakPlayer, WeakWarpEventComp, RestartWarpID]()
 									{
 										AMyProject1Character* Player = WeakPlayer.Get();
 										if (!Player) return;
+
+										// ANPCSpawnerの敗北時クリーンアップ（クエスト失敗・敵／フラグ用ポイントの削除）を通知する
+										if (UEventDistributorComponent* WarpEventComp = WeakWarpEventComp.Get())
+										{
+											WarpEventComp->OnDefeatedPlayer.Broadcast();
+										}
 
 										// 全快処理自体は別レベルワープのスナップショット取得（CapturePlayerStateSnapshot）に
 										// 間に合わせるため暗転前に行う必要があるが、そのまま見せると暗転がまだ薄く透けている
@@ -1382,7 +1391,21 @@ float AMyProject1Character::TakeDamage(float DamageAmount, FDamageEvent const& D
 										UEventDistributorComponent* EventComp = WeakEventComp.Get();
 										if (!Player || !EventComp) return;
 
-										EventComp->TriggerEventPool(Player);
+										// イベントが実際に始まったら、倒れたままリターン先へ戻らないよう即座に全快させる
+										// （WarpToRestartID側と同じ処理。別レベルワープのスナップショットも全快状態で保存される）
+										if (EventComp->TriggerEventPool(Player))
+										{
+											Player->Revive(Player->MyStats.MaxHP);
+											Player->MyStats.Stamina = Player->MyStats.MaxStamina;
+											if (Player->OnStaminaChangedDelegate.IsBound())
+											{
+												Player->OnStaminaChangedDelegate.Broadcast(Player->MyStats.Stamina, Player->MyStats.MaxStamina);
+											}
+										}
+
+										// ANPCSpawnerの敗北時クリーンアップ（クエスト失敗・敵／フラグ用ポイントの削除）を通知する。
+										// ここで敵自身が削除されても、TriggerEventPoolは既に呼び終えている
+										EventComp->OnDefeatedPlayer.Broadcast();
 									}, EventTriggerDelaySeconds, false);
 							}
 
