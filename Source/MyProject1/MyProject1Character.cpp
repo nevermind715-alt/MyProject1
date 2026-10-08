@@ -351,6 +351,7 @@ void AMyProject1Character::BeginPlay()
 	if (IsPlayerControlled() && !bRestoredFromSnapshot)
 	{
 		ApplyDefaultEquipment();
+		ApplyDefaultSkinOverlays();
 	}
 
 	// 初期所持品の付与と、装備中アイテムのカバンへの補充は、次のフレームで行う。
@@ -3499,6 +3500,24 @@ void AMyProject1Character::UpdateBlink(float DeltaTime)
 // ==========================================
 // 装備システムの関数実装
 // ==========================================
+
+void AMyProject1Character::ApplyDefaultSkinOverlays()
+{
+	if (!SkinOverlayComp) return;
+
+	// CustomOpacity=-1.0fはAddOverlay内部でRowのDefaultOpacityを使う指定
+	for (const FName& RowName : DefaultTattooOverlayRowNames)
+	{
+		if (RowName.IsNone()) continue;
+		SkinOverlayComp->AddOverlay(RowName, -1.0f, EShopModeCategory::Tattoo);
+	}
+
+	for (const FName& RowName : DefaultScarOverlayRowNames)
+	{
+		if (RowName.IsNone()) continue;
+		SkinOverlayComp->AddOverlay(RowName, -1.0f, EShopModeCategory::Scar);
+	}
+}
 
 void AMyProject1Character::ApplyDefaultEquipment()
 {

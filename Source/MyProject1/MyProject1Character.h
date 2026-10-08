@@ -779,6 +779,18 @@ public:
 	/** DefaultEquipmentRowNamesをEquipmentDataTableから引いて装備させる。完全新規開始時のみBeginPlayから呼ばれる。 */
 	void ApplyDefaultEquipment();
 
+	// 完全新規開始時のみ初期適用する刺青・傷跡。SkinOverlayComp->TattooDataTable / ScarDataTableのRow名を並べる。
+	// AQuestNPCBase::InitialTattooOverlayRowNames / InitialScarOverlayRowNamesのプレイヤー版。
+	// AddOverlay()を直接呼ぶため、ショップ購入扱い（所持金消費・ログ）にはならない。
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Equipment")
+	TArray<FName> DefaultTattooOverlayRowNames;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Equipment")
+	TArray<FName> DefaultScarOverlayRowNames;
+
+	/** DefaultTattooOverlayRowNames / DefaultScarOverlayRowNamesをSkinOverlayComp->AddOverlay()で反映する。完全新規開始時のみBeginPlayから呼ばれる。 */
+	void ApplyDefaultSkinOverlays();
+
 	// 完全新規開始時（NEW GAME／セーブロードでも別マップワープでもない初回Play）にだけ、カバンへ入れて始める初期所持品。
 	// ItemID = ItemDataTable（DT_Items）のRow名、Quantity = 個数。入手ログと取得音は出さない。
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Inventory")
