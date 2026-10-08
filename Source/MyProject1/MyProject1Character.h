@@ -940,6 +940,24 @@ protected:
 	/** G/H等(WaitAction)：その場で時間を進める「待機」メニューを開く */
 	void OnWaitKeyPressed();
 
+	/** 1〜0キー：対応するホットバー枠（0=キー1 ... 9=キー0）のアビリティを発動する */
+	void OnHotbarKeyPressed(int32 SlotIndex);
+
+	/** 1〜0キー用のInputAction（Editorにアセットを作らず、SetupPlayerInputComponentでC++から生成してGCから守る） */
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UInputAction>> HotbarActions;
+
+	/** 上記10個のInputActionを1〜0キーに割り当てた、C++生成のマッピングコンテキスト */
+	UPROPERTY(Transient)
+	TObjectPtr<UInputMappingContext> HotbarMappingContext;
+
+public:
+	/** デバッグ用コンソールコマンド（DebugLearnAllAbilities）。AbilityDataTableの全アビリティを習得させる。ホットバーには入れない。習得の入口が実装されるまでの動作確認用 */
+	UFUNCTION(Exec)
+	void DebugLearnAllAbilities();
+
+protected:
+
 public:
 	/**
 	 * OnActionKeyPressedで、CurrentTargetがQuestNPC/ShopNPC/Enemyのどれでもなかった場合に呼ばれる。
@@ -1064,6 +1082,9 @@ public:
 	/** オートアタックを実行中かどうか（抜刀状態） */
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Combat")
 	bool bIsAutoAttacking = false;
+
+	/** 攻撃準備（構え）中か。bIsPreparingAttackはprotectedなので、C++側のUIから読むための読み取り専用getter */
+	bool IsPreparingAttack() const { return bIsPreparingAttack; }
 
 	/** オートアタックを開始する命令（メニューの攻撃ボタンから呼ぶ） */
 	UFUNCTION(BlueprintCallable, Category = "Combat")

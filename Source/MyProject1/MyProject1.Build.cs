@@ -21,6 +21,7 @@ public class MyProject1 : ModuleRules
 			"GameplayStateTreeModule",
 			"UMG",
 			"Slate",
+			"SlateCore",
             "PhysicsCore",
 			"Niagara",
 			"CableComponent"

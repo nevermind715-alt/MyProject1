@@ -1,6 +1,7 @@
 ﻿#include "QuestComponent.h"
 #include "MyProject1Character.h"
 #include "InventoryComponent.h"
+#include "AbilityComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "MyProject1GameInstance.h"
 #include "MyProject1HUD.h"
@@ -612,17 +613,23 @@ bool UQuestComponent::ReportQuest(FName QuestID)
 								OwnerChar->OnReceiveLogMessage(ItemMsg, ELogMessageType::System);
 							}
 
-							// 4. 称号（フラグ）の付与
-							if (!Data.RewardFlag.IsNone())
-							{
-								OwnerChar->AddFlag(Data.RewardFlag);
-
-								// 称号獲得のログ表示
-								FString TitleMsg = FString::Printf(TEXT("称号「%s」を獲得した！"), *Data.RewardFlag.ToString());
-								OwnerChar->OnReceiveLogMessage(TitleMsg, ELogMessageType::System);
-							}
-
 						}
+					}
+
+					// 4. 称号（フラグ）の付与（アイテム報酬の有無・インベントリに依存しない）
+					if (!Data.RewardFlag.IsNone())
+					{
+						OwnerChar->AddFlag(Data.RewardFlag);
+
+						// 称号獲得のログ表示
+						FString TitleMsg = FString::Printf(TEXT("称号「%s」を獲得した！"), *Data.RewardFlag.ToString());
+						OwnerChar->OnReceiveLogMessage(TitleMsg, ELogMessageType::System);
+					}
+
+					// 5. アビリティの習得
+					if (!Data.RewardAbilityID.IsNone())
+					{
+						OwnerChar->AbilityComp->GrantAbility(Data.RewardAbilityID, true);
 					}
 
 					// 完了ログ

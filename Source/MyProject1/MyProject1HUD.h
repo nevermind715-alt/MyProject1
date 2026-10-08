@@ -21,6 +21,13 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "UI")
 	class UUserWidget* PlayerStatusWidget;
 
+	// アビリティのホットバー（1〜0キーの枠）。常時表示。BP_HUDのクラスデフォルトでWBP_AbilityHotbarを指定する
+	UPROPERTY(EditAnywhere, Category = "UI")
+	TSubclassOf<class UUserWidget> AbilityHotbarWidgetClass;
+
+	UPROPERTY(BlueprintReadOnly, Category = "UI")
+	class UUserWidget* AbilityHotbarWidget;
+
 	UPROPERTY(EditAnywhere, Category = "UI")
 	TSubclassOf<class UUserWidget> CommandMenuClass;
 
@@ -142,6 +149,17 @@ public:
 	// --- ステータスメニューの開閉関数 ---
 	UFUNCTION(BlueprintCallable, Category = "UI")
 	void ToggleStatusMenu();
+
+	// --- アビリティ割り当てメニュー用の変数 ---
+	UPROPERTY(EditAnywhere, Category = "UI")
+	TSubclassOf<class UUserWidget> AbilityMenuClass;
+
+	UPROPERTY(BlueprintReadOnly, Category = "UI")
+	class UUserWidget* AbilityMenuWidget;
+
+	// --- アビリティ割り当てメニューの開閉関数（ToggleStatusMenuと同じ流儀。メインウィンドウのアビリティボタンから呼ぶ） ---
+	UFUNCTION(BlueprintCallable, Category = "UI")
+	void ToggleAbilityMenu();
 
 	// --- セーブ／ロードメニュー用の変数 ---
 	UPROPERTY(EditAnywhere, Category = "UI")

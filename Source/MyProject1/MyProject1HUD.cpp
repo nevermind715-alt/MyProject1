@@ -36,6 +36,16 @@ void AMyProject1HUD::BeginPlay()
 			PlayerStatusWidget->AddToViewport();
 		}
 	}
+
+	// アビリティのホットバーを常時表示する
+	if (AbilityHotbarWidgetClass)
+	{
+		AbilityHotbarWidget = CreateWidget<UUserWidget>(GetWorld(), AbilityHotbarWidgetClass);
+		if (AbilityHotbarWidget)
+		{
+			AbilityHotbarWidget->AddToViewport();
+		}
+	}
 }
 
 void AMyProject1HUD::ToggleCommandMenu()
@@ -93,6 +103,13 @@ void AMyProject1HUD::ToggleCommandMenu()
     if (StatusMenuWidget && StatusMenuWidget->IsInViewport())
     {
         ToggleStatusMenu();
+        return;
+    }
+
+    // もしアビリティ割り当てメニューが存在し、画面に表示されているなら
+    if (AbilityMenuWidget && AbilityMenuWidget->IsInViewport())
+    {
+        ToggleAbilityMenu();
         return;
     }
 
@@ -250,6 +267,7 @@ void AMyProject1HUD::ForceCloseAllMenusForWarp()
     if (InventoryMenuWidget && InventoryMenuWidget->IsInViewport()) ToggleInventoryMenu();
     if (EquipmentMenuWidget && EquipmentMenuWidget->IsInViewport()) ToggleEquipmentMenu();
     if (StatusMenuWidget && StatusMenuWidget->IsInViewport()) ToggleStatusMenu();
+    if (AbilityMenuWidget && AbilityMenuWidget->IsInViewport()) ToggleAbilityMenu();
     if (QuestMenuWidget && QuestMenuWidget->IsInViewport()) ToggleQuestMenu();
     if (SaveMenuWidget && SaveMenuWidget->IsInViewport()) ToggleSaveMenu();
     if (ChestMenuWidget && ChestMenuWidget->IsInViewport()) ToggleChestMenu();
@@ -288,6 +306,7 @@ void AMyProject1HUD::OpenTimeSkipMenu(bool bIsSleepMode)
     if (InventoryMenuWidget && InventoryMenuWidget->IsInViewport()) ToggleInventoryMenu();
     if (EquipmentMenuWidget && EquipmentMenuWidget->IsInViewport()) ToggleEquipmentMenu();
     if (StatusMenuWidget && StatusMenuWidget->IsInViewport()) ToggleStatusMenu();
+    if (AbilityMenuWidget && AbilityMenuWidget->IsInViewport()) ToggleAbilityMenu();
     if (QuestMenuWidget && QuestMenuWidget->IsInViewport()) ToggleQuestMenu();
     if (SaveMenuWidget && SaveMenuWidget->IsInViewport()) ToggleSaveMenu();
     if (ChestMenuWidget && ChestMenuWidget->IsInViewport()) ToggleChestMenu();
@@ -460,6 +479,58 @@ void AMyProject1HUD::ToggleStatusMenu()
     }
 }
 
+// --- アビリティ割り当てメニューの開閉処理（ToggleStatusMenuと同じ構造） ---
+void AMyProject1HUD::ToggleAbilityMenu()
+{
+    APlayerController* PC = GetOwningPlayerController();
+    if (!PC || !AbilityMenuClass) return;
+
+    if (!AbilityMenuWidget)
+    {
+        // まだ作られていなければ生成する
+        AbilityMenuWidget = CreateWidget<UUserWidget>(GetWorld(), AbilityMenuClass);
+    }
+
+    if (AbilityMenuWidget)
+    {
+        if (!AbilityMenuWidget->IsInViewport())
+        {
+            // Z-Orderを20にして手前に表示
+            AbilityMenuWidget->AddToViewport(20);
+
+            // 背後のメニューを隠す
+            if (CommandMenuWidget) CommandMenuWidget->SetVisibility(ESlateVisibility::Collapsed);
+
+            // 入力フォーカスをアビリティ画面に向ける
+            FInputModeGameAndUI InputMode;
+            InputMode.SetWidgetToFocus(AbilityMenuWidget->TakeWidget());
+            PC->SetInputMode(InputMode);
+
+            if (MenuOpenSound) UGameplayStatics::PlaySound2D(this, MenuOpenSound);
+        }
+        else
+        {
+            // 閉じる処理
+            AbilityMenuWidget->RemoveFromParent();
+
+            // 背後のメニューを再表示する
+            if (CommandMenuWidget)
+            {
+                CommandMenuWidget->SetVisibility(ESlateVisibility::Visible);
+
+                FInputModeGameAndUI InputMode;
+                InputMode.SetWidgetToFocus(CommandMenuWidget->TakeWidget());
+                PC->SetInputMode(InputMode);
+
+                if (MenuCloseSound)
+                {
+                    UGameplayStatics::PlaySound2D(this, MenuCloseSound);
+                }
+            }
+        }
+    }
+}
+
 // --- セーブ／ロードメニューの開閉処理（ToggleStatusMenuと同じ構造） ---
 void AMyProject1HUD::ToggleSaveMenu()
 {
@@ -552,6 +623,7 @@ void AMyProject1HUD::ToggleChestMenu()
             if (InventoryMenuWidget && InventoryMenuWidget->IsInViewport()) ToggleInventoryMenu();
             if (EquipmentMenuWidget && EquipmentMenuWidget->IsInViewport()) ToggleEquipmentMenu();
             if (StatusMenuWidget && StatusMenuWidget->IsInViewport()) ToggleStatusMenu();
+            if (AbilityMenuWidget && AbilityMenuWidget->IsInViewport()) ToggleAbilityMenu();
             if (QuestMenuWidget && QuestMenuWidget->IsInViewport()) ToggleQuestMenu();
             if (SaveMenuWidget && SaveMenuWidget->IsInViewport()) ToggleSaveMenu();
 
@@ -616,6 +688,7 @@ void AMyProject1HUD::ToggleTreatmentMenu()
         if (CommandMenuWidget && CommandMenuWidget->IsInViewport()) ToggleCommandMenu();
         if (EquipmentMenuWidget && EquipmentMenuWidget->IsInViewport()) ToggleEquipmentMenu();
         if (StatusMenuWidget && StatusMenuWidget->IsInViewport()) ToggleStatusMenu();
+        if (AbilityMenuWidget && AbilityMenuWidget->IsInViewport()) ToggleAbilityMenu();
         if (QuestMenuWidget && QuestMenuWidget->IsInViewport()) ToggleQuestMenu();
         if (SaveMenuWidget && SaveMenuWidget->IsInViewport()) ToggleSaveMenu();
         if (ChestMenuWidget && ChestMenuWidget->IsInViewport()) ChestMenuWidget->RemoveFromParent();
@@ -677,6 +750,7 @@ void AMyProject1HUD::ToggleTattooMenu()
         if (CommandMenuWidget && CommandMenuWidget->IsInViewport()) ToggleCommandMenu();
         if (EquipmentMenuWidget && EquipmentMenuWidget->IsInViewport()) ToggleEquipmentMenu();
         if (StatusMenuWidget && StatusMenuWidget->IsInViewport()) ToggleStatusMenu();
+        if (AbilityMenuWidget && AbilityMenuWidget->IsInViewport()) ToggleAbilityMenu();
         if (QuestMenuWidget && QuestMenuWidget->IsInViewport()) ToggleQuestMenu();
         if (SaveMenuWidget && SaveMenuWidget->IsInViewport()) ToggleSaveMenu();
         if (ChestMenuWidget && ChestMenuWidget->IsInViewport()) ChestMenuWidget->RemoveFromParent();
@@ -747,6 +821,7 @@ void AMyProject1HUD::ToggleRestraintShopMenu()
         if (CommandMenuWidget && CommandMenuWidget->IsInViewport()) ToggleCommandMenu();
         if (EquipmentMenuWidget && EquipmentMenuWidget->IsInViewport()) ToggleEquipmentMenu();
         if (StatusMenuWidget && StatusMenuWidget->IsInViewport()) ToggleStatusMenu();
+        if (AbilityMenuWidget && AbilityMenuWidget->IsInViewport()) ToggleAbilityMenu();
         if (QuestMenuWidget && QuestMenuWidget->IsInViewport()) ToggleQuestMenu();
         if (SaveMenuWidget && SaveMenuWidget->IsInViewport()) ToggleSaveMenu();
         if (ChestMenuWidget && ChestMenuWidget->IsInViewport()) ChestMenuWidget->RemoveFromParent();
@@ -836,6 +911,7 @@ void AMyProject1HUD::ToggleItemShopMenu()
         if (CommandMenuWidget && CommandMenuWidget->IsInViewport()) ToggleCommandMenu();
         if (EquipmentMenuWidget && EquipmentMenuWidget->IsInViewport()) ToggleEquipmentMenu();
         if (StatusMenuWidget && StatusMenuWidget->IsInViewport()) ToggleStatusMenu();
+        if (AbilityMenuWidget && AbilityMenuWidget->IsInViewport()) ToggleAbilityMenu();
         if (QuestMenuWidget && QuestMenuWidget->IsInViewport()) ToggleQuestMenu();
         if (SaveMenuWidget && SaveMenuWidget->IsInViewport()) ToggleSaveMenu();
         if (ChestMenuWidget && ChestMenuWidget->IsInViewport()) ChestMenuWidget->RemoveFromParent();

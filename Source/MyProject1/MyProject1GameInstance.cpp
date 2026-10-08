@@ -7,6 +7,7 @@
 #include "InventoryComponent.h"
 #include "QuestComponent.h"
 #include "SkinOverlayComponent.h"
+#include "AbilityComponent.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "WallWarpLink.h"
@@ -994,6 +995,14 @@ UMyProject1SaveGame* UMyProject1GameInstance::CapturePlayerStateSnapshot(AMyProj
 		SaveObj->EverCompletedQuestIDs = Quest->EverCompletedQuestIDs;
 	}
 
+	// アビリティ（習得済み一覧とホットバー割り当て）
+	if (Character->AbilityComp)
+	{
+		SaveObj->bHasAbilityData = true;
+		SaveObj->LearnedAbilities = Character->AbilityComp->LearnedAbilities;
+		SaveObj->HotbarSlots = Character->AbilityComp->HotbarSlots;
+	}
+
 	// 傷・タトゥー・ピアス・病気
 	if (USkinOverlayComponent* Skin = Character->FindComponentByClass<USkinOverlayComponent>())
 	{
@@ -1182,6 +1191,12 @@ bool UMyProject1GameInstance::ApplyPendingCharacterLoad(AMyProject1Character* Ch
 		Quest->CompletedQuests = Loaded->CompletedQuests;
 		Quest->EverCompletedQuestIDs = Loaded->EverCompletedQuestIDs;
 		Quest->OnQuestUpdated.Broadcast(NAME_None);
+	}
+
+	// アビリティ（アビリティ情報が書かれたセーブのみ。古いセーブでは現在の状態を維持する）
+	if (Loaded->bHasAbilityData && Character->AbilityComp)
+	{
+		Character->AbilityComp->RestoreFromSave(Loaded->LearnedAbilities, Loaded->HotbarSlots);
 	}
 
 	// 装備（見た目・鎖・移動制限も含めて既存のEquipItemロジックで正しく再構築させる）

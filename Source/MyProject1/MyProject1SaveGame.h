@@ -61,6 +61,19 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Save|Quest")
 	TArray<FName> EverCompletedQuestIDs;
 
+	// --- アビリティ ---
+	// アビリティ情報が書き込まれたセーブかどうか。アビリティ実装前の古いセーブ（false）を読み込んだ時に、
+	// 現在の習得状況・ホットバーを空で上書きしてしまわないための印
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Save|Ability")
+	bool bHasAbilityData = false;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Save|Ability")
+	TArray<FName> LearnedAbilities;
+
+	// 1〜0キーに割り当てたアビリティID（空きはNAME_None）
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Save|Ability")
+	TArray<FName> HotbarSlots;
+
 	// --- 傷・タトゥー・ピアス・病気 ---
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Save|SkinOverlay")
 	TMap<FName, FActiveSkinOverlayState> ActiveTattoos;

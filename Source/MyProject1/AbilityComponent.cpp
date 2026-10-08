@@ -16,6 +16,7 @@ UAbilityComponent::UAbilityComponent()
 	PrimaryComponentTick.bCanEverTick = true;
 	bIsCasting = false;
 	CurrentTarget = nullptr;
+	HotbarSlots.Init(NAME_None, NumHotbarSlots);
 }
 
 void UAbilityComponent::BeginPlay()
@@ -52,6 +53,106 @@ void UAbilityComponent::LearnAbility(FName AbilityID)
 	{
 		LearnedAbilities.Add(AbilityID);
 	}
+}
+
+bool UAbilityComponent::GrantAbility(FName AbilityID, bool bShowLog)
+{
+	if (LearnedAbilities.Contains(AbilityID)) return false;
+
+	const FAbilityData* Data = FindAbilityData(AbilityID);
+	if (!Data)
+	{
+		// 報酬設定などの行名の誤り。黙って無視せず、原因が追えるようログを残す
+		UE_LOG(LogTemp, Warning, TEXT("GrantAbility: アビリティ '%s' がAbilityDataTableに見つかりません"), *AbilityID.ToString());
+		return false;
+	}
+
+	LearnAbility(AbilityID);
+
+	if (bShowLog)
+	{
+		if (IRpgCharacterInterface* RpgInterface = Cast<IRpgCharacterInterface>(GetOwner()))
+		{
+			RpgInterface->OnReceiveLogMessage(FString::Printf(TEXT("アビリティ「%s」を習得した！"), *Data->AbilityName), ELogMessageType::System);
+		}
+	}
+
+	return true;
+}
+
+void UAbilityComponent::GrantAbilitiesForLevel(int32 Level, bool bShowLog)
+{
+	// AbilityDataTableを持たないキャラ（敵・NPC等）は対象外
+	if (!AbilityDataTable) return;
+
+	AbilityDataTable->ForeachRow<FAbilityData>(TEXT("GrantAbilitiesForLevel"), [&](const FName& RowName, const FAbilityData& Row)
+	{
+		if (Row.LearnLevel > 0 && Row.LearnLevel <= Level)
+		{
+			GrantAbility(RowName, bShowLog);
+		}
+	});
+}
+
+bool UAbilityComponent::AssignHotbarSlot(int32 SlotIndex, FName AbilityID)
+{
+	if (!HotbarSlots.IsValidIndex(SlotIndex)) return false;
+	if (AbilityID.IsNone() || !LearnedAbilities.Contains(AbilityID)) return false;
+
+	// 同じアビリティが別スロットに入っていたら空にする（1つのアビリティは1スロットだけ）
+	for (FName& Existing : HotbarSlots)
+	{
+		if (Existing == AbilityID)
+		{
+			Existing = NAME_None;
+		}
+	}
+
+	HotbarSlots[SlotIndex] = AbilityID;
+	OnHotbarChanged.Broadcast();
+	return true;
+}
+
+void UAbilityComponent::ClearHotbarSlot(int32 SlotIndex)
+{
+	if (!HotbarSlots.IsValidIndex(SlotIndex)) return;
+
+	HotbarSlots[SlotIndex] = NAME_None;
+	OnHotbarChanged.Broadcast();
+}
+
+bool UAbilityComponent::UseHotbarSlot(int32 SlotIndex)
+{
+	if (!HotbarSlots.IsValidIndex(SlotIndex) || HotbarSlots[SlotIndex].IsNone()) return false;
+
+	return TryCastAbility(HotbarSlots[SlotIndex], nullptr);
+}
+
+void UAbilityComponent::RestoreFromSave(const TArray<FName>& InLearnedAbilities, const TArray<FName>& InHotbarSlots)
+{
+	LearnedAbilities = InLearnedAbilities;
+
+	// セーブ時とスロット数が違っても常にNumHotbarSlots個に保つ
+	HotbarSlots.Init(NAME_None, NumHotbarSlots);
+	for (int32 i = 0; i < FMath::Min(NumHotbarSlots, InHotbarSlots.Num()); ++i)
+	{
+		HotbarSlots[i] = InHotbarSlots[i];
+	}
+
+	OnHotbarChanged.Broadcast();
+}
+
+const FAbilityData* UAbilityComponent::FindAbilityData(FName AbilityID) const
+{
+	if (!AbilityDataTable || AbilityID.IsNone()) return nullptr;
+
+	return AbilityDataTable->FindRow<FAbilityData>(AbilityID, TEXT("AbilityFind"));
+}
+
+float UAbilityComponent::GetRecastRemaining(FName AbilityID) const
+{
+	const float* Remaining = RecastTimers.Find(AbilityID);
+	return Remaining ? *Remaining : 0.0f;
 }
 
 bool UAbilityComponent::TryCastAbility(FName AbilityID, AActor* TargetActor)

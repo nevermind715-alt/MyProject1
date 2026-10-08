@@ -812,6 +812,11 @@ struct FAbilityData : public FTableRowBase
 	// 既存のアイテム効果（FItemEffect）の仕組みを完全に使い回して、何が起きるかを定義します
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Effect")
 	TArray<FItemEffect> Effects;
+
+	// --- 習得 ---
+	// プレイヤーがこのレベルに達すると自動で習得する。0ならレベルアップでは習得しない（クエスト報酬などで習得させる）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Learn", meta = (ClampMin = "0"))
+	int32 LearnLevel = 0;
 };
 
 // 食品由来のバフの区分（食べ物は同時に1つまで、飲み物はアイコンを1つに統合するための判別用）
@@ -1396,6 +1401,11 @@ struct FQuestData : public FTableRowBase
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Reward")
 	int32 RewardItemAmount = 0;
+
+	// --- クエストのクリア報酬（アビリティ習得） ---
+	// DT_Abilitiesの行名。空欄なら何もしない。報告完了時にそのアビリティを習得させる（習得済みなら何もしない）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Reward")
+	FName RewardAbilityID;
 
 	// --- クエストのクリア報酬（称号・フラグ） ---
 	// 空欄なら何もしない。文字が入っていればクリア時にフラグを付与

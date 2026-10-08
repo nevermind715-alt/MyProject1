@@ -11,6 +11,7 @@
 #include "EnhancedInputSubsystems.h"
 #include "InputActionValue.h"
 #include "InputAction.h"
+#include "InputMappingContext.h"
 #include "MyProject1.h"
 #include "RpgDamageCalculator.h" 
 #include "Engine/LocalPlayer.h"
@@ -338,6 +339,13 @@ void AMyProject1Character::BeginPlay()
 	// ゲーム開始時にデータテーブルの情報をキャラクターに反映させる
 	ApplyJobData();
 
+	// 現在のレベルで習得済みのはずのアビリティを補う（新規開始のレベル1習得分、セーブ/ワープからの復元後、
+	// 習得レベルをDTへ後から追加した場合の救済）。復元済みの習得状況は上書きせず、足りない分だけ追加し、ログは出さない
+	if (IsPlayerControlled())
+	{
+		AbilityComp->GrantAbilitiesForLevel(MyStats.Level, false);
+	}
+
 	// 完全新規開始（セーブロードでも別マップワープでもない初回Play）のときだけ初期装備を着せる。
 	// ApplyJobData()が素体メッシュ・ジョブ既定の髪をセットした後に呼ぶこと（順序が重要）。
 	if (IsPlayerControlled() && !bRestoredFromSnapshot)
@@ -437,6 +445,37 @@ void AMyProject1Character::SetupPlayerInputComponent(UInputComponent* PlayerInpu
 			EnhancedInputComponent->BindAction(DebugNudgeHeightAction, ETriggerEvent::Triggered, this, &AMyProject1Character::OnDebugNudgeHeight);
 		}
 
+		// 1〜0キー：ホットバーのアビリティ発動。
+		// UE5.7のEnhanced Inputは旧式のBindKeyが使えないため、InputActionとマッピングコンテキストをC++で生成する。
+		// （SetupPlayerInputComponentは再Possessで何度も呼ばれ得るので、アクション/コンテキストの生成は最初の1回だけ）
+		if (HotbarActions.Num() == 0)
+		{
+			static const FKey HotbarKeys[UAbilityComponent::NumHotbarSlots] = {
+				EKeys::One, EKeys::Two, EKeys::Three, EKeys::Four, EKeys::Five,
+				EKeys::Six, EKeys::Seven, EKeys::Eight, EKeys::Nine, EKeys::Zero };
+
+			HotbarMappingContext = NewObject<UInputMappingContext>(this, TEXT("HotbarMappingContext"));
+			for (int32 SlotIndex = 0; SlotIndex < UAbilityComponent::NumHotbarSlots; ++SlotIndex)
+			{
+				UInputAction* Action = NewObject<UInputAction>(this, *FString::Printf(TEXT("HotbarAction%d"), SlotIndex));
+				HotbarActions.Add(Action);
+				HotbarMappingContext->MapKey(Action, HotbarKeys[SlotIndex]);
+			}
+		}
+
+		for (int32 SlotIndex = 0; SlotIndex < HotbarActions.Num(); ++SlotIndex)
+		{
+			EnhancedInputComponent->BindAction(HotbarActions[SlotIndex], ETriggerEvent::Started, this, &AMyProject1Character::OnHotbarKeyPressed, SlotIndex);
+		}
+
+		if (APlayerController* PC = Cast<APlayerController>(GetController()))
+		{
+			if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PC->GetLocalPlayer()))
+			{
+				Subsystem->AddMappingContext(HotbarMappingContext, 0);
+			}
+		}
+
 	}
 
 
@@ -524,6 +563,51 @@ void AMyProject1Character::OnActionKeyPressed()
 void AMyProject1Character::OnWaitKeyPressed()
 {
 	TryOpenTimeSkipMenu(false);
+}
+
+void AMyProject1Character::OnHotbarKeyPressed(int32 SlotIndex)
+{
+	// 会話・ショップ・カットシーン・AnimEvent再生中、死亡中は発動させない
+	if (bIsInputLocked || bIsInCutscene || bAnimEventInputLocked || IsDead())
+	{
+		return;
+	}
+
+	// コマンドメニュー（とその先のサブメニュー）が開いている間は発動させない。
+	// ただし戦闘中（ToggleCombatModeが自動でコマンドメニューを開き、閉じることもできない）は、
+	// コマンドメニュー本体が表示されている間は戦闘用の操作画面なので発動させる。
+	// アイテム/装備/アビリティ等のサブメニューを開くとコマンドメニューはCollapsedになるため、その間は止まる。
+	if (APlayerController* PC = Cast<APlayerController>(GetController()))
+	{
+		if (AMyProject1HUD* HUD = Cast<AMyProject1HUD>(PC->GetHUD()))
+		{
+			if (HUD->IsCommandMenuOpen())
+			{
+				const bool bInCombat = bIsAutoAttacking || IsPreparingAttack();
+				if (!bInCombat || !HUD->CommandMenuWidget->IsVisible())
+				{
+					return;
+				}
+			}
+		}
+	}
+
+	AbilityComp->UseHotbarSlot(SlotIndex);
+}
+
+void AMyProject1Character::DebugLearnAllAbilities()
+{
+	if (!AbilityComp->AbilityDataTable)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("DebugLearnAllAbilities: AbilityComp->AbilityDataTable が未設定です"));
+		return;
+	}
+
+	// LearnAbilityは習得済みのIDを重複して追加しないので、何度実行しても安全
+	for (const FName RowName : AbilityComp->AbilityDataTable->GetRowNames())
+	{
+		AbilityComp->LearnAbility(RowName);
+	}
 }
 
 bool AMyProject1Character::TryOpenTimeSkipMenu(bool bIsSleepMode)
@@ -2108,6 +2192,9 @@ void AMyProject1Character::LevelUp()
 
 	// ログの種類はシステムメッセージとして送信
 	OnReceiveLogMessage(LevelUpMsg, ELogMessageType::System);
+
+	// このレベルで習得するアビリティがあれば習得させる（FAbilityData::LearnLevel）。ログは「習得した！」を出す
+	AbilityComp->GrantAbilitiesForLevel(MyStats.Level, true);
 }
 
 // --- 3. ジョブデータとレベルに基づいたステータス確定 ---
