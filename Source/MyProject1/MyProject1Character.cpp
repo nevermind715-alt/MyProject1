@@ -659,8 +659,11 @@ void AMyProject1Character::OnToggleMenuPressed()
 				return;
 			}
 
-			// 「メニューが開いていて」かつ「戦闘中」なら、誤ってメニューを消せないようにする
-			if (bIsCommandMenuOpen && (bIsAutoAttacking || bIsPreparingAttack))
+			// 「メニューが開いていて」かつ「戦闘中」なら、誤ってメニューを消せないようにする。
+			// ただしサブメニュー（ステータス/装備等）を開いている間はコマンドメニュー本体がCollapsedになっている。
+			// ステータス/装備画面は閉じるボタンを持たずTabでしか閉じられないので、この間は通す
+			// （ToggleCommandMenuはサブメニューが開いていればそれを1段閉じるだけで、コマンドメニュー本体は閉じない）
+			if (bIsCommandMenuOpen && (bIsAutoAttacking || bIsPreparingAttack) && HUD->CommandMenuWidget->IsVisible())
 			{
 				return;
 			}
@@ -867,6 +870,55 @@ void AMyProject1Character::DoJumpEnd()
 	StopJumping();
 }
 
+// AQuestItemPointはTargetRangeOverrideが設定されていれば、NPC共通のInteractRangeの代わりにそれを射程にする
+static float ResolveInteractRange(const AActor* Actor, float DefaultRange)
+{
+	if (const AQuestItemPoint* ItemPoint = Cast<AQuestItemPoint>(Actor))
+	{
+		if (ItemPoint->TargetRangeOverride > 0.0f)
+		{
+			return ItemPoint->TargetRangeOverride;
+		}
+	}
+	return DefaultRange;
+}
+
+// プレイヤーの目線からTargetまでの間に壁やMeshが挟まっていないかを判定する（ターゲット取得時の視界判定）。
+// Targetの中心へ向けてECC_VisibilityでLineTraceし、Target自身は無視する。
+// 壁面に貼る落書きDecalのように、Target自身が壁に密着している場合に壁へ当たって誤って遮蔽判定されないよう、
+// 終点はTarget中心から目線側へ少し手前に寄せる。
+static bool HasClearLineOfSight(const AMyProject1Character* Viewer, const AActor* Target)
+{
+	constexpr float EndPullBack = 30.0f;
+
+	const FVector Start = Viewer->GetPawnViewLocation();
+
+	// 狙う点：Characterはカプセル中心（アクター位置）。それ以外はコリジョンのあるコンポーネントだけのバウンズ中心。
+	// 全コンポーネント込みのバウンズ(GetActorBounds(false))だと、離れた位置にある見えないコンポーネントに引っ張られて
+	// 中心が対象本体から大きくズレ、全く別方向へレイが飛んでしまう。
+	FVector Origin, Extent;
+	if (Target->IsA<ACharacter>())
+	{
+		Origin = Target->GetActorLocation();
+	}
+	else
+	{
+		Target->GetActorBounds(true, Origin, Extent);
+	}
+
+	const FVector ToTarget = Origin - Start;
+	const float Dist = ToTarget.Size();
+	if (Dist <= EndPullBack) return true; // ほぼ密着している距離なら遮蔽物は挟まらない
+
+	const FVector End = Start + ToTarget * ((Dist - EndPullBack) / Dist);
+
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(TargetLineOfSight), false);
+	Params.AddIgnoredActor(Viewer);
+	Params.AddIgnoredActor(Target);
+
+	return !Viewer->GetWorld()->LineTraceTestByChannel(Start, End, ECC_Visibility, Params);
+}
+
 void AMyProject1Character::TargetNearestEnemy()
 {
 	// 1. 周囲のすべての「Pawn（キャラクター）」を探す
@@ -906,8 +958,11 @@ void AMyProject1Character::TargetNearestEnemy()
 		// NPCは自動解除の判定と同じInteractRangeを射程にする（TargetingRangeで拾うと、
 		// InteractRangeより遠いNPCを一瞬ターゲットした直後に自動解除ログが出てしまうため）
 		const bool bIsNPCActor = Actor->ActorHasTag(FName("NPC"));
-		const float AcquireRange = bIsNPCActor ? InteractRange : TargetingRange;
+		const float AcquireRange = bIsNPCActor ? ResolveInteractRange(Actor, InteractRange) : TargetingRange;
 		if (Dist > AcquireRange) continue;
+
+		// 壁やMeshの向こう側にいる対象は選ばない（WallWarpLinkは上で独自判定済みなので除外）
+		if (!Actor->IsA<AWallWarpLink>() && !HasClearLineOfSight(this, Actor)) continue;
 
 		// 「今の最小距離」より近ければ、候補を更新
 		if (Dist < MinDistance)
@@ -982,10 +1037,13 @@ void AMyProject1Character::CycleTarget()
 
 		// NPCは自動解除の判定と同じInteractRangeを射程にする（TargetNearestEnemy()と揃える）
 		const bool bIsNPCActor = Actor->ActorHasTag(FName("NPC"));
-		const float AcquireRange = bIsNPCActor ? InteractRange : TargetingRange;
+		const float AcquireRange = bIsNPCActor ? ResolveInteractRange(Actor, InteractRange) : TargetingRange;
 
 		if (GetDistanceTo(Actor) <= AcquireRange) // 射程内か？
 		{
+			// 壁やMeshの向こう側にいる対象は選ばない（WallWarpLinkは上で独自判定済みなので除外）
+			if (!Actor->IsA<AWallWarpLink>() && !HasClearLineOfSight(this, Actor)) continue;
+
 			ValidTargets.Add(Actor);
 		}
 	}
@@ -1114,6 +1172,7 @@ void AMyProject1Character::Tick(float DeltaTime)
 		float CurrentRecoveryRate = (CurrentTarget != nullptr) ? StaminaRecoveryCombat : StaminaRecoveryField;
 
 		// 毎フレームの経過時間（DeltaTime）を掛けて滑らかに回復
+		CurrentRecoveryRate *= FMath::Max(0.1f, 1.0f + MyStats.StaminaRecoveryRateBonus / 100.0f);
 		MyStats.Stamina = FMath::Min(MyStats.Stamina + (CurrentRecoveryRate * DeltaTime), MyStats.MaxStamina);
 
 		// 先ほど作ったスタミナ用のデリゲート（合図）を毎フレーム飛ばしてUIをリアルタイム更新
@@ -1179,7 +1238,7 @@ void AMyProject1Character::Tick(float DeltaTime)
 			// NPC/宝箱などの近距離インタラクト対象は、InteractRange基準の短い距離で解除する。
 			// 敵（戦闘ロックオン）は従来通りTargetingRange基準のまま（境界でのカーソル点滅防止バッファも維持）。
 			const bool bIsInteractTarget = CurrentTarget->ActorHasTag(FName("NPC"));
-			const float CancelDistance = bIsInteractTarget ? (InteractRange + 100.0f) : (TargetingRange + 500.0f);
+			const float CancelDistance = bIsInteractTarget ? (ResolveInteractRange(CurrentTarget, InteractRange) + 100.0f) : (TargetingRange + 500.0f);
 
 			if (DistanceToTarget > CancelDistance)
 			{
@@ -2744,6 +2803,7 @@ void AMyProject1Character::ApplyItemBuffWithKind(FString ItemName, UTexture2D* I
 		case ETargetStat::MovementSpeedRate:   MyStats.MovementSpeedRateBonus += Effect.EffectAmount;   break;
 		case ETargetStat::CriticalRate:        MyStats.CriticalRateBonus += Effect.EffectAmount;        break;
 		case ETargetStat::AttackSpeedRate:     MyStats.AttackSpeedRateBonus += Effect.EffectAmount;     break;
+		case ETargetStat::StaminaRecoveryRate: MyStats.StaminaRecoveryRateBonus += Effect.EffectAmount; break;
 		case ETargetStat::CustomExtraStat:
 			if (!Effect.ExtraStatName.IsNone())
 			{
@@ -2825,6 +2885,7 @@ void AMyProject1Character::ExpireItemBuff(FString ItemName, TArray<FItemEffect> 
 		case ETargetStat::MovementSpeedRate:   MyStats.MovementSpeedRateBonus -= Effect.EffectAmount;   break;
 		case ETargetStat::CriticalRate:        MyStats.CriticalRateBonus -= Effect.EffectAmount;        break;
 		case ETargetStat::AttackSpeedRate:     MyStats.AttackSpeedRateBonus -= Effect.EffectAmount;     break;
+		case ETargetStat::StaminaRecoveryRate: MyStats.StaminaRecoveryRateBonus -= Effect.EffectAmount; break;
 		case ETargetStat::CustomExtraStat:
 			if (!Effect.ExtraStatName.IsNone())
 			{
@@ -2984,6 +3045,18 @@ void AMyProject1Character::HandleFatigueTick()
 {
 	if (IsDead() || !IsPlayerControlled()) return;
 
+	// シャワーのログは、会話・アニメーションシーケンス・イベント・暗転が全て終わって操作できる状態に戻ってから出す
+	// （暗転中はBeginWarpFadeがDisableInputしているため、InputEnabled()で暗転も検知できる）
+	if (bPendingShowerLog && InputEnabled() && !bIsInputLocked && !bAnimEventInputLocked && !bIsInCutscene)
+	{
+		const UMyProject1GameInstance* ShowerGameInst = Cast<UMyProject1GameInstance>(GetGameInstance());
+		if (!ShowerGameInst || !ShowerGameInst->bHasActiveEvent)
+		{
+			bPendingShowerLog = false;
+			OnReceiveLogMessage(TEXT("さっぱりして疲れが取れた！"), ELogMessageType::System);
+		}
+	}
+
 	float OldEnergy = MyStats.Energy;
 
 	// --- 1. GameInstanceの時間の進み具合を取得 ---
@@ -3004,7 +3077,10 @@ void AMyProject1Character::HandleFatigueTick()
 	// --- 2. 蓄積疲労度の増加（ゲーム内1日単位に連動） ---
 	// 「1日あたりの増加量(20)」 × 「実際に進んだ日数」
 	float BaseIncreaseRate = FatigueIncreasePerInGameDay * InGameDaysPassed;
+	const float OldBaseEnergy = MyStats.BaseEnergy;
 	MyStats.BaseEnergy = FMath::Clamp(MyStats.BaseEnergy + BaseIncreaseRate, 0.0f, MyStats.MaxEnergy);
+	// 増えた蓄積疲労度は先にシャワーでしか取れない分(ShowerEnergy)へ溜め、あふれた分が睡眠で取れる分になる
+	MyStats.ShowerEnergy = FMath::Min(MyStats.ShowerEnergy + (MyStats.BaseEnergy - OldBaseEnergy), FMath::Min(FatigueShowerCapacity, MyStats.BaseEnergy));
 
 	// Energyが蓄積値を下回らないように強制的に押し上げる
 	if (MyStats.Energy < MyStats.BaseEnergy)
@@ -3053,9 +3129,11 @@ void AMyProject1Character::ApplyFatigueForSkippedMinutes(int32 MinutesSkipped, b
 		float HoursSlept = MinutesSkipped / 60.0f;
 		float DecreaseAmount = (FatigueDecreasePercentPerSleepHour / 100.0f) * MyStats.MaxEnergy * HoursSlept;
 
-		MyStats.BaseEnergy = FMath::Clamp(MyStats.BaseEnergy - DecreaseAmount, 0.0f, MyStats.MaxEnergy);
+		// 睡眠で下げられるのはShowerEnergy（シャワーでしか取れない分）までで、それ以下の蓄積疲労度は動かさない
+		const float BaseDecreaseAmount = FMath::Min(DecreaseAmount, FMath::Max(MyStats.BaseEnergy - MyStats.ShowerEnergy, 0.0f));
+		MyStats.BaseEnergy = FMath::Clamp(MyStats.BaseEnergy - BaseDecreaseAmount, 0.0f, MyStats.MaxEnergy);
 
-		// EnergyもBaseEnergyと同じ分だけ下げる（BaseEnergyを下回らない範囲で）
+		// Energy（戦闘などの一時的な疲労込みの値）は従来通り睡眠量ぶん下げる（BaseEnergyを下回らない範囲で）
 		MyStats.Energy = FMath::Clamp(FMath::Max(MyStats.Energy - DecreaseAmount, MyStats.BaseEnergy), 0.0f, MyStats.MaxEnergy);
 	}
 	else
@@ -3063,7 +3141,10 @@ void AMyProject1Character::ApplyFatigueForSkippedMinutes(int32 MinutesSkipped, b
 		// HandleFatigueTickと同じ「1日あたりの増加量 × 進んだ日数」の計算を、スキップした分だけまとめて適用する
 		float InGameDaysPassed = MinutesSkipped / 1440.0f;
 		float BaseIncreaseRate = FatigueIncreasePerInGameDay * InGameDaysPassed;
+		const float OldBaseEnergy = MyStats.BaseEnergy;
 		MyStats.BaseEnergy = FMath::Clamp(MyStats.BaseEnergy + BaseIncreaseRate, 0.0f, MyStats.MaxEnergy);
+		// HandleFatigueTickと同じく、増えた分は先にShowerEnergyへ溜める
+		MyStats.ShowerEnergy = FMath::Min(MyStats.ShowerEnergy + (MyStats.BaseEnergy - OldBaseEnergy), FMath::Min(FatigueShowerCapacity, MyStats.BaseEnergy));
 
 		// Energyが蓄積値を下回らないように強制的に押し上げる
 		if (MyStats.Energy < MyStats.BaseEnergy)
@@ -3084,6 +3165,25 @@ void AMyProject1Character::ApplyFatigueForSkippedMinutes(int32 MinutesSkipped, b
 			OnReceiveLogMessage(TEXT("疲労度が回復した！"), ELogMessageType::System);
 		}
 	}
+}
+
+// --- シャワーによる疲労回復（睡眠では取れない「ShowerEnergy」分を取る） ---
+void AMyProject1Character::ApplyShowerFatigueRecovery(float Amount)
+{
+	if (IsDead() || !IsPlayerControlled()) return;
+
+	// 汚れていない（ShowerEnergyが0）なら何も起きない
+	const float DecreaseAmount = (Amount > 0.0f) ? FMath::Min(Amount, MyStats.ShowerEnergy) : MyStats.ShowerEnergy;
+	if (DecreaseAmount <= 0.0f) return;
+
+	// ShowerEnergyはBaseEnergyの一部なので、同じ量を両方から引く（ShowerEnergy <= BaseEnergyの関係は保たれる）
+	MyStats.ShowerEnergy -= DecreaseAmount;
+	MyStats.BaseEnergy = FMath::Clamp(MyStats.BaseEnergy - DecreaseAmount, 0.0f, MyStats.MaxEnergy);
+	MyStats.Energy = FMath::Clamp(FMath::Max(MyStats.Energy - DecreaseAmount, MyStats.BaseEnergy), 0.0f, MyStats.MaxEnergy);
+
+	RecalculateFatigueAdjustedCombatStats();
+	NotifyStatsChanged();
+	bPendingShowerLog = true;
 }
 
 // --- ゲーム内時間の経過（分）に応じてExtraStats["ExStats17"]を自然減少させる（1時間あたりExStats17DecreasePerHour） ---
@@ -3108,6 +3208,9 @@ void AMyProject1Character::ApplyExStats17DecayForElapsedMinutes(int32 MinutesEla
 void AMyProject1Character::HandleOGaugeTick()
 {
 	if (IsDead() || !IsPlayerControlled()) return;
+
+	// AnimEvent（DT_AnimEventsのStep再生）中は自然減衰を止める
+	if (bAnimEventInputLocked) return;
 
 	float OldOGauge = MyStats.OGauge;
 
@@ -3139,6 +3242,7 @@ void AMyProject1Character::AddOGauge(float Amount)
 	{
 		// 発動：閾値到達直後に即座にOGaugeTriggerDropToまで落とす（このため次のAddOGaugeまで再発動しない）
 		MyStats.OGauge = OGaugeTriggerDropTo;
+		++OGaugeTriggerCount;
 
 		UTexture2D* TriggerIcon = nullptr;
 		if (BuffDataTable && !OGaugeTriggerBuffID.IsNone())
@@ -3541,7 +3645,7 @@ void AMyProject1Character::ApplyDefaultEquipment()
 			InventoryComp->EnsureAtLeast(RowName, 1);
 		}
 
-		// EquipItem()末尾でRefreshEquipmentStats()も呼ばれるため、StatModifiersも通常どおり反映される
+		// EquipItem()末尾でRefreshEquipmentStats()も呼ばれるため、装備のステータス補正（DT_ItemsのEffects）も通常どおり反映される
 		EquipItem(RowName, *EquipData);
 	}
 }
@@ -4718,7 +4822,9 @@ void AMyProject1Character::RefreshEquipmentStats()
 
 	// NPC（AQuestNPCBase）はShouldApplyEquipmentStatBonuses()をfalseに上書きしており、
 	// ここをスキップすることでEquipItem()による見た目の変化のみを許可し、MyStatsは変化させない
-	if (ShouldApplyEquipmentStatBonuses() && EquipmentDataTable)
+	// ステータス補正の定義はDT_Items（FItemData::Effects）に一本化。装備のRow名はDT_ItemsのRow名と同じ前提で引く
+	// （DT_Itemsに行が無い装備＝髪型など＆Effectsが空の装備は補正なし）。EffectDurationは無視（装備している間ずっと有効）
+	if (ShouldApplyEquipmentStatBonuses() && InventoryComp && InventoryComp->ItemDataTable)
 	{
 		// 現在装備中のアイテムをループして合計値を出す
 		for (const auto& Pair : CurrentEquippedItems)
@@ -4726,21 +4832,47 @@ void AMyProject1Character::RefreshEquipmentStats()
 			FName ItemID = Pair.Value;
 			if (ItemID.IsNone()) continue;
 
-			FEquipmentData* EquipData = EquipmentDataTable->FindRow<FEquipmentData>(ItemID, TEXT("EquipmentStats"));
-			if (!EquipData) continue;
+			const FItemData* EquippedItemInfo = InventoryComp->ItemDataTable->FindRow<FItemData>(ItemID, TEXT("EquipmentStats"), false);
+			if (!EquippedItemInfo) continue;
 
-			for (const FEquipmentStatModifier& Modifier : EquipData->StatModifiers)
+			for (const FItemEffect& Effect : EquippedItemInfo->Effects)
 			{
-				if (Modifier.TargetStat == ETargetStat::CustomExtraStat)
+				if (Effect.TargetStat == ETargetStat::CustomExtraStat)
 				{
-					if (!Modifier.ExtraStatName.IsNone())
+					if (!Effect.ExtraStatName.IsNone())
 					{
-						NewExtraStatBonuses.FindOrAdd(Modifier.ExtraStatName) += Modifier.Amount;
+						NewExtraStatBonuses.FindOrAdd(Effect.ExtraStatName) += Effect.EffectAmount;
 					}
 				}
 				else
 				{
-					StatBonuses.FindOrAdd(Modifier.TargetStat) += Modifier.Amount;
+					StatBonuses.FindOrAdd(Effect.TargetStat) += Effect.EffectAmount;
+				}
+			}
+		}
+	}
+
+	// 2-a. 所持しているだけで有効になる「だいじなもの(KeyItem)」のEffectsも同じ仕組みで合算する（装備と同じ記録で差分管理される）
+	//      ※EffectDurationは無視（所持している間ずっと有効）。CustomExtraStatの固定(bLockExtraStatCeiling)は対象外
+	if (ShouldApplyEquipmentStatBonuses() && InventoryComp && InventoryComp->ItemDataTable)
+	{
+		for (const FInventorySlot& Slot : InventoryComp->InventoryContent)
+		{
+			const FItemData* KeyItemInfo = Slot.ItemID.IsNone() ? nullptr : InventoryComp->ItemDataTable->FindRow<FItemData>(Slot.ItemID, TEXT("KeyItemStats"));
+			if (!KeyItemInfo || KeyItemInfo->ItemType != EItemType::KeyItem) continue;
+
+			for (const FItemEffect& Effect : KeyItemInfo->Effects)
+			{
+				if (Effect.TargetStat == ETargetStat::CustomExtraStat)
+				{
+					if (!Effect.ExtraStatName.IsNone())
+					{
+						NewExtraStatBonuses.FindOrAdd(Effect.ExtraStatName) += Effect.EffectAmount;
+					}
+				}
+				else
+				{
+					StatBonuses.FindOrAdd(Effect.TargetStat) += Effect.EffectAmount;
 				}
 			}
 		}
@@ -4861,6 +4993,39 @@ void AMyProject1Character::RefreshEquipmentStats()
 	}
 	CyclePhaseExtraStatBonuses = NewCyclePhaseExtraStatBonuses;
 
+	// 2-f. Fame/Favor/Hostility/Charm/Alcohol/SPはアイテム消費・会話等でも恒久的に増減する値のため、
+	//      ExtraStatsと同様に「前回加算した分」との差分だけを反映する（記録はMyStatsに持たせてセーブ/ロードでも二重加算しない）
+	{
+		const TPair<ETargetStat, FName> PersistentStats[] = {
+			{ ETargetStat::Fame, FName(TEXT("Fame")) },
+			{ ETargetStat::Favor, FName(TEXT("Favor")) },
+			{ ETargetStat::Hostility, FName(TEXT("Hostility")) },
+			{ ETargetStat::Charm, FName(TEXT("Charm")) },
+			{ ETargetStat::Alcohol, FName(TEXT("Alcohol")) },
+			{ ETargetStat::SP, FName(TEXT("SP")) },
+		};
+		for (const TPair<ETargetStat, FName>& Entry : PersistentStats)
+		{
+			const float NewBonus = GetBonus(Entry.Key);
+			const float Delta = NewBonus - MyStats.AppliedEquipmentBonuses.FindRef(Entry.Value);
+			if (Delta != 0.0f)
+			{
+				switch (Entry.Key)
+				{
+				case ETargetStat::Fame:      MyStats.Fame += Delta;      break;
+				case ETargetStat::Favor:     MyStats.Favor += Delta;     break;
+				case ETargetStat::Hostility: MyStats.Hostility += Delta; break;
+				case ETargetStat::Charm:     MyStats.Charm += Delta;     break;
+				case ETargetStat::Alcohol:   MyStats.Alcohol += Delta;   break;
+				case ETargetStat::SP:        MyStats.SP += Delta;        break;
+				default: break;
+				}
+			}
+			if (NewBonus != 0.0f) { MyStats.AppliedEquipmentBonuses.Add(Entry.Value, NewBonus); }
+			else { MyStats.AppliedEquipmentBonuses.Remove(Entry.Value); }
+		}
+	}
+
 	// 3. 現在HPの変化前状態を記憶
 	bool bWasFullHP = (MyStats.HP >= MyStats.MaxHP);
 
@@ -4881,6 +5046,7 @@ void AMyProject1Character::RefreshEquipmentStats()
 	MyStats.MovementSpeedRateBonus = GetBonus(ETargetStat::MovementSpeedRate);
 	MyStats.CriticalRateBonus = GetBonus(ETargetStat::CriticalRate);
 	MyStats.AttackSpeedRateBonus = GetBonus(ETargetStat::AttackSpeedRate);
+	MyStats.StaminaRecoveryRateBonus = GetBonus(ETargetStat::StaminaRecoveryRate);
 
 	// 5. STRやVITから派生する戦闘力（攻撃力・防御力・命中率・回避率）を計算
 	// ※AttackPower/DefensePower自体はRecalculateFatigueAdjustedCombatStats()が疲労補正込みで確定させるので、

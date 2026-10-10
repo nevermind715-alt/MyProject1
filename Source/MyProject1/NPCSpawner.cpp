@@ -282,13 +282,13 @@ void ANPCSpawner::OnEnemyDefeatedPlayer()
 		{
 			if (UQuestComponent* QuestComp = PlayerChar->FindComponentByClass<UQuestComponent>())
 			{
-				// CancelQuest自身はObjectiveClearedFlagしか外さない。受注で立てたAcceptFlagも外すことで、
+				// FailQuest自身はObjectiveClearedFlagしか外さない。受注で立てたAcceptFlagも外すことで、
 				// それをRequiredFlagにしているQuestItemPoint等が既存の仕組み（OnFlagRemoved）で自動的に非表示になり、
 				// セーブ／レベル遷移をまたいでも復活しない
 				FQuestData QuestData;
 				const bool bHasData = QuestComp->GetQuestData(FailQuestIDOnPlayerDefeat, QuestData);
 
-				QuestComp->CancelQuest(FailQuestIDOnPlayerDefeat);
+				QuestComp->FailQuest(FailQuestIDOnPlayerDefeat);
 
 				if (bHasData && !QuestData.AcceptFlag.IsNone())
 				{

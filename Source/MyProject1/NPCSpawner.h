@@ -210,7 +210,8 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Overrides|Event|Defeat Cleanup")
 	bool bRemoveOnPlayerDefeat = false;
 
-	/** 空欄でなければ、敗北時にこのQuestIDのクエストを失敗扱い（CancelQuestと同じ後始末。再受注可）にする。
+	/** 空欄でなければ、敗北時にこのQuestIDのクエストを失敗扱い（CancelQuestと同じ後始末＋「依頼を失敗した…」ログ＋
+	 *  DT_QuestDataのFailurePenalty適用。再受注可）にする。
 	 *  クエストのAcceptFlagも外すので、それをRequiredFlagにしているQuestItemPointは自動的に非表示になる。
 	 *  進行中でなければクエスト自体は何も起きない */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Overrides|Event|Defeat Cleanup")

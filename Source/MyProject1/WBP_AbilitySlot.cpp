@@ -5,20 +5,31 @@
 void UWBP_AbilitySlot::Setup(int32 InSlotIndex, bool bInClickable)
 {
 	SlotIndex = InSlotIndex;
-	bClickable = bInClickable;
-
-	// 枠の中身（SizeBox/Overlay等のパネル、Collapsed中のImage、HitTestInvisibleの文字）は
-	// どれもクリックを受けないため、このウィジェット自身をVisibleにしておかないと
-	// クリックが枠を素通りして NativeOnMouseButtonDown が呼ばれない
-	if (bClickable)
-	{
-		SetVisibility(ESlateVisibility::Visible);
-	}
+	SetClickable(bInClickable);
 
 	// インデックス0〜8がキー1〜9、9がキー0
 	if (Txt_Key)
 	{
 		Txt_Key->SetText(FText::AsNumber((SlotIndex + 1) % 10));
+	}
+}
+
+void UWBP_AbilitySlot::SetClickable(bool bInClickable)
+{
+	if (bClickable == bInClickable) return;
+	bClickable = bInClickable;
+
+	// 枠の中身（SizeBox/Overlay等のパネル、Collapsed中のImage、HitTestInvisibleの文字）は
+	// どれもクリックを受けないため、クリック可能な間はこのウィジェット自身をVisibleにしておかないと
+	// クリックが枠を素通りして NativeOnMouseButtonDown が呼ばれない
+	if (bClickable)
+	{
+		VisibilityBeforeClickable = GetVisibility();
+		SetVisibility(ESlateVisibility::Visible);
+	}
+	else
+	{
+		SetVisibility(VisibilityBeforeClickable);
 	}
 }
 

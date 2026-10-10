@@ -524,7 +524,7 @@ private:
 	TWeakObjectPtr<class UAnimMontage> CurrentAnimEventMontage;
 
 	// FAnimSequenceEntry::Soundで現在再生中のサウンド（メイン参加者のみ。ExtraPairingsにはSound設定がない）。
-	// ステップ開始時、直前のCurrentAnimEventSoundと同じSoundWaveなら再生し直さず継続し、異なる場合のみ
+	// ステップ開始時、直前のCurrentAnimEventSoundと同じSoundWaveかつ再生中なら再生し直さず継続し、異なる場合や再生終了済みの場合は
 	// CurrentAnimEventAudioComponentを止めてから新しいサウンドを再生する（PlayAnimEventStep参照）。
 	// 全Step完了・強制終了のどちらでもDestroyAnimEventExtraActorsで停止・クリアする
 	TWeakObjectPtr<class UAudioComponent> CurrentAnimEventAudioComponent;
@@ -898,6 +898,11 @@ private:
 	TWeakObjectPtr<class ASleepPoint> PendingEventEndReturnSleepPoint;
 	FText PendingEventEndNarrationText;
 	float PendingEventEndNarrationDisplaySeconds = 3.0f;
+	float PendingEventEndTimeAdvanceHours = 0.0f;
+
+	// アクティブイベント中のAnimEventでO・Gaugeが発動した回数（FEventDefinition::EventEndNarrationText2・SuccessActions2のルート2条件。
+	// StartEventで0にし、ResolveActiveEventでセリフ選択後に0へ戻す）。回数でセリフを増やす将来拡張用に回数で保持する
+	int32 ActiveEventOGaugeTriggerCount = 0;
 
 	/** ExecuteWarpProcessから、暗転済み（画面が真っ暗）のタイミングで呼ばれる。PendingEventEndNarrationTextを
 	 *  UDialogComponent::OnFadeNarrationLineへ送ってPendingEventEndNarrationDisplaySeconds秒間表示する

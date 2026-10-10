@@ -385,6 +385,11 @@ struct FCharacterStats
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats")
 	float MentalBonus = 0.0f;
 
+	/** 直近でRefreshEquipmentStatsが装備等から加算したFame/Favor/Hostility/Charm/Alcohol/SPの量（再計算時に差分だけ反映するための記録。
+	    これらはアイテム消費等でも恒久的に増減する値で単純な再計算ができないため。MyStatsごとセーブされるので、ロード後の二重加算も防げる） */
+	UPROPERTY()
+	TMap<FName, float> AppliedEquipmentBonuses; // キー: "Fame" "Favor" "Hostility" "Charm" "Alcohol" "SP"（ETargetStatはこの構造体より後ろで定義されているためFName）
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats")
 	float Energy = 0.0f;
 
@@ -393,6 +398,12 @@ struct FCharacterStats
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats")
 	float BaseEnergy = 0.0f; // 蓄積疲労度（休息してもこれ以上は回復しない値）
+
+	// BaseEnergyのうち「シャワーでしか取れない分」（常にShowerEnergy <= BaseEnergy）。時間経過で増えるBaseEnergyのうち
+	// 先にここへ溜まり（上限はAMyProject1Character::FatigueShowerCapacity）、あふれた分が睡眠で取れる分になる。
+	// 睡眠はBaseEnergyをこの値までしか下げられない
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats")
+	float ShowerEnergy = 0.0f;
 
 	// --- O・Gauge（疲労とは別枠の、敵の攻撃やイベントで溜まっていくゲージ） ---
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats")
@@ -425,6 +436,10 @@ struct FCharacterStats
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats|RateBonus")
 	float AttackSpeedRateBonus = 0.0f;
+
+	// スタミナ自然回復速度に対する％補正（+1なら1.01倍、0.5なら1.005倍）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats|RateBonus")
+	float StaminaRecoveryRateBonus = 0.0f;
 
 	// --- 予備・カスタムステータス枠 ---
 	// 好きな名前（FName）と数値（float）を自由にペアにして追加できるリスト
@@ -626,7 +641,8 @@ enum class ETargetStat : uint8
 	MovementSpeedRate   UMETA(DisplayName = "移動速度％ (MovementSpeedRate)"),
 	SP          UMETA(DisplayName = "SP"),
 	CriticalRate    UMETA(DisplayName = "クリティカル発生率％ (CriticalRate)"),
-	AttackSpeedRate UMETA(DisplayName = "攻撃速度％ (AttackSpeedRate)")
+	AttackSpeedRate UMETA(DisplayName = "攻撃速度％ (AttackSpeedRate)"),
+	StaminaRecoveryRate UMETA(DisplayName = "スタミナ回復速度％ (StaminaRecoveryRate)")
 };
 
 // Stats to Changeで変化させる対象。NPCを選ぶと、会話相手であるそのNPC自身のMyStats（個体ごとのFavor/Hostility等）を書き換える
@@ -1010,7 +1026,10 @@ enum class EDialogActionType : uint8
 	ShowTextDuringFade UMETA(DisplayName = "暗転中にセリフを表示する（ActionPayload未使用。FadeNarrationTextを使用）"),
 	// RemoveGilと同じ処理（ActionPayloadに金額を入れ、プレイヤーの所持金から減らす）だが、
 	// 盗まれたのではなく料金の支払いなので、ログは「○○￥ 支払った！」と表示する
-	PayGil          UMETA(DisplayName = "お金を支払う（ActionPayload=金額）")
+	PayGil          UMETA(DisplayName = "お金を支払う（ActionPayload=金額）"),
+	// プレイヤーの蓄積疲労度(BaseEnergy)をシャワーで回復する。睡眠ではBaseEnergyのうちShowerEnergy分より下には回復できないが、
+	// これはその分（ShowerEnergy）を取れる。ActionPayloadに回復量を数値で入れる（空欄なら溜まっている分を全て取る）
+	Shower          UMETA(DisplayName = "シャワーで疲労を回復する（ActionPayload=回復量。空欄で全回復）")
 };
 
 // --- 選択肢1つ分のデータ ---
@@ -1310,6 +1329,26 @@ struct FQuestStatRequirement
 	}
 };
 
+// --- クエスト成功報酬のステータス増減1件分（例：Fame を +10） ---
+USTRUCT(BlueprintType)
+struct FQuestStatReward
+{
+	GENERATED_BODY()
+
+	// 変化させるプレイヤーのステータス（Noneなら無視される）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Reward")
+	ETargetStat Stat = ETargetStat::None;
+
+	// Statが「カスタムステータス (ExtraStats)」の時だけ使う、ExtraStats側のキー名。
+	// プレイヤーのMyStats.ExtraStatsに事前登録済みのキーのみ変更できる（会話アクションのExtraStatNameと同じ仕様）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Reward", meta = (EditCondition = "Stat == ETargetStat::CustomExtraStat"))
+	FName ExtraStatName;
+
+	// 変化量。減らしたい場合は負の値を入れる（会話アクションの増減と同じ符号ルール）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Reward")
+	float Amount = 0.0f;
+};
+
 // --- クエストの基本データ（データテーブル用） ---
 // --- クエストの基本データ（データテーブル用） ---
 USTRUCT(BlueprintType)
@@ -1407,6 +1446,11 @@ struct FQuestData : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Reward")
 	FName RewardAbilityID;
 
+	// --- クエストのクリア報酬（ステータス増減） ---
+	// 報告完了時に、ここに列挙した全てのステータスを順に増減する（名声+10と好感度+5を同時に、等）。空なら何もしない
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Reward")
+	TArray<FQuestStatReward> RewardStats;
+
 	// --- クエストのクリア報酬（称号・フラグ） ---
 	// 空欄なら何もしない。文字が入っていればクリア時にフラグを付与
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Reward")
@@ -1466,17 +1510,17 @@ struct FQuestData : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|TimeLimit", meta = (ClampMin = "0"))
 	int32 TimeLimitDays = 0;
 
-	// 強制失敗した時に変化させるプレイヤーのステータス（Noneなら変化なし）
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|TimeLimit", meta = (EditCondition = "TimeLimitDays > 0"))
+	// 失敗した時（期限切れ、またはNPCSpawnerのFailQuestIDOnPlayerDefeatによる敗北失敗）に変化させるプレイヤーのステータス（Noneなら変化なし）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|TimeLimit")
 	ETargetStat FailurePenaltyStat = ETargetStat::None;
 
 	// FailurePenaltyStatが「カスタムステータス (ExtraStats)」の時だけ使う、ExtraStats側のキー名。
 	// プレイヤーのMyStats.ExtraStatsに事前登録済みのキーのみ変更できる（会話アクションのExtraStatNameと同じ仕様）
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|TimeLimit", meta = (EditCondition = "TimeLimitDays > 0 && FailurePenaltyStat == ETargetStat::CustomExtraStat"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|TimeLimit", meta = (EditCondition = "FailurePenaltyStat == ETargetStat::CustomExtraStat"))
 	FName FailurePenaltyExtraStatName;
 
 	// 強制失敗した時の変化量。名声などを下げたい場合は -10 のように負の値を入れる（会話アクションの増減と同じ符号ルール）
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|TimeLimit", meta = (EditCondition = "TimeLimitDays > 0 && FailurePenaltyStat != ETargetStat::None"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|TimeLimit", meta = (EditCondition = "FailurePenaltyStat != ETargetStat::None"))
 	float FailurePenaltyAmount = 0.0f;
 };
 
@@ -1853,6 +1897,12 @@ struct FEventDefinition : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event")
 	TArray<FEventAction> SuccessActions;
 
+	// ルート2（AnimEvent再生中にO・Gaugeが発動した場合。EventEndNarrationText2と同じ条件）で、SuccessActionsの代わりに
+	// 実行するアクション群。ルート2では本リストのみが実行され、SuccessActionsは実行されない（空なら何も実行しない）。
+	// 成立（クリア）時のみ対象で、FailureActionsは常に共通
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event")
+	TArray<FEventAction> SuccessActions2;
+
 	// 失敗時に実行するアクション群（失敗の判定自体は施設側のBP等からResolveActiveEvent(false)を呼んで通知する）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event")
 	TArray<FEventAction> FailureActions;
@@ -1893,9 +1943,20 @@ struct FEventDefinition : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event", meta = (EditCondition = "bShowNarrationOnEnd", MultiLine = true))
 	FText EventEndNarrationText;
 
+	// AnimEvent再生中にO・Gaugeが閾値（100）に達して発動した場合、EventEndNarrationTextの代わりに表示する暗転セリフ。
+	// 空の場合は発動していてもEventEndNarrationTextを表示する。発動の記録はイベント完了時にリセットされる
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event", meta = (EditCondition = "bShowNarrationOnEnd", MultiLine = true))
+	FText EventEndNarrationText2;
+
 	// EventEndNarrationTextを表示しておく秒数（この秒数後、自動的に消えて戻り先へワープする）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event", meta = (EditCondition = "bShowNarrationOnEnd", ClampMin = "0.1"))
 	float EventEndNarrationDisplaySeconds = 3.0f;
+
+	// イベント終了時にゲーム内時間を進める時間（単位：時間。1=1時間、0.5=30分）。0なら進めない。
+	// 終了ナレーションがある場合はEventEndNarrationTextを表示し始めるタイミング、無い場合は戻り先へのワープの
+	// 暗転中（Instantは即時）に進める
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event", meta = (ClampMin = "0.0"))
+	float EventEndTimeAdvanceHours = 0.0f;
 };
 
 // ==========================================
@@ -2061,6 +2122,47 @@ struct FAnimEventStep
 	// false: モンタージュを1回再生し、再生終了と同時に次のステップへ進む（例：C・FINALの単発モーション）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent")
 	bool bLoop = false;
+
+	// このステップの再生開始時に1回だけ適用するステータス増減（FEventAction::StatToChange等と同じ仕様。
+	// UGameplayActionLibrary::ApplyStatChangeで処理するため、対応する種別もそちらに準じる）。
+	// bLoop=trueでもループのたびには適用されない。StatToChange=Noneまたは増減量0なら何もしない
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent|Stats")
+	ETargetStat StatToChange = ETargetStat::None;
+
+	// StatToChange=CustomExtraStat時の対象ExtraStats名
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent|Stats")
+	FName ExtraStatName;
+
+	// 増減量（負数で減少）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent|Stats")
+	float StatChangeAmount = 0.0f;
+
+	// ステータスを増減させる対象。NPCはイベント起点のActor（PlayTarget=NPCと同じ）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent|Stats")
+	EStatTargetActor StatTargetActor = EStatTargetActor::Player;
+
+	// このステップの再生開始時に1回だけプレイヤーのO・Gaugeへ加算する値（負数で減少、0なら何もしない）。
+	// AMyProject1Character::AddOGauge経由のため、上昇速度％補正と閾値到達時の発動処理も通常通り行われる
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent|Stats")
+	float OGaugeAmount = 0.0f;
+
+	// OGaugeAmount（基本増加量）への補正に使うExtraStats。チェックしたものの現在値(0〜100)を合算して
+	// 「基本値 × (1 + 合計/100)」にする（例：基本25、ExStats3=100とExStats4=100を両方チェック→25×3=75）。
+	// 補正はプレイヤーのExtraStatsの値を参照する。全てfalseなら基本値のまま
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent|Stats")
+	bool bOGaugeBonusFromExStats3 = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent|Stats")
+	bool bOGaugeBonusFromExStats4 = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent|Stats")
+	bool bOGaugeBonusFromExStats5 = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent|Stats")
+	bool bOGaugeBonusFromExStats6 = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent|Stats")
+	bool bOGaugeBonusFromExStats7 = false;
 };
 
 // イベント再生中だけ表情モーフを上書きする設定1件分（DT_AnimEvents用）。
@@ -2291,10 +2393,6 @@ struct FEquipmentData : public FTableRowBase
 	// 固いアクセサリー用（ネックレス腕輪・足輪など）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment")
 	TSoftObjectPtr<UStaticMesh> EquipStaticMesh;
-
-	// ステータス補正値（＋ボタンで好きなステータスを好きな数だけ追加可能。ex_statsも可）
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment|Stats")
-	TArray<FEquipmentStatModifier> StatModifiers;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment|Offset")
 	float HeightOffset = 0.0f;

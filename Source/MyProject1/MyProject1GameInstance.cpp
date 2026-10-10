@@ -566,6 +566,11 @@ void UMyProject1GameInstance::BeginWarpFade(ACharacter* TargetCharacter)
 			return;
 		}
 
+		// まだ画面が真っ暗な今のうちに、保留中の睡眠による時間経過を確定させる（HandleWarpFadeOutCompleteと同じ順序）。
+		// 睡眠イベントの終了ナレーション経由（BeginEventEndNarration→ContinueEventAfterEndNarration）では
+		// こちらの経路でしか明転に入らず、ここで確定しないと保留したまま時間が進まなくなる
+		ApplyPendingSleepTimeAdvanceIfNeeded();
+
 		// WBP_LoadingScreen側へ「暗転アニメーション終了時に止めていた自動明転を、今開始してよい」と合図する
 		OnNarrationReadyToFadeIn.Broadcast();
 
@@ -1211,6 +1216,9 @@ bool UMyProject1GameInstance::ApplyPendingCharacterLoad(AMyProject1Character* Ch
 		}
 	}
 
+	// 装備が無い場合でも、所持している「だいじなもの」のステータス増減をロード後の所持品で再集計する
+	Character->RefreshEquipmentStats();
+
 	// サイクル状態はTotalElapsedDaysから再計算されるだけなので、明示的に呼んで最新化する
 	Character->UpdateCycleState();
 
@@ -1244,6 +1252,9 @@ void UMyProject1GameInstance::StartEvent(FName EventID, ACharacter* PlayerCharac
 	if (EventID.IsNone()) { UE_LOG(LogTemp, Warning, TEXT("StartEvent: EventID is None")); return; }
 	if (bHasActiveEvent) { UE_LOG(LogTemp, Warning, TEXT("StartEvent: bHasActiveEvent is already true (ActiveEventID=%s)"), *ActiveEventID.ToString()); return; }
 
+	// 前回イベントが異常終了した場合などに発動記録が残らないよう、開始時にもリセットしておく
+	ActiveEventOGaugeTriggerCount = 0;
+
 	FEventDefinition* Definition = EventDefinitionDataTable->FindRow<FEventDefinition>(EventID, TEXT("StartEvent"));
 	if (!Definition) { UE_LOG(LogTemp, Warning, TEXT("StartEvent: EventID '%s' not found in EventDefinitionDataTable"), *EventID.ToString()); return; }
 
@@ -1265,6 +1276,17 @@ void UMyProject1GameInstance::StartEvent(FName EventID, ACharacter* PlayerCharac
 		}
 
 		ExecuteEventActionList(Definition->SuccessActions, PlayerCharacter);
+
+		// 暗転を挟まない即時イベントなので、そのまま時間を進める
+		const int32 AdvanceMinutes = FMath::RoundToInt(Definition->EventEndTimeAdvanceHours * 60.0f);
+		if (AdvanceMinutes > 0)
+		{
+			bPendingSleepTimeAdvanceApply = true;
+			PendingSleepTimeAdvanceMinutes = AdvanceMinutes;
+			PendingSleepTimeAdvanceCharacter = PlayerCharacter;
+			PendingSleepTimeAdvanceIsSleep = false;
+			ApplyPendingSleepTimeAdvanceIfNeeded();
+		}
 		return;
 	}
 
@@ -1388,6 +1410,17 @@ void UMyProject1GameInstance::HandleInstantEventNarrationTimerComplete()
 	if (Definition)
 	{
 		ExecuteEventActionList(Definition->SuccessActions, PlayerChar);
+
+		// 終了セリフの有無にかかわらず、まだ画面が真っ暗なこのタイミングでゲーム内時間を進める
+		const int32 AdvanceMinutes = FMath::RoundToInt(Definition->EventEndTimeAdvanceHours * 60.0f);
+		if (AdvanceMinutes > 0)
+		{
+			bPendingSleepTimeAdvanceApply = true;
+			PendingSleepTimeAdvanceMinutes = AdvanceMinutes;
+			PendingSleepTimeAdvanceCharacter = PlayerChar;
+			PendingSleepTimeAdvanceIsSleep = false;
+			ApplyPendingSleepTimeAdvanceIfNeeded();
+		}
 	}
 
 	// 終了セリフがあれば、暗転したまま表示してから明転する
@@ -1587,9 +1620,15 @@ void UMyProject1GameInstance::ResolveActiveEvent(bool bSuccess)
 		: nullptr;
 	ACharacter* PlayerChar = ActiveEventPlayer.Get();
 
+	// AnimEvent中にO・Gaugeが発動していればルート2（SuccessActions2・EventEndNarrationText2）、そうでなければルート1。
+	// 発動の記録はここで消費してリセットする
+	const bool bRoute2 = ActiveEventOGaugeTriggerCount > 0;
+	ActiveEventOGaugeTriggerCount = 0;
+
 	if (Definition && PlayerChar)
 	{
-		const TArray<FEventAction>& Actions = bSuccess ? Definition->SuccessActions : Definition->FailureActions;
+		const TArray<FEventAction>& Actions = !bSuccess ? Definition->FailureActions
+			: (bRoute2 ? Definition->SuccessActions2 : Definition->SuccessActions);
 		ExecuteEventActionList(Actions, PlayerChar);
 	}
 
@@ -1615,6 +1654,11 @@ void UMyProject1GameInstance::ResolveActiveEvent(bool bSuccess)
 	// プレイヤーがそのSleepPointにインタラクトした時点の座標にする（ActiveEventContextActor.Reset()前に取得しておく）
 	ASleepPoint* ReturnToSleepPoint = bUsedContextActorLocation ? Cast<ASleepPoint>(UsedContextActor) : nullptr;
 
+	// ルート2ならEventEndNarrationText2、そうでなければ（またはText2が空なら）Text1を使う
+	const FText& EndNarrationText = (Definition && bRoute2 && !Definition->EventEndNarrationText2.IsEmpty())
+		? Definition->EventEndNarrationText2
+		: (Definition ? Definition->EventEndNarrationText : FText::GetEmpty());
+
 	// bShowNarrationOnEnd用に、ActiveEventID等をクリアする前に戻り先情報を退避しておく
 	// （ContinueEventAfterEndNarrationはこの後ActiveEventPlayer等ではなくこちらを参照する）
 	PendingEventEndReturnPlayer = PlayerChar;
@@ -1629,14 +1673,30 @@ void UMyProject1GameInstance::ResolveActiveEvent(bool bSuccess)
 
 	// bShowNarrationOnEndなら、戻り先への実際のワープ要求より先に新規で暗転を要求する。暗転完了後の処理は
 	// ExecuteWarpProcess→BeginEventEndNarrationへ続く（bPendingEventStartNarrationと同じパターン）
-	if (Definition && Definition->bShowNarrationOnEnd && !Definition->EventEndNarrationText.IsEmpty() && PlayerChar)
+	if (Definition && Definition->bShowNarrationOnEnd && !EndNarrationText.IsEmpty() && PlayerChar)
 	{
-		PendingEventEndNarrationText = Definition->EventEndNarrationText;
+		PendingEventEndNarrationText = EndNarrationText;
 		PendingEventEndNarrationDisplaySeconds = Definition->EventEndNarrationDisplaySeconds;
+		PendingEventEndTimeAdvanceHours = Definition->EventEndTimeAdvanceHours;
 
 		bPendingEventEndNarration = true;
 		BeginWarpFade(PlayerChar);
 		return;
+	}
+
+	// ナレーション無しの場合は、戻り先へのワープ（または保険の経路）の暗転中に、睡眠と同じ
+	// 保留→確定の仕組み（ApplyPendingSleepTimeAdvanceIfNeeded）で時間を進める
+	const int32 AdvanceMinutes = Definition ? FMath::RoundToInt(Definition->EventEndTimeAdvanceHours * 60.0f) : 0;
+	if (AdvanceMinutes > 0 && PlayerChar)
+	{
+		// 睡眠由来の保留（睡眠分の時間）が残っている場合は上書きせず加算する
+		PendingSleepTimeAdvanceMinutes = (bPendingSleepTimeAdvanceApply ? PendingSleepTimeAdvanceMinutes : 0) + AdvanceMinutes;
+		if (!bPendingSleepTimeAdvanceApply)
+		{
+			PendingSleepTimeAdvanceIsSleep = false;
+		}
+		bPendingSleepTimeAdvanceApply = true;
+		PendingSleepTimeAdvanceCharacter = PlayerChar;
 	}
 
 	ContinueEventAfterEndNarration();
@@ -1646,6 +1706,23 @@ void UMyProject1GameInstance::BeginEventEndNarration()
 {
 	ACharacter* PlayerChar = PendingEventEndReturnPlayer.Get();
 	UDialogComponent* PlayerDialogComp = PlayerChar ? PlayerChar->FindComponentByClass<UDialogComponent>() : nullptr;
+
+	// 終了ナレーションを出すこのタイミング（画面が真っ暗な間）でゲーム内時間を進める。
+	// 睡眠と同じ経路（疲労・ExStats17自然減少の反映込み）を、保留せず即時に確定させて使う
+	const int32 AdvanceMinutes = FMath::RoundToInt(PendingEventEndTimeAdvanceHours * 60.0f);
+	PendingEventEndTimeAdvanceHours = 0.0f;
+	if (AdvanceMinutes > 0)
+	{
+		// 睡眠由来の保留（睡眠分の時間）が残っている場合は上書きせず加算する
+		PendingSleepTimeAdvanceMinutes = (bPendingSleepTimeAdvanceApply ? PendingSleepTimeAdvanceMinutes : 0) + AdvanceMinutes;
+		if (!bPendingSleepTimeAdvanceApply)
+		{
+			PendingSleepTimeAdvanceIsSleep = false;
+		}
+		bPendingSleepTimeAdvanceApply = true;
+		PendingSleepTimeAdvanceCharacter = PlayerChar;
+		ApplyPendingSleepTimeAdvanceIfNeeded();
+	}
 
 	if (!PlayerDialogComp)
 	{
@@ -1691,7 +1768,9 @@ void UMyProject1GameInstance::ContinueEventAfterEndNarration()
 
 	if (ReturnToSleepPoint && PlayerChar)
 	{
-		RequestWarpToTransform(ReturnToSleepPoint->GetPreSleepInteractTransform(), PlayerChar);
+		// 戻り先へのワープはイベント終了後なので、カメラ衝突/重力の一時無効化（bIsEventContext=true）は行わない。
+		// 行うと、元に戻す側（ResolveActiveEvent/BeginAnimEventSequenceIfNeeded）が既に走り終えているため無効のまま残る
+		RequestWarpToTransform(ReturnToSleepPoint->GetPreSleepInteractTransform(), PlayerChar, /*bIsEventContext=*/false);
 	}
 	else if (!ReturnID.IsNone() && PlayerChar)
 	{
@@ -2133,9 +2212,12 @@ void UMyProject1GameInstance::PlayAnimEventStep(int32 StepIndex)
 
 		PlayAnimEventStepMontage(AnimInst, Montage);
 
-		// FAnimSequenceEntry::Soundの再生。前ステップと同じSoundWaveなら再生し直さず継続し、
-		// 異なる場合（None⇔設定済みを含む）のみ前のサウンドを止めてから切り替える
-		if (SelectedEntry->Sound != CurrentAnimEventSound.Get())
+		// FAnimSequenceEntry::Soundの再生。前ステップと同じSoundWaveで、かつまだ再生中の場合のみ再生し直さず継続し、
+		// 異なる場合（None⇔設定済みを含む）や前のサウンドが既に再生終了している場合は、前のサウンドを止めてから切り替える
+		// （再生終了済みのAudioComponentは自動破棄されて無効になるため、Soundの一致だけで継続扱いにすると鳴らなくなる）
+		const UAudioComponent* PrevAudioComp = CurrentAnimEventAudioComponent.Get();
+		const bool bPrevSoundStillPlaying = PrevAudioComp && PrevAudioComp->IsPlaying();
+		if (SelectedEntry->Sound != CurrentAnimEventSound.Get() || (SelectedEntry->Sound && !bPrevSoundStillPlaying))
 		{
 			if (UAudioComponent* PrevAudio = CurrentAnimEventAudioComponent.Get())
 			{
@@ -2203,6 +2285,28 @@ void UMyProject1GameInstance::PlayAnimEventStep(int32 StepIndex)
 		// 再生対象・アセットのいずれも見つからない場合は、このステップを飛ばして次へ進む
 		PlayAnimEventStep(StepIndex + 1);
 		return;
+	}
+
+	// ステップ再生開始時に1回だけ、ステータス増減とO・Gauge加算を適用する（ループ再生し直しでは通らない）
+	if (AMyProject1Character* StatPrimaryCharacter = Cast<AMyProject1Character>(AnimEventPrimaryCharacter.Get()))
+	{
+		UGameplayActionLibrary::ApplyStatChange(StatPrimaryCharacter, AnimEventSecondaryContextActor.Get(),
+			Step.StatToChange, Step.StatTargetActor, Step.ExtraStatName, Step.StatChangeAmount);
+
+		if (Step.OGaugeAmount != 0.0f)
+		{
+			// チェックされたExStats3〜7の現在値(0〜100)を合算し、100につき基本値の+100%として上乗せする
+			float BonusPercent = 0.0f;
+			if (Step.bOGaugeBonusFromExStats3) BonusPercent += StatPrimaryCharacter->GetExtraStat(TEXT("ExStats3"));
+			if (Step.bOGaugeBonusFromExStats4) BonusPercent += StatPrimaryCharacter->GetExtraStat(TEXT("ExStats4"));
+			if (Step.bOGaugeBonusFromExStats5) BonusPercent += StatPrimaryCharacter->GetExtraStat(TEXT("ExStats5"));
+			if (Step.bOGaugeBonusFromExStats6) BonusPercent += StatPrimaryCharacter->GetExtraStat(TEXT("ExStats6"));
+			if (Step.bOGaugeBonusFromExStats7) BonusPercent += StatPrimaryCharacter->GetExtraStat(TEXT("ExStats7"));
+
+			const int32 TriggerCountBefore = StatPrimaryCharacter->OGaugeTriggerCount;
+			StatPrimaryCharacter->AddOGauge(Step.OGaugeAmount * (1.0f + BonusPercent / 100.0f));
+			ActiveEventOGaugeTriggerCount += StatPrimaryCharacter->OGaugeTriggerCount - TriggerCountBefore;
+		}
 	}
 
 	if (Step.bLoop && Step.Duration > 0.0f)

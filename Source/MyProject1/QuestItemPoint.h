@@ -62,6 +62,11 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item Interact|Display")
 	FString PointName;
 
+	/** このポイントをターゲットできる距離(cm)。0以下ならプレイヤーのInteractRangeを使う。
+	    壁越しに隣の部屋/家から選ばれてしまう時に、小さい値（例：100〜150）を設定する */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item Interact|Display")
+	float TargetRangeOverride = 0.0f;
+
 	// --- アイテム設定 ---
 	/** 取得させるか、回収するか、アイテムなしのインタラクトのみか */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item Interact")

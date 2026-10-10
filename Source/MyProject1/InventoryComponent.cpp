@@ -154,6 +154,12 @@ bool UInventoryComponent::AddItemInternal(FName ItemID, int32 Amount, bool bSile
 
 		// UI更新
 		OnInventoryUpdated.Broadcast();
+
+		// だいじなもの(KeyItem)は所持しているだけでEffectsのステータス増減が有効になるため、再集計する
+		if (OwnerChar && ItemInfo->ItemType == EItemType::KeyItem && ItemInfo->Effects.Num() > 0)
+		{
+			OwnerChar->RefreshEquipmentStats();
+		}
 	}
 
 	return RemainingAmount <= 0;
@@ -204,6 +210,16 @@ bool UInventoryComponent::RemoveItem(FName ItemID, int32 Amount)
 	}
 
 	OnInventoryUpdated.Broadcast();
+
+	// だいじなもの(KeyItem)の所持によるステータス増減を再集計する（所持が無くなれば元に戻る）
+	const FItemData* RemovedItemInfo = GetItemData(ItemID);
+	if (RemovedItemInfo && RemovedItemInfo->ItemType == EItemType::KeyItem && RemovedItemInfo->Effects.Num() > 0)
+	{
+		if (AMyProject1Character* OwnerChar = Cast<AMyProject1Character>(GetOwner()))
+		{
+			OwnerChar->RefreshEquipmentStats();
+		}
+	}
 	return true;
 }
 

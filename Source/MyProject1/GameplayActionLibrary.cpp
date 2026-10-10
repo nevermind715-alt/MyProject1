@@ -216,6 +216,14 @@ void UGameplayActionLibrary::ExecuteAction(IRpgCharacterInterface* RpgInterface,
 		}
 		break;
 
+	case EDialogActionType::Shower:
+		// 疲労回復の実処理とログはAMyProject1Character側。ActionPayloadが空欄なら0が渡り、既定の回復量が使われる
+		if (AMyProject1Character* PlayerChar = Cast<AMyProject1Character>(OwnerActor))
+		{
+			PlayerChar->ApplyShowerFatigueRecovery(FCString::Atof(*ActionPayload));
+		}
+		break;
+
 	case EDialogActionType::Close:
 		// ダイアログUIを閉じる処理は呼び出し側（DialogComponent）が個別に行う。ここでは何もしない
 		break;
@@ -404,6 +412,7 @@ bool UGameplayActionLibrary::TryGetTargetStatValue(IRpgCharacterInterface* RpgIn
 	case ETargetStat::MovementSpeedRate:   OutValue = Stats.MovementSpeedRateBonus; return true;
 	case ETargetStat::CriticalRate:        OutValue = Stats.CriticalRateBonus; return true;
 	case ETargetStat::AttackSpeedRate:     OutValue = Stats.AttackSpeedRateBonus; return true;
+	case ETargetStat::StaminaRecoveryRate: OutValue = Stats.StaminaRecoveryRateBonus; return true;
 	case ETargetStat::CustomExtraStat:
 		if (!ExtraStatName.IsNone())
 		{

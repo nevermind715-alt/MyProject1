@@ -153,6 +153,10 @@ protected:
 	/** 1秒ごとに呼ばれる疲労度計算関数 */
 	void HandleFatigueTick();
 
+	/** シャワーの「さっぱりして疲れが取れた！」ログの出力待ち。アニメーションシーケンスや暗転が完全に終わって
+	 *  操作できる状態に戻ってから、HandleFatigueTickが1回だけ出す */
+	bool bPendingShowerLog = false;
+
 	/** O・Gaugeを1秒ごとに減衰させるためのタイマー */
 	FTimerHandle TimerHandle_OGaugeUpdate;
 
@@ -344,6 +348,16 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Fatigue")
 	float FatigueDecreasePercentPerSleepHour = 20.0f;
 
+	/** 蓄積疲労度(BaseEnergy)のうち、シャワーでしか取れない分(MyStats.ShowerEnergy)の上限。
+	 *  時間経過で増えた蓄積疲労度は先にここへ溜まり、あふれた分が睡眠で取れる分になる */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Fatigue", meta = (ClampMin = "0.0"))
+	float FatigueShowerCapacity = 15.0f;
+
+	/** シャワーによる疲労回復。MyStats.ShowerEnergy（シャワーでしか取れない分）をBaseEnergy/Energyと一緒に下げる。
+	 *  Amountが0以下ならShowerEnergyを全て取る。ShowerEnergyが0（汚れていない）なら何も起きない */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Fatigue")
+	void ApplyShowerFatigueRecovery(float Amount = 0.0f);
+
 	// --- ExStats17設定（ゲーム内時間の経過で自然に減少するステータス。旧SP自然減少ロジックの移設先） ---
 
 	/** ゲーム内1時間あたりに自然減少するExStats17の量 */
@@ -451,6 +465,9 @@ public:
 	/** O・Gaugeを安全に増減させ、閾値到達時の発動処理も行う関数（敵の攻撃／イベント／インタラクトから呼ぶ） */
 	UFUNCTION(BlueprintCallable, Category = "Combat|OGauge")
 	void AddOGauge(float Amount);
+
+	/** AddOGaugeで閾値到達による発動が起きた累計回数（呼び出し側が前後で比較して発動有無を検知する用。セーブはしない） */
+	int32 OGaugeTriggerCount = 0;
 
 	/** OGaugeTriggerEffectsのうちEffectDuration<=0（即時・永続）の1要素を、消費アイテムの永続効果と同じロジックで適用する */
 	void ApplyInstantOGaugeEffect(const FItemEffect& Effect);
@@ -737,7 +754,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Equipment")
 	void RefreshEquipmentStats();
 
-	// 装備（DT_EquipmentsのStatModifiers）によるステータス補正を反映するかどうか。
+	// 装備（DT_ItemsのEffects）によるステータス補正を反映するかどうか。
 	// Player本体ではtrueのまま、AQuestNPCBaseがfalseに上書きすることで、
 	// NPCはEquipItem()で見た目（メッシュ・オーバーレイ）だけ変わり、MyStatsは変化しなくなる
 	virtual bool ShouldApplyEquipmentStatBonuses() const { return true; }
@@ -772,7 +789,7 @@ public:
 	// 完全新規開始時（セーブロードでも別マップワープでもない初回Play）にだけ装備させる初期装備。
 	// EquipmentDataTable（DT_Equipments）のRow名を並べるだけで、BeginPlayでEquipItem()経由で反映される。
 	// AQuestNPCBase::InitialEquipmentRowNamesのプレイヤー版だが、
-	// プレイヤーはShouldApplyEquipmentStatBonuses()がtrueのままなのでStatModifiersも通常どおり乗る。
+	// プレイヤーはShouldApplyEquipmentStatBonuses()がtrueのままなので装備のステータス補正（DT_ItemsのEffects）も通常どおり乗る。
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Equipment")
 	TArray<FName> DefaultEquipmentRowNames;
 

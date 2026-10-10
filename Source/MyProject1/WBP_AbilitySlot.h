@@ -28,6 +28,9 @@ public:
 	 */
 	void Setup(int32 InSlotIndex, bool bInClickable = false);
 
+	/** クリック可否を後から切り替える（割り当て画面を開いている間だけ、画面上のホットバーの枠をクリック可能にするため）。 */
+	void SetClickable(bool bInClickable);
+
 	/** クリックされた時にWBP_AbilityMenu側でAddDynamicする通知（bInClickable=trueの枠のみ） */
 	UPROPERTY(BlueprintAssignable, Category = "Ability")
 	FOnAbilitySlotClicked OnSlotClicked;
@@ -62,6 +65,9 @@ private:
 
 	int32 SlotIndex = 0;
 	bool bClickable = false;
+
+	/** クリック可能にする前のVisibility（クリック不可へ戻す時に復元する） */
+	ESlateVisibility VisibilityBeforeClickable = ESlateVisibility::SelfHitTestInvisible;
 
 	/** 最後に反映したアビリティID。変化した時だけアイコンを差し替えるための記憶 */
 	FName DisplayedAbilityID;

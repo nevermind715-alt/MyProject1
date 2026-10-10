@@ -9,20 +9,21 @@
 
 class UAbilityComponent;
 class UWBP_AbilityListItem;
-class UWBP_AbilitySlot;
+class UWBP_AbilityHotbar;
 
 /**
- * アビリティ割り当て画面のC++基底クラス。習得済みアビリティの一覧から1つ選び、ホットバー（1〜0キー）のスロットをクリックして割り当てる。
+ * アビリティ割り当て画面のC++基底クラス。習得済みアビリティの一覧から1つ選び、画面下に常時出ているホットバー（1〜0キー）の枠をクリックして割り当てる。
  * 開閉は他のサブメニュー（ステータス／装備／クエスト／セーブ）と同じくAMyProject1HUD::ToggleAbilityMenuが管理する。
- * 一覧・スロット枠の生成、選択、割り当て、解除、説明表示まで全てここで行うため、
- * BP側（WBP_AbilityMenu）はDesignerでの見た目作りと、下記のBindWidget名合わせ・ListItemClass/HotbarSlotClassの指定だけでよい。
+ * この画面を開いている間だけ、HUDのホットバー（UWBP_AbilityHotbar）が割り当てモードになり、この画面より手前に出てクリック可能になる。
+ * 一覧の生成、選択、割り当て、解除、説明表示まで全てここで行うため、
+ * BP側（WBP_AbilityMenu）はDesignerでの見た目作りと、下記のBindWidget名合わせ・ListItemClassの指定だけでよい。
  * グラフに実装すべきロジックは無い。
  *
  * 操作：
  *  - 一覧の行をクリック → そのアビリティを選択（もう一度クリックで選択解除）
- *  - 選択中にスロット枠をクリック → そのスロットへ割り当て（選択は解除される）
- *  - 一覧・スロット枠以外の場所（何もない所）をクリック → 選択を解除
- *  - 何も選択していない時に、割り当て済みのスロット枠をクリック → そのスロットを空にする
+ *  - 選択中にホットバーの枠をクリック → そのスロットへ割り当て（選択は解除される）
+ *  - 一覧・ホットバーの枠以外の場所（何もない所）をクリック → 選択を解除
+ *  - 何も選択していない時に、割り当て済みのホットバーの枠をクリック → そのスロットを空にする
  */
 UCLASS()
 class MYPROJECT1_API UWBP_AbilityMenu : public UUserWidget
@@ -33,10 +34,6 @@ public:
 	/** 一覧の各行に使うウィジェットクラス。BP側のクラスデフォルトでWBP_AbilityListItemを指定する。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ability")
 	TSubclassOf<UWBP_AbilityListItem> ListItemClass;
-
-	/** 下側に並べるスロット枠に使うウィジェットクラス。BP側のクラスデフォルトでWBP_AbilitySlot（ホットバーと同じもの）を指定する。 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ability")
-	TSubclassOf<UWBP_AbilitySlot> HotbarSlotClass;
 
 	/** 閉じる要求。HUDのToggleAbilityMenuへ中継し、背後のコマンドメニューへ操作を戻す。 */
 	UFUNCTION(BlueprintCallable, Category = "Ability")
@@ -54,10 +51,6 @@ protected:
 	/** 習得済みアビリティの行を入れる箱（ScrollBox/VerticalBoxどちらでも良い。UPanelWidgetのAddChild/ClearChildrenだけ使う） */
 	UPROPERTY(meta = (BindWidgetOptional))
 	UPanelWidget* Scroll_Abilities;
-
-	/** スロット枠（10個）を並べる箱（HorizontalBox等） */
-	UPROPERTY(meta = (BindWidgetOptional))
-	UPanelWidget* Box_HotbarSlots;
 
 	/** 選択中アビリティの名前・説明・数値 */
 	UPROPERTY(meta = (BindWidgetOptional))
@@ -79,7 +72,10 @@ protected:
 private:
 	UAbilityComponent* GetAbilityComponent() const;
 
-	/** 習得済みアビリティの一覧とスロット枠を作り直す */
+	/** HUDが常時表示しているホットバー（無ければnullptr） */
+	UWBP_AbilityHotbar* GetScreenHotbar() const;
+
+	/** 習得済みアビリティの一覧を作り直す */
 	void RebuildLists();
 
 	/** 各行の「[1]」等の割り当て表示と選択の強調を、現在の状態に合わせる（行は作り直さない） */

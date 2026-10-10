@@ -437,6 +437,38 @@ bool UQuestComponent::CancelQuest(FName QuestID)
 	return false;
 }
 
+bool UQuestComponent::FailQuest(FName QuestID)
+{
+	for (int32 i = 0; i < ActiveQuests.Num(); ++i)
+	{
+		if (ActiveQuests[i].QuestID != QuestID) continue;
+
+		ActiveQuests.RemoveAt(i);
+		OnQuestUpdated.Broadcast(QuestID);
+
+		AMyProject1Character* OwnerChar = Cast<AMyProject1Character>(GetOwner());
+		if (OwnerChar)
+		{
+			OwnerChar->OnReceiveLogMessage(TEXT("依頼を失敗した…"), ELogMessageType::System);
+		}
+
+		FQuestData Data;
+		if (GetQuestData(QuestID, Data))
+		{
+			ClearObjectiveClearedFlag(Data);
+
+			if (Data.FailurePenaltyStat != ETargetStat::None && Data.FailurePenaltyAmount != 0.0f)
+			{
+				ApplyFailurePenaltyStat(Data.FailurePenaltyStat, Data.FailurePenaltyExtraStatName, Data.FailurePenaltyAmount);
+			}
+		}
+
+		return true;
+	}
+
+	return false;
+}
+
 void UQuestComponent::UpdateKillObjective(FName EnemyID)
 {
 	bool bUpdatedAny = false;
@@ -630,6 +662,15 @@ bool UQuestComponent::ReportQuest(FName QuestID)
 					if (!Data.RewardAbilityID.IsNone())
 					{
 						OwnerChar->AbilityComp->GrantAbility(Data.RewardAbilityID, true);
+					}
+
+					// 6. ステータスの増減（名声など）
+					for (const FQuestStatReward& StatReward : Data.RewardStats)
+					{
+						if (StatReward.Stat != ETargetStat::None && StatReward.Amount != 0.0f)
+						{
+							ApplyFailurePenaltyStat(StatReward.Stat, StatReward.ExtraStatName, StatReward.Amount);
+						}
 					}
 
 					// 完了ログ
@@ -1054,8 +1095,7 @@ void UQuestComponent::CheckQuestTimeLimits()
 
 		if (OwnerChar)
 		{
-			const FString LogMsg = FString::Printf(TEXT("クエスト「%s」は期限切れで失敗した。"), *Data.QuestName.ToString());
-			OwnerChar->OnReceiveLogMessage(LogMsg, ELogMessageType::System);
+			OwnerChar->OnReceiveLogMessage(TEXT("依頼を失敗した…"), ELogMessageType::System);
 		}
 
 		// 強制失敗のペナルティ（プレイヤーのステータス変化）

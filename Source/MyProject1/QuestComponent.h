@@ -61,6 +61,11 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Quest")
 	bool CancelQuest(FName QuestID);
 
+	/** 敗北などでクエストを失敗扱いにする（C++専用）。進行中でなければ何もせずfalse。
+	    CancelQuestと同じ後始末（ActiveQuestsから除去・ObjectiveClearedFlag解除、再受注可）に加えて、
+	    ログ「依頼を失敗した…」とFailurePenaltyStat等のペナルティ適用を行う。AcceptFlagの解除は呼び出し側の責務 */
+	bool FailQuest(FName QuestID);
+
 	/** デバッグ用: Ctrlキーが押されている時だけ動作し、対象クエストを強制的に条件達成扱いにしてから報告処理まで行う（受注クエスト一覧のCtrl+クリックから呼ぶ想定。呼び出し元のノードを外せば無効化できる） */
 	UFUNCTION(BlueprintCallable, Category = "Quest|Debug")
 	bool Debug_ForceCompleteQuest(FName QuestID);
@@ -135,7 +140,7 @@ private:
 	    遷移箇所はActiveQuestsのrange-for内のため、ReportQuestのRemoveAtでイテレータが壊れないよう即時には呼ばない */
 	void TryAutoReport(const FQuestData& Data, FName QuestID);
 
-	/** 強制失敗時のペナルティとして、プレイヤーのFCharacterStatsに指定ステータスの増減を適用する
+	/** 強制失敗時のペナルティ、およびクエスト成功報酬(RewardStats)として、プレイヤーのFCharacterStatsに指定ステータスの増減を適用する
 	    （DialogComponentのステータス変化と同じ加算方式。StatがCustomExtraStatの時はExtraStatNameのキーを増減。適用したらtrueを返す） */
 	bool ApplyFailurePenaltyStat(ETargetStat Stat, FName ExtraStatName, float Amount) const;
 };

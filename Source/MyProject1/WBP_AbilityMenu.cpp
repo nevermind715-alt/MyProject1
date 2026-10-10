@@ -1,6 +1,6 @@
 #include "WBP_AbilityMenu.h"
 #include "WBP_AbilityListItem.h"
-#include "WBP_AbilitySlot.h"
+#include "WBP_AbilityHotbar.h"
 #include "AbilityComponent.h"
 #include "MyProject1Character.h"
 #include "MyProject1HUD.h"
@@ -22,6 +22,14 @@ void UWBP_AbilityMenu::NativeConstruct()
 	{
 		AbilityComp->OnHotbarChanged.RemoveDynamic(this, &UWBP_AbilityMenu::HandleHotbarChanged);
 		AbilityComp->OnHotbarChanged.AddDynamic(this, &UWBP_AbilityMenu::HandleHotbarChanged);
+	}
+
+	// 割り当て先は、画面下に常時出ているホットバーの枠を使う（このメニュー内に別のスロット枠は持たない）
+	if (UWBP_AbilityHotbar* Hotbar = GetScreenHotbar())
+	{
+		Hotbar->OnSlotClicked.RemoveDynamic(this, &UWBP_AbilityMenu::HandleHotbarSlotClicked);
+		Hotbar->OnSlotClicked.AddDynamic(this, &UWBP_AbilityMenu::HandleHotbarSlotClicked);
+		Hotbar->SetAssignMode(true);
 	}
 
 	// 何もない所のクリックを受け取れるよう、自身をVisibleにする（パネル類は初期設定でクリックを受けないため、
@@ -54,7 +62,25 @@ void UWBP_AbilityMenu::NativeDestruct()
 		AbilityComp->OnHotbarChanged.RemoveDynamic(this, &UWBP_AbilityMenu::HandleHotbarChanged);
 	}
 
+	if (UWBP_AbilityHotbar* Hotbar = GetScreenHotbar())
+	{
+		Hotbar->OnSlotClicked.RemoveDynamic(this, &UWBP_AbilityMenu::HandleHotbarSlotClicked);
+		Hotbar->SetAssignMode(false);
+	}
+
 	Super::NativeDestruct();
+}
+
+UWBP_AbilityHotbar* UWBP_AbilityMenu::GetScreenHotbar() const
+{
+	if (const APlayerController* PC = GetOwningPlayer())
+	{
+		if (const AMyProject1HUD* HUD = PC->GetHUD<AMyProject1HUD>())
+		{
+			return Cast<UWBP_AbilityHotbar>(HUD->AbilityHotbarWidget);
+		}
+	}
+	return nullptr;
 }
 
 UAbilityComponent* UWBP_AbilityMenu::GetAbilityComponent() const
@@ -92,23 +118,6 @@ void UWBP_AbilityMenu::RebuildLists()
 
 			Scroll_Abilities->AddChild(Row);
 			ListItems.Add(Row);
-		}
-	}
-
-	// ホットバーと同じ10個のスロット枠（こちらはクリックで割り当て/解除ができる）
-	if (Box_HotbarSlots && HotbarSlotClass)
-	{
-		Box_HotbarSlots->ClearChildren();
-
-		for (int32 SlotIndex = 0; SlotIndex < UAbilityComponent::NumHotbarSlots; ++SlotIndex)
-		{
-			UWBP_AbilitySlot* SlotWidget = CreateWidget<UWBP_AbilitySlot>(this, HotbarSlotClass);
-			if (!SlotWidget) continue;
-
-			SlotWidget->Setup(SlotIndex, /*bInClickable=*/true);
-			SlotWidget->OnSlotClicked.AddDynamic(this, &UWBP_AbilityMenu::HandleHotbarSlotClicked);
-
-			Box_HotbarSlots->AddChild(SlotWidget);
 		}
 	}
 
