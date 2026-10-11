@@ -29,6 +29,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Save")
 	void Setup(const FSaveSlotDisplayInfo& Info);
 
+	// ロード専用画面（タイトル）用。Setupの後に呼ぶと手動セーブボタンを隠す
+	void SetLoadOnly();
+
 	// Btn_Saveが押された時にWBP_SaveMenu側でAddDynamicする通知
 	UPROPERTY(BlueprintAssignable, Category = "Save")
 	FOnSaveSlotActionRequested OnSaveClicked;

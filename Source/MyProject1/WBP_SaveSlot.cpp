@@ -82,6 +82,14 @@ void UWBP_SaveSlot::Setup(const FSaveSlotDisplayInfo& Info)
 	}
 }
 
+void UWBP_SaveSlot::SetLoadOnly()
+{
+	if (Btn_Save)
+	{
+		Btn_Save->SetVisibility(ESlateVisibility::Collapsed);
+	}
+}
+
 void UWBP_SaveSlot::HandleSaveButtonClicked()
 {
 	OnSaveClicked.Broadcast(SlotInfo.SlotName);
