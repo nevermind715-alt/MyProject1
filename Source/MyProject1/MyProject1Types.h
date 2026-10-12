@@ -1032,7 +1032,10 @@ enum class EDialogActionType : uint8
 	Shower          UMETA(DisplayName = "シャワーで疲労を回復する（ActionPayload=回復量。空欄で全回復）"),
 	// ItemID/ItemAmountで指定したアイテムを、プレイヤーのインベントリから使用する（UInventoryComponent::UseItemと同じ。
 	// 効果が発動し1個消費される。所持していない・使用不可のアイテムは何も起きない）
-	UseItem         UMETA(DisplayName = "アイテムを使用する（ItemID/ItemAmountを使用）")
+	UseItem         UMETA(DisplayName = "アイテムを使用する（ItemID/ItemAmountを使用）"),
+	// UseItemと同じ使用可否判定・効果発動を、プレイヤーの所持の有無に関係なく行う。
+	// インベントリの個数は確認せず、消費もしない（所持していても減らない）。ItemID/ItemAmountを使用
+	UseItemFree     UMETA(DisplayName = "アイテムを使用する（所持不問・消費なし。ItemID/ItemAmountを使用）")
 };
 
 // イベント成立時／失敗時／会話の追加アクションとして実行する1アクション分のデータ（FDialogChoiceのアクション部分の簡易版）。
@@ -1051,11 +1054,11 @@ struct FEventAction
 	FString ActionPayload;
 
 	// ActionType=AddItem/RemoveItem/UseItem時に対象となるアイテムの行名
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event", meta = (EditCondition = "ActionType == EDialogActionType::AddItem || ActionType == EDialogActionType::RemoveItem || ActionType == EDialogActionType::UseItem"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event", meta = (EditCondition = "ActionType == EDialogActionType::AddItem || ActionType == EDialogActionType::RemoveItem || ActionType == EDialogActionType::UseItem || ActionType == EDialogActionType::UseItemFree"))
 	FName ItemID;
 
 	// ActionType=AddItem/RemoveItem/UseItem時の個数
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event", meta = (EditCondition = "ActionType == EDialogActionType::AddItem || ActionType == EDialogActionType::RemoveItem || ActionType == EDialogActionType::UseItem", ClampMin = "1"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event", meta = (EditCondition = "ActionType == EDialogActionType::AddItem || ActionType == EDialogActionType::RemoveItem || ActionType == EDialogActionType::UseItem || ActionType == EDialogActionType::UseItemFree", ClampMin = "1"))
 	int32 ItemAmount = 1;
 
 	// ActionTypeとは独立して、併用できるステータス変化（FDialogChoiceのStatToChangeと同じ扱い）
@@ -1147,11 +1150,11 @@ struct FDialogChoice
 	bool bHideTalkingNPCDuringAnimEvent = false;
 
 	// ActionType=AddItem/RemoveItem/UseItem時に対象となるアイテムの行名（DT_ItemData等の行名）
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (EditCondition = "ActionType == EDialogActionType::AddItem || ActionType == EDialogActionType::RemoveItem || ActionType == EDialogActionType::UseItem"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (EditCondition = "ActionType == EDialogActionType::AddItem || ActionType == EDialogActionType::RemoveItem || ActionType == EDialogActionType::UseItem || ActionType == EDialogActionType::UseItemFree"))
 	FName ItemID;
 
 	// ActionType=AddItem/RemoveItem/UseItem時の個数（常に正の値。奪う場合もRemoveItem側で減算する）
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (EditCondition = "ActionType == EDialogActionType::AddItem || ActionType == EDialogActionType::RemoveItem || ActionType == EDialogActionType::UseItem", ClampMin = "1"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (EditCondition = "ActionType == EDialogActionType::AddItem || ActionType == EDialogActionType::RemoveItem || ActionType == EDialogActionType::UseItem || ActionType == EDialogActionType::UseItemFree", ClampMin = "1"))
 	int32 ItemAmount = 1;
 
 	// ActionTypeとは別に、続けて実行する追加アクション（上から順に実行）。ActionType=ShowTextDuringFadeの場合は
@@ -1277,11 +1280,11 @@ struct FDialogData : public FTableRowBase
 	FString ActionPayload;
 
 	// ActionType=AddItem/RemoveItem/UseItem時に対象となるアイテムの行名（DT_ItemData等の行名）
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Action", meta = (EditCondition = "ActionType == EDialogActionType::AddItem || ActionType == EDialogActionType::RemoveItem || ActionType == EDialogActionType::UseItem"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Action", meta = (EditCondition = "ActionType == EDialogActionType::AddItem || ActionType == EDialogActionType::RemoveItem || ActionType == EDialogActionType::UseItem || ActionType == EDialogActionType::UseItemFree"))
 	FName ItemID;
 
 	// ActionType=AddItem/RemoveItem/UseItem時の個数（常に正の値。奪う場合もRemoveItem側で減算する）
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Action", meta = (EditCondition = "ActionType == EDialogActionType::AddItem || ActionType == EDialogActionType::RemoveItem || ActionType == EDialogActionType::UseItem", ClampMin = "1"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Action", meta = (EditCondition = "ActionType == EDialogActionType::AddItem || ActionType == EDialogActionType::RemoveItem || ActionType == EDialogActionType::UseItem || ActionType == EDialogActionType::UseItemFree", ClampMin = "1"))
 	int32 ItemAmount = 1;
 
 	// ActionTypeとは別に、続けて実行する追加アクション（上から順に実行）。ActionType=ShowTextDuringFadeの場合は

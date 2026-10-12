@@ -332,7 +332,17 @@ int32 UInventoryComponent::RemoveGil(int32 Amount)
 
 bool UInventoryComponent::UseItem(FName ItemID)
 {
-	if (GetItemQuantity(ItemID) <= 0) return false;
+	return UseItemInternal(ItemID, true);
+}
+
+bool UInventoryComponent::UseItemFree(FName ItemID)
+{
+	return UseItemInternal(ItemID, false);
+}
+
+bool UInventoryComponent::UseItemInternal(FName ItemID, bool bConsumeFromInventory)
+{
+	if (bConsumeFromInventory && GetItemQuantity(ItemID) <= 0) return false;
 	FItemData* ItemInfo = GetItemData(ItemID);
 	AMyProject1Character* OwnerChar = Cast<AMyProject1Character>(GetOwner());
 	if (!ItemInfo || !OwnerChar) return false;
@@ -407,7 +417,7 @@ bool UInventoryComponent::UseItem(FName ItemID)
 					UGameplayStatics::PlaySoundAtLocation(this, SoundToPlay, OwnerChar->GetActorLocation());
 				}
 			}
-			if (ItemInfo->bConsumeOnUse) { RemoveItem(ItemID, 1); }
+			if (bConsumeFromInventory && ItemInfo->bConsumeOnUse) { RemoveItem(ItemID, 1); }
 			return true;
 		}
 		return false;
@@ -636,7 +646,7 @@ bool UInventoryComponent::UseItem(FName ItemID)
 			}
 		}
 
-		if (ItemInfo->bConsumeOnUse) { RemoveItem(ItemID, 1); }
+		if (bConsumeFromInventory && ItemInfo->bConsumeOnUse) { RemoveItem(ItemID, 1); }
 	}
 
 	if (TimedEffects.Num() > 0)

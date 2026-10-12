@@ -178,6 +178,21 @@ void UGameplayActionLibrary::ExecuteAction(IRpgCharacterInterface* RpgInterface,
 		}
 		break;
 
+	case EDialogActionType::UseItemFree:
+		// UseItemと同じ効果発動を、所持の有無に関係なく行う（個数確認・消費なし）。
+		// 使用不可でUseItemFreeがfalseを返した時点で、残りの回数分は試行しない
+		if (!ItemID.IsNone() && ItemAmount > 0)
+		{
+			if (UInventoryComponent* Inv = OwnerActor ? OwnerActor->FindComponentByClass<UInventoryComponent>() : nullptr)
+			{
+				for (int32 i = 0; i < ItemAmount; ++i)
+				{
+					if (!Inv->UseItemFree(ItemID)) break;
+				}
+			}
+		}
+		break;
+
 	case EDialogActionType::AddGil:
 		// ActionPayloadに入れた金額（￥）の数値文字列をプレイヤーの所持金に加算する（報酬の前金など）。
 		// RemoveItemと同じく、渡した時だけここでシステムログを出す

@@ -143,6 +143,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	bool UseItem(FName ItemID);
 
+	/** 所持の有無に関係なく、指定アイテムの効果をオーナーへ発動する（会話のUseItemFreeアクション用）。
+	 *  UseItemと同じ使用可否判定・効果発動を行うが、インベントリの個数は確認せず、消費もしない */
+	bool UseItemFree(FName ItemID);
+
 	// Blueprintから呼び出せるように公開
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	bool GetItemDataBP(FName ItemID, FItemData& OutData);
@@ -151,5 +155,8 @@ public:
 protected:
 	/** データテーブルからアイテム情報を取得する便利関数（内部ポインタ用） */
 	FItemData* GetItemData(FName ItemID);
+
+	/** UseItem／UseItemFreeの共通本体。bConsumeFromInventoryがfalseなら個数確認と消費を行わない */
+	bool UseItemInternal(FName ItemID, bool bConsumeFromInventory);
 
 };

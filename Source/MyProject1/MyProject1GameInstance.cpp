@@ -352,6 +352,13 @@ void UMyProject1GameInstance::RequestWarp(FName WarpID, ACharacter* PlayerCharac
 		bPendingWarpDestinationNarration = true;
 	}
 
+	// 同じ選択肢のGrantFlag（暗転して付与）が既にこのフレームで暗転を予約済みなら、そちらの暗転に相乗りする
+	// （二重にOnWarpFadeOutRequestedを鳴らして暗転を壊さないため。RequestFadeThenRemoveFlagと同じ考え方）
+	if (!ReservedFlagToGrant.IsNone() && !bWaitingForNarrationCompletion)
+	{
+		return;
+	}
+
 	BeginWarpFade(PlayerCharacter);
 }
 
@@ -474,6 +481,15 @@ void UMyProject1GameInstance::ResumeFadeInAfterNarration(UDialogComponent* Narra
 
 	GetTimerManager().SetTimer(WarpFadeInTimerHandle, this,
 		&UMyProject1GameInstance::HandleWarpFadeInComplete, WarpFadeInDuration, false);
+}
+
+bool UMyProject1GameInstance::ReserveDialogResumeAfterWarp(UDialogComponent* DialogComponent, FName NextDialogID)
+{
+	if (!DialogComponent || ReservedWarpID.IsNone()) return false;
+
+	ReservedNarrationResumeComponent = DialogComponent;
+	ReservedNarrationResumeNextDialogID = NextDialogID;
+	return true;
 }
 
 // ----------------------------------------------------
@@ -720,7 +736,9 @@ void UMyProject1GameInstance::ExecuteWarpProcess()
 		return;
 	}
 
-	// ワープの予約より先に、フラグ付与だけの予約がないか確認する（RequestFadeThenGrantFlag経由の場合はこちらで完結させる）
+	// フラグ付与の予約（RequestFadeThenGrantFlag経由）を消化する。ActionType=Warp等が同じ暗転に相乗りしている
+	// 場合があるため、ここではreturnせず、下の各分岐（Warp本来の移動など）へ続ける
+	// （予約がフラグ付与だけなら、下の分岐はどれも予約なしで素通りする）
 	if (!ReservedFlagToGrant.IsNone())
 	{
 		if (AMyProject1Character* Character = ReservedFlagGrantTarget.Get())
@@ -730,7 +748,6 @@ void UMyProject1GameInstance::ExecuteWarpProcess()
 
 		ReservedFlagToGrant = NAME_None;
 		ReservedFlagGrantTarget.Reset();
-		return;
 	}
 
 	// ShowTextDuringFadeのナレーション予約があれば、こちらで完結させる（RequestFadeThenShowNarration用）。
@@ -1353,14 +1370,6 @@ void UMyProject1GameInstance::StartEvent(FName EventID, ACharacter* PlayerCharac
 		}
 	}
 
-	// 成立条件に制限時間が絡む場合、ここで自動成立タイマーを仕掛けておく（Interact/AnimationSequenceの成立はこのタイマーを使わない）
-	if ((Definition->ClearCondition == EEventClearCondition::TimeElapsed || Definition->ClearCondition == EEventClearCondition::Both)
-		&& Definition->TimeLimitSeconds > 0.0f)
-	{
-		GetTimerManager().SetTimer(ActiveEventTimeLimitTimerHandle, this,
-			&UMyProject1GameInstance::HandleActiveEventTimeUp, Definition->TimeLimitSeconds, false);
-	}
-
 	// bShowNarrationOnStartなら、実際のワープ要求より先に新規で暗転を要求する。暗転完了後の処理は
 	// ExecuteWarpProcess→BeginEventStartNarrationへ続く（ReservedNarrationComponentと同じパターン）
 	if (Definition->bShowNarrationOnStart && !Definition->EventStartNarrationText.IsEmpty())
@@ -1525,6 +1534,16 @@ void UMyProject1GameInstance::ContinueEventAfterStartNarration()
 				&UMyProject1GameInstance::HandleWarpFadeInComplete, WarpFadeInDuration, false);
 		}
 		return;
+	}
+
+	// 成立条件に制限時間が絡む場合、ここで自動成立タイマーを仕掛けておく（Interact/AnimationSequenceの成立はこのタイマーを使わない）。
+	// 開始ナレーション（bShowNarrationOnStart）の表示時間より短い制限時間だと、ワープ前にタイマーが切れて
+	// イベントが成立扱いで終了してしまうため、StartEventではなく、ナレーションが終わった後のここで仕掛ける
+	if ((Definition->ClearCondition == EEventClearCondition::TimeElapsed || Definition->ClearCondition == EEventClearCondition::Both)
+		&& Definition->TimeLimitSeconds > 0.0f)
+	{
+		GetTimerManager().SetTimer(ActiveEventTimeLimitTimerHandle, this,
+			&UMyProject1GameInstance::HandleActiveEventTimeUp, Definition->TimeLimitSeconds, false);
 	}
 
 	if (Definition->bUseContextActorLocationInsteadOfWarp)
@@ -2367,6 +2386,30 @@ void UMyProject1GameInstance::PlayAnimEventStep(int32 StepIndex)
 			const int32 TriggerCountBefore = StatPrimaryCharacter->OGaugeTriggerCount;
 			StatPrimaryCharacter->AddOGauge(Step.OGaugeAmount * (1.0f + BonusPercent / 100.0f));
 			ActiveEventOGaugeTriggerCount += StatPrimaryCharacter->OGaugeTriggerCount - TriggerCountBefore;
+		}
+	}
+
+	// ループするステップは、Montage自身の最後のセクションから最初のセクションへ繋ぐ（Montage内ループ）。
+	// ブレンドアウト→再生し直し（HandleAnimEventStepMontageBlendingOut）だと、継ぎ目で新旧2つのMontageの
+	// ウェイトが合計1にならずIdleが透けてポーズが一瞬ズレるが、Montage内ループならブレンドアウト自体が起きない。
+	// ブレンドアウト側の再生し直しは、Montage内ループが効かなかった場合の保険として残る
+	if (bAnimEventHoldUntilStopped || (Step.bLoop && Step.Duration > 0.0f))
+	{
+		auto SetMontageSelfLoop = [this](UAnimMontage* LoopMontage)
+		{
+			if (!LoopMontage || LoopMontage->GetNumSections() <= 0) return;
+			if (UAnimInstance* LoopAnimInst = ResolveAnimInstanceForTrackedMontage(LoopMontage))
+			{
+				LoopAnimInst->Montage_SetNextSection(
+					LoopMontage->GetSectionName(LoopMontage->GetNumSections() - 1),
+					LoopMontage->GetSectionName(0), LoopMontage);
+			}
+		};
+
+		SetMontageSelfLoop(CurrentAnimEventMontage.Get());
+		for (const TPair<FName, TWeakObjectPtr<UAnimMontage>>& ExtraPair : CurrentAnimEventExtraMontages)
+		{
+			SetMontageSelfLoop(ExtraPair.Value.Get());
 		}
 	}
 

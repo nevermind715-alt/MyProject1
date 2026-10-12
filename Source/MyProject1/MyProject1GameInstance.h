@@ -233,6 +233,12 @@ public:
 	 *  NarrationComponent->ResumeAfterFadeNarration(NextDialogID)を呼んで会話を継続させる */
 	void ResumeFadeInAfterNarration(class UDialogComponent* NarrationComponent, FName NextDialogID);
 
+	/** 直前のRequestWarpで予約されたワープの明転完了後に、DialogComponentをNextDialogIDから再開させる予約をする
+	 *  （ActionType=Warpの選択肢/行にNextDialogIDが設定されている場合用。HandleWarpFadeInCompleteが
+	 *  ShowTextDuringFadeと同じ経路でResumeAfterFadeNarrationを呼ぶ）。
+	 *  RequiredFlag未達などでワープが予約されていない場合は何もせずfalseを返す */
+	bool ReserveDialogResumeAfterWarp(class UDialogComponent* DialogComponent, FName NextDialogID);
+
 	// --- ASleepPointの睡眠イベント専用の暗転セリフ ---
 	// 新しいUIを追加せず、既存の暗転セリフ表示（UDialogComponent::OnFadeNarrationLine/OnFadeNarrationClosed。
 	// ActionType=ShowTextDuringFadeで使っているのと同じUI）をそのまま鳴らして流用する。

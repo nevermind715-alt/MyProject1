@@ -223,6 +223,28 @@ bool UDialogComponent::ExecuteActionCore(EDialogActionType ActionType, const FSt
 	// ActionTypeごとの実行本体はUGameplayActionLibrary（イベント分岐システムと共通）に委譲する
 	UGameplayActionLibrary::ExecuteAction(RpgInterface, GetOwner(), CurrentNPC, GetWorld(), ActionType, ActionPayload, ItemID, ItemAmount, AnimSequenceRowPlayTarget, AnimSequenceNPCMeshOverride, bHideTalkingNPCDuringAnimEvent);
 
+	// Warp + NextDialogID：ワープ先で会話を続けたいので、呼び出し元の即時NextDialogID遷移／CloseDialogは行わせず、
+	// 明転完了後（HandleWarpFadeInComplete）にResumeAfterFadeNarrationでNextDialogIDから再開する。
+	// ワープが予約されなかった場合（RequiredFlag未達等）は従来通り呼び出し元がそのままNextDialogIDへ進む
+	bool bWarpResumeReserved = false;
+	if (ActionType == EDialogActionType::Warp)
+	{
+		const FString WarpNextIDStr = NextDialogIDForNarration.ToString().TrimStartAndEnd();
+		const bool bWarpHasNext = !NextDialogIDForNarration.IsNone() && !WarpNextIDStr.IsEmpty() && WarpNextIDStr.ToLower() != TEXT("none");
+		if (bWarpHasNext)
+		{
+			if (UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetWorld()->GetGameInstance()))
+			{
+				bWarpResumeReserved = GameInst->ReserveDialogResumeAfterWarp(this, NextDialogIDForNarration);
+				if (bWarpResumeReserved)
+				{
+					// 明転中のAdvanceDialog誤動作を防ぐ（ResumeAfterFadeNarrationのTryStartDialog／CloseDialogが解除する）
+					bIsFadeNarrationPending = true;
+				}
+			}
+		}
+	}
+
 	if (ActionType == EDialogActionType::TriggerEvent)
 	{
 		// ActionPayloadに設定されたEventPoolIDで、話しかけている相手（CurrentNPC）のイベント抽選を開始する
@@ -270,7 +292,7 @@ bool UDialogComponent::ExecuteActionCore(EDialogActionType ActionType, const FSt
 
 	ExecuteAdditionalActions(AdditionalActions);
 
-	return false;
+	return bWarpResumeReserved;
 }
 
 // ----------------------------------------------------
@@ -597,9 +619,8 @@ void UDialogComponent::BeginFadeNarration()
 	PendingNarrationStatToChange = ETargetStat::None;
 	PendingNarrationStatChangeAmount = 0.0f;
 
-	// 同じく真っ暗な今のうちに追加アクション（アイテム使用など）を実行する
-	ExecuteAdditionalActions(PendingNarrationAdditionalActions);
-	PendingNarrationAdditionalActions.Empty();
+	// 追加アクションは、ナレーションより先にログが出て読む順序が迷子にならないよう、
+	// 全行読み終えた時点（AdvanceFadeNarrationLine）で実行する
 
 	ShowFadeNarrationLine();
 }
@@ -632,6 +653,10 @@ void UDialogComponent::AdvanceFadeNarrationLine()
 	// 全行読み終えた：ナレーション表示を終了し、GameInstance側に明転再開を要求する。
 	// 明転が完了した瞬間、GameInstance::HandleWarpFadeInCompleteからResumeAfterFadeNarrationが呼ばれる
 	bIsShowingFadeNarration = false;
+
+	// ナレーションを読み終えた今（まだ画面は真っ暗）、追加アクション（アイテム使用など）を実行する
+	ExecuteAdditionalActions(PendingNarrationAdditionalActions);
+	PendingNarrationAdditionalActions.Empty();
 
 	// 明転が終わってResumeAfterFadeNarrationが呼ばれるまでの間は、AdvanceDialogを受け付けない。
 	// ここでfalseのままだと、明転中にもう一度クリック/スペースが入った時に通常の会話処理へ流れ、
