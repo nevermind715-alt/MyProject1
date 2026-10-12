@@ -2,6 +2,7 @@
 #include "Components/AudioComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "MusicManagerActor.h"
+#include "RoomMusicVolume.h"
 #include "EngineUtils.h"
 #include "Math/UnrealMathUtility.h"
 
@@ -67,6 +68,19 @@ void UMusicControlComponent::BeginPlay()
 			BattleAudioComp->SetSound(LoadedBattleMusic);
 			BattleAudioComp->SetVolumeMultiplier(SilentVolume);
 			CurrentBattleVolume = SilentVolume;
+		}
+	}
+
+	// クロスレベルワープ直後は、RoomMusicVolumeとのOverlapがPawnのスポーン時（Possess前・このBeginPlay前）に
+	// 発生済みで、OnOverlapBeginでは拾えない。音声コンポーネントが揃ったここで、既に重なっている部屋を入室扱いにする
+	TArray<AActor*> OverlappingVolumes;
+	GetOwner()->GetOverlappingActors(OverlappingVolumes, ARoomMusicVolume::StaticClass());
+	for (AActor* Actor : OverlappingVolumes)
+	{
+		if (const ARoomMusicVolume* Room = Cast<ARoomMusicVolume>(Actor))
+		{
+			EnterRoomMusic(Room->RoomMusic, Room->Volume);
+			break;
 		}
 	}
 }

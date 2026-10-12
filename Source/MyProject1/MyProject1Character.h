@@ -985,6 +985,10 @@ public:
 	UFUNCTION(Exec)
 	void DebugLearnAllAbilities();
 
+	/** デバッグ用コンソールコマンド（DebugSetRank Rank4 のように等級の行名を指定）。条件判定なしでSetAdventurerRankを呼ぶ */
+	UFUNCTION(Exec)
+	void DebugSetRank(const FString& RankRowName);
+
 protected:
 
 public:

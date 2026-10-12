@@ -6,6 +6,9 @@
 
 class UChestComponent;
 class UWBP_TimeSkipMenu;
+class UWBP_ChoiceMenu;
+class UWBP_DialogAdvance;
+class UWBP_FadeNarration;
 
 UCLASS()
 class MYPROJECT1_API AMyProject1HUD : public AHUD
@@ -182,6 +185,17 @@ public:
 	// 待機/睡眠メニューを開く（bIsSleepModeでウィジェット側の表示を出し分ける）
 	UFUNCTION(BlueprintCallable, Category = "UI")
 	void OpenTimeSkipMenu(bool bIsSleepMode);
+
+	// --- 会話UI用のクラス指定（インスタンスの生成・表示・削除はプレイヤーのUDialogComponentが行う） ---
+	// BP_HUDのクラスデフォルトで、それぞれ WBP_ChoiceMenu / WBP_DialogAdvance / WBP_FadeNarration を指定する
+	UPROPERTY(EditAnywhere, Category = "UI|Dialog")
+	TSubclassOf<UWBP_ChoiceMenu> DialogChoiceMenuClass;
+
+	UPROPERTY(EditAnywhere, Category = "UI|Dialog")
+	TSubclassOf<UWBP_DialogAdvance> DialogAdvanceClass;
+
+	UPROPERTY(EditAnywhere, Category = "UI|Dialog")
+	TSubclassOf<UWBP_FadeNarration> FadeNarrationClass;
 
 	// メニューの表示・非表示を切り替える関数
 	UFUNCTION(BlueprintCallable, Category = "UI")

@@ -32,6 +32,10 @@ protected:
 	UPROPERTY(meta = (BindWidgetOptional))
 	UTextBlock* Text_ItemName;
 
+	/** 「【装備中】」表示用（任意）。無ければ項目名の末尾に連結して表示する。 */
+	UPROPERTY(meta = (BindWidgetOptional))
+	UTextBlock* Text_Equipped;
+
 private:
 	UFUNCTION()
 	void HandleSelectClicked();

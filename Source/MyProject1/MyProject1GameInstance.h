@@ -218,6 +218,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Warp")
 	void RequestFadeThenWallWarp(class AWallWarpLink* SourceLink, class ACharacter* TargetCharacter);
 
+	/** AWallWarpLinkのフラグ自動OFF用：フラグ名 → 自動で外す「ゲーム内絶対分」（TotalElapsedDays*1440+CurrentTimeInMinutes）。
+	 *  レベルをまたいでも期限が消えないようGameInstanceに持つ（セーブには含めない） */
+	TMap<FName, int32> FlagAutoClearDeadlines;
+
 	/** UDialogComponentからの要求（ActionType=ShowTextDuringFade用）。エリアChangeと同じ暗転
 	 *  （OnWarpFadeOutRequested）を挟み、画面が真っ暗になった瞬間にNarrationComponent->BeginFadeNarration()を呼ぶ。
 	 *  通常のRequestFadeThen〇〇と異なり、明転はプレイヤーが全行読み終えるまで自動では始まらない
@@ -439,6 +443,20 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "AnimEvent")
 	void PlayAnimSequenceEvent(FName AnimEventID, class ACharacter* PrimaryCharacter, class AActor* SecondaryContextActor = nullptr, bool bFadeInBeforeStart = false, TSoftObjectPtr<class USkeletalMesh> ExtraParticipantMeshOverride = nullptr, bool bHideSecondaryContextActorDuringAnim = false);
 
+	/** 再生中のPlayAnimSequenceEvent（Stepチェーン）を、全Step完了を待たずに即座に終わらせる（C++専用）。
+	 *  ループ中のモンタージュを止めたうえで、全Step完了時と同じ後片付け（入力ロック・BGM・表情モーフ・位置・Extra参加者・Prop・装備表示の復元）を行い、
+	 *  OnAnimSequenceEventFinished(true)をBroadcastする。ステップ切り替えの暗転は挟まないため、画面が真っ暗な間に呼ぶ想定
+	 *  （FDialogData::LoopAnimEventIDで会話と並行再生しているループを、暗転ナレーション中や会話終了時に止める用途）。
+	 *  再生中のStepチェーンが無ければ何もしない */
+	void StopAnimSequenceEventImmediately();
+
+	/** PlayAnimSequenceEventの「止められるまで保持」版（C++専用。開始前の暗転は挟まない）。
+	 *  DT_AnimEventsのStep設定（bLoop/Duration）に関わらず、先頭ステップのモンタージュ（Extra参加者を含む）を止められるまで
+	 *  ループし続け、時間切れや再生終了による暗転・次ステップ遷移・待機姿勢への復帰を一切行わない。
+	 *  会話中に姿勢を保つ用途（FDialogData::LoopAnimEventID）向けで、止めるのはStopAnimSequenceEventImmediately。
+	 *  ステップ遷移の暗転（OnWarpFadeOutRequested）を起こさないため、暗転ナレーション中に呼んでも暗転が解除されない */
+	void PlayAnimSequenceEventHeld(FName AnimEventID, class ACharacter* PrimaryCharacter, class AActor* SecondaryContextActor = nullptr);
+
 	/** Characterが現在PlayAnimSequenceEventのPrimaryCharacterとして再生中（開始〜完了通知の間）かどうか。
 	 *  会話終了処理など、他システムがアニメ再生中の入力ロック（SetInputLocked）を誤って解除しないためのガードに使う */
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "AnimEvent")
@@ -516,6 +534,9 @@ private:
 	TWeakObjectPtr<class AActor> AnimEventSecondaryContextActor;
 	int32 CurrentAnimEventStepIndex = INDEX_NONE;
 	bool bAnimEventStepLooping = false;
+
+	// PlayAnimSequenceEventHeld経由の再生中true。Step設定に関わらず先頭ステップを止められるまでループさせる
+	bool bAnimEventHoldUntilStopped = false;
 	FTimerHandle AnimEventStepDurationTimerHandle;
 
 	// 現在のステップで実際に再生中のモンタージュ（PlayAnimEventStepで抽選した1本）。

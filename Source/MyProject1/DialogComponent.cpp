@@ -13,6 +13,10 @@
 #include "QuestNPCBase.h"
 #include "GameplayActionLibrary.h"
 #include "EventDistributorComponent.h"
+#include "WBP_ChoiceMenu.h"
+#include "WBP_DialogAdvance.h"
+#include "WBP_FadeNarration.h"
+#include "Blueprint/UserWidget.h"
 
 UDialogComponent::UDialogComponent()
 {
@@ -54,6 +58,16 @@ bool UDialogComponent::TryStartDialog(FName RowName, UDataTable* DialogTable, AA
 	}
 
 	CurrentDialogData = *Data;
+
+	// このセリフにループ用AnimEventが設定されていれば、セリフの表示と同時に再生を始める（同じIDが再生中なら継続）。
+	// ただし、このセリフ自身が暗転ナレーションを起動する行（選択肢なしのShowTextDuringFade）の場合は、今は画面が見えているため始めない。
+	// 画面が真っ暗になって見えなくなった時（BeginFadeNarration）に始める
+	const bool bRowStartsNarration = CurrentDialogData.Choices.Num() == 0
+		&& CurrentDialogData.ActionType == EDialogActionType::ShowTextDuringFade;
+	if (!bRowStartsNarration)
+	{
+		StartRowLoopAnimEvent(CurrentDialogData.LoopAnimEventID);
+	}
 
 	FString RawText = CurrentDialogData.DialogText.ToString();
 	CurrentDialogLines.Empty();
@@ -97,8 +111,9 @@ void UDialogComponent::SelectChoice(int32 ChoiceIndex)
 
 	const FDialogChoice& SelectedChoice = CurrentDialogData.Choices[ChoiceIndex];
 
-	bool bStartedFadeNarration = ExecuteActionCore(SelectedChoice.ActionType, SelectedChoice.ActionPayload, SelectedChoice.GrantFlag, SelectedChoice.bFadeOnGrantFlag, SelectedChoice.RemoveFlag, SelectedChoice.bFadeOnRemoveFlag, SelectedChoice.StatToChange, SelectedChoice.StatTargetActor, SelectedChoice.ExtraStatName, SelectedChoice.StatChangeAmount, SelectedChoice.ItemID, SelectedChoice.ItemAmount, SelectedChoice.bAdvanceDailySequence, SelectedChoice.AnimSequenceRowPlayTarget, SelectedChoice.AnimSequenceNPCMeshOverride, SelectedChoice.FadeNarrationText, SelectedChoice.NextDialogID, SelectedChoice.bHideTalkingNPCDuringAnimEvent);
+	bool bStartedFadeNarration = ExecuteActionCore(SelectedChoice.ActionType, SelectedChoice.ActionPayload, SelectedChoice.GrantFlag, SelectedChoice.bFadeOnGrantFlag, SelectedChoice.RemoveFlag, SelectedChoice.bFadeOnRemoveFlag, SelectedChoice.StatToChange, SelectedChoice.StatTargetActor, SelectedChoice.ExtraStatName, SelectedChoice.StatChangeAmount, SelectedChoice.ItemID, SelectedChoice.ItemAmount, SelectedChoice.bAdvanceDailySequence, SelectedChoice.AnimSequenceRowPlayTarget, SelectedChoice.AnimSequenceNPCMeshOverride, SelectedChoice.FadeNarrationText, SelectedChoice.NextDialogID, SelectedChoice.bHideTalkingNPCDuringAnimEvent, SelectedChoice.AdditionalActions);
 
+	HideChoicesUI();
 	OnHideChoices.Broadcast();
 
 	// 暗転ナレーションを開始した場合、以降の会話継続（NextDialogIDへ進む/CloseDialog）は
@@ -125,7 +140,7 @@ void UDialogComponent::SelectChoice(int32 ChoiceIndex)
 	}
 }
 
-bool UDialogComponent::ExecuteActionCore(EDialogActionType ActionType, const FString& ActionPayload, FName GrantFlag, bool bFadeOnGrantFlag, FName FlagToRemove, bool bFadeOnRemoveFlag, ETargetStat StatToChange, EStatTargetActor StatTargetActor, FName ExtraStatName, float StatChangeAmount, FName ItemID, int32 ItemAmount, bool bAdvanceDailySequence, EStatTargetActor AnimSequenceRowPlayTarget, const TSoftObjectPtr<USkeletalMesh>& AnimSequenceNPCMeshOverride, const FText& FadeNarrationText, FName NextDialogIDForNarration, bool bHideTalkingNPCDuringAnimEvent)
+bool UDialogComponent::ExecuteActionCore(EDialogActionType ActionType, const FString& ActionPayload, FName GrantFlag, bool bFadeOnGrantFlag, FName FlagToRemove, bool bFadeOnRemoveFlag, ETargetStat StatToChange, EStatTargetActor StatTargetActor, FName ExtraStatName, float StatChangeAmount, FName ItemID, int32 ItemAmount, bool bAdvanceDailySequence, EStatTargetActor AnimSequenceRowPlayTarget, const TSoftObjectPtr<USkeletalMesh>& AnimSequenceNPCMeshOverride, const FText& FadeNarrationText, FName NextDialogIDForNarration, bool bHideTalkingNPCDuringAnimEvent, const TArray<FEventAction>& AdditionalActions)
 {
 
 	IRpgCharacterInterface* RpgInterface = Cast<IRpgCharacterInterface>(GetOwner());
@@ -157,6 +172,7 @@ bool UDialogComponent::ExecuteActionCore(EDialogActionType ActionType, const FSt
 		PendingNarrationStatTargetActor = StatTargetActor;
 		PendingNarrationExtraStatName = ExtraStatName;
 		PendingNarrationStatChangeAmount = StatChangeAmount;
+		PendingNarrationAdditionalActions = AdditionalActions;
 
 		// 暗転演出中（まだ真っ暗になっていない）のAdvanceDialog誤動作を防ぐため、要求と同時に立てる
 		bIsFadeNarrationPending = true;
@@ -190,6 +206,18 @@ bool UDialogComponent::ExecuteActionCore(EDialogActionType ActionType, const FSt
 		{
 			RpgInterface->AddFlag(GrantFlag);
 		}
+	}
+
+	// 行のループAnimEvent（LoopAnimEventID）が再生中の状態で別のアニメーション再生アクションが来た場合の整理。
+	// PlayAnimSequenceは新しいAnimEventが古いStepチェーンを置き換えるため、後続のCloseDialog等が新しい方を止めないよう所有権を手放す。
+	// PlayAnimSequenceRowはStepチェーン進行中だと無視されるため、先にループを止めておく
+	if (ActionType == EDialogActionType::PlayAnimSequence)
+	{
+		ActiveLoopAnimEventID = NAME_None;
+	}
+	else if (ActionType == EDialogActionType::PlayAnimSequenceRow)
+	{
+		StopRowLoopAnimEvent();
 	}
 
 	// ActionTypeごとの実行本体はUGameplayActionLibrary（イベント分岐システムと共通）に委譲する
@@ -240,7 +268,63 @@ bool UDialogComponent::ExecuteActionCore(EDialogActionType ActionType, const FSt
 	// StatToChangeによるステータス変化本体もUGameplayActionLibraryに委譲する（ActionTypeとは独立して併用可能）
 	UGameplayActionLibrary::ApplyStatChange(RpgInterface, CurrentNPC, StatToChange, StatTargetActor, ExtraStatName, StatChangeAmount);
 
+	ExecuteAdditionalActions(AdditionalActions);
+
 	return false;
+}
+
+// ----------------------------------------------------
+// 行ごとのループAnimEvent（FDialogData::LoopAnimEventID）
+// ----------------------------------------------------
+
+void UDialogComponent::StartRowLoopAnimEvent(FName LoopAnimEventID)
+{
+	if (LoopAnimEventID.IsNone()) return;
+
+	UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetWorld()->GetGameInstance());
+	ACharacter* OwnerChar = Cast<ACharacter>(GetOwner());
+	if (!GameInst || !OwnerChar) return;
+
+	// 直前の行と同じIDが再生中なら止めずにそのまま継続する（Durationが尽きて既に終わっていた場合は再生し直す）
+	if (LoopAnimEventID == ActiveLoopAnimEventID && GameInst->IsPlayingAnimSequenceEventFor(OwnerChar))
+	{
+		return;
+	}
+
+	// 別のIDに切り替える場合は、先に今のループを正規の後片付け（ループ中モンタージュの停止・位置/Extra参加者の復元）で止める
+	StopRowLoopAnimEvent();
+
+	// 会話の表示と同時にその場で始め（開始前の暗転は挟まない）、止められるまで姿勢を保持する。
+	// DT_AnimEvents側のStep設定（bLoop/Duration）による時間切れ・次ステップへの暗転遷移は起こさない
+	GameInst->PlayAnimSequenceEventHeld(LoopAnimEventID, OwnerChar, CurrentNPC);
+
+	// 開始に失敗した場合（AnimEventID未登録等）は再生中にならないため、所有権を持たない
+	ActiveLoopAnimEventID = GameInst->IsPlayingAnimSequenceEventFor(OwnerChar) ? LoopAnimEventID : NAME_None;
+}
+
+void UDialogComponent::StopRowLoopAnimEvent()
+{
+	if (ActiveLoopAnimEventID.IsNone()) return;
+	ActiveLoopAnimEventID = NAME_None;
+
+	if (UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetWorld()->GetGameInstance()))
+	{
+		GameInst->StopAnimSequenceEventImmediately();
+	}
+}
+
+void UDialogComponent::ExecuteAdditionalActions(const TArray<FEventAction>& Actions)
+{
+	IRpgCharacterInterface* RpgInterface = Cast<IRpgCharacterInterface>(GetOwner());
+	if (!RpgInterface) return;
+
+	for (const FEventAction& Action : Actions)
+	{
+		UGameplayActionLibrary::ExecuteAction(RpgInterface, GetOwner(), CurrentNPC, GetWorld(),
+			Action.ActionType, Action.ActionPayload, Action.ItemID, Action.ItemAmount);
+		UGameplayActionLibrary::ApplyStatChange(RpgInterface, CurrentNPC,
+			Action.StatToChange, Action.StatTargetActor, Action.ExtraStatName, Action.StatChangeAmount);
+	}
 }
 
 void UDialogComponent::CloseDialog()
@@ -248,6 +332,10 @@ void UDialogComponent::CloseDialog()
 	// 暗転ナレーション状態が残ったまま会話が閉じることのないよう、念のためここでもリセットする（保険）
 	bIsFadeNarrationPending = false;
 	bIsShowingFadeNarration = false;
+
+	// ループ用AnimEventが再生中なら、下のIsPlayingAnimSequenceEventForの判定より前に止めておく
+	// （止めずに判定すると「再生中」と見なされ、入力ロックが解除されないまま会話が閉じてしまう）
+	StopRowLoopAnimEvent();
 
 	if (IRpgCharacterInterface* RpgInterface = Cast<IRpgCharacterInterface>(GetOwner()))
 	{
@@ -283,6 +371,7 @@ void UDialogComponent::CloseDialog()
 		}
 	}
 
+	CloseDialogUI();
 	OnDialogClosed.Broadcast();
 }
 
@@ -428,13 +517,16 @@ void UDialogComponent::ShowCurrentLine()
 
 	// ShowTextDuringFadeの最終ページ（選択肢なし）は暗転演出そのものが目的の行で、
 	// DialogTextは空欄運用（実際のセリフはFadeNarrationText側）。通常のOnDialogUpdatedを流すと、
-	// UI側のログ機能等に「NPC名だけ・セリフ空」の行が残ってしまうため、この行だけは通常表示を出さない
+	// UI側のログ機能等に「NPC名だけ・セリフ空」の行が残ってしまうため、この行だけは通常表示を出さない。
+	// ただし、最終ページに本文が入っている場合は通常のセリフとして表示する（例：4行のセリフの最後で暗転セリフへ移る行は、4行目も出す）
 	bool bIsFinalFadeNarrationTrigger = (CurrentLineIndex == CurrentDialogLines.Num() - 1)
 		&& CurrentDialogData.Choices.Num() == 0
-		&& CurrentDialogData.ActionType == EDialogActionType::ShowTextDuringFade;
+		&& CurrentDialogData.ActionType == EDialogActionType::ShowTextDuringFade
+		&& CurrentDialogLines[CurrentLineIndex].TrimStartAndEnd().IsEmpty();
 
 	if (!bIsFinalFadeNarrationTrigger)
 	{
+		UpdateDialogUI(DisplayData, CurrentNPC);
 		OnDialogUpdated.Broadcast(DisplayData, CurrentNPC);
 	}
 
@@ -444,7 +536,7 @@ void UDialogComponent::ShowCurrentLine()
 		// （会話終了設定の場合、この下でAdvanceDialogを経由せず直接CloseDialogするため、ここで実行しないと機会を失う）
 		if (CurrentDialogData.Choices.Num() == 0)
 		{
-			bool bStartedFadeNarration = ExecuteActionCore(CurrentDialogData.ActionType, CurrentDialogData.ActionPayload, CurrentDialogData.GrantFlag, CurrentDialogData.bFadeOnGrantFlag, CurrentDialogData.RemoveFlag, CurrentDialogData.bFadeOnRemoveFlag, CurrentDialogData.StatToChange, CurrentDialogData.StatTargetActor, CurrentDialogData.ExtraStatName, CurrentDialogData.StatChangeAmount, CurrentDialogData.ItemID, CurrentDialogData.ItemAmount, CurrentDialogData.bAdvanceDailySequence, EStatTargetActor::Player, CurrentDialogData.AnimSequenceNPCMeshOverride, CurrentDialogData.FadeNarrationText, CurrentDialogData.NextDialogID, CurrentDialogData.bHideTalkingNPCDuringAnimEvent);
+			bool bStartedFadeNarration = ExecuteActionCore(CurrentDialogData.ActionType, CurrentDialogData.ActionPayload, CurrentDialogData.GrantFlag, CurrentDialogData.bFadeOnGrantFlag, CurrentDialogData.RemoveFlag, CurrentDialogData.bFadeOnRemoveFlag, CurrentDialogData.StatToChange, CurrentDialogData.StatTargetActor, CurrentDialogData.ExtraStatName, CurrentDialogData.StatChangeAmount, CurrentDialogData.ItemID, CurrentDialogData.ItemAmount, CurrentDialogData.bAdvanceDailySequence, EStatTargetActor::Player, CurrentDialogData.AnimSequenceNPCMeshOverride, CurrentDialogData.FadeNarrationText, CurrentDialogData.NextDialogID, CurrentDialogData.bHideTalkingNPCDuringAnimEvent, CurrentDialogData.AdditionalActions);
 
 			// 暗転ナレーションを開始した場合、以降（CloseDialog判定含む）は明転完了後の
 			// ResumeAfterFadeNarrationに委ねるため、ここで抜ける
@@ -481,6 +573,22 @@ void UDialogComponent::BeginFadeNarration()
 	CurrentDialogLines = PendingNarrationLines;
 	CurrentLineIndex = 0;
 
+	// 画面が真っ暗で見えない今のうちに、ループ用AnimEventを切り替える。
+	// 続く行にLoopAnimEventIDがあればそれ、無ければこの暗転セリフ行（または選択肢の元の行）自身の指定を使う。
+	// どちらも空なら今のループをそのまま継続し、同じIDが再生中なら止めずに継続する（会話が閉じる時にCloseDialogが止める）
+	FName DesiredLoopAnimEventID = CurrentDialogData.LoopAnimEventID;
+	if (CurrentTable && !PendingNarrationNextDialogID.IsNone())
+	{
+		if (const FDialogData* NextRow = CurrentTable->FindRow<FDialogData>(PendingNarrationNextDialogID, TEXT("BeginFadeNarration"), false))
+		{
+			if (!NextRow->LoopAnimEventID.IsNone())
+			{
+				DesiredLoopAnimEventID = NextRow->LoopAnimEventID;
+			}
+		}
+	}
+	StartRowLoopAnimEvent(DesiredLoopAnimEventID);
+
 	// 画面が真っ暗な今のうちに、保存しておいたステータス変化を適用する
 	if (IRpgCharacterInterface* RpgInterface = Cast<IRpgCharacterInterface>(GetOwner()))
 	{
@@ -489,12 +597,25 @@ void UDialogComponent::BeginFadeNarration()
 	PendingNarrationStatToChange = ETargetStat::None;
 	PendingNarrationStatChangeAmount = 0.0f;
 
+	// 同じく真っ暗な今のうちに追加アクション（アイテム使用など）を実行する
+	ExecuteAdditionalActions(PendingNarrationAdditionalActions);
+	PendingNarrationAdditionalActions.Empty();
+
 	ShowFadeNarrationLine();
 }
 
 void UDialogComponent::ShowFadeNarrationLine()
 {
 	if (!CurrentDialogLines.IsValidIndex(CurrentLineIndex)) return;
+
+	// 暗転セリフの行から会話を始めた場合など、この時点で「進む」ウィジェットがまだ無いことがある
+	// （従来は「次の行がある」セリフを表示した時にしか作られず、無いとクリック／スペースを受ける先が無く1行目で止まっていた）。
+	// 会話が起点の暗転ナレーションなので、ここで確実に用意してフォーカスを渡す
+	EnsureDialogAdvanceWidget();
+	if (DialogAdvanceWidget)
+	{
+		ApplyDialogInputMode(DialogAdvanceWidget);
+	}
 
 	OnFadeNarrationLine.Broadcast(FText::FromString(CurrentDialogLines[CurrentLineIndex]));
 }
@@ -511,6 +632,13 @@ void UDialogComponent::AdvanceFadeNarrationLine()
 	// 全行読み終えた：ナレーション表示を終了し、GameInstance側に明転再開を要求する。
 	// 明転が完了した瞬間、GameInstance::HandleWarpFadeInCompleteからResumeAfterFadeNarrationが呼ばれる
 	bIsShowingFadeNarration = false;
+
+	// 明転が終わってResumeAfterFadeNarrationが呼ばれるまでの間は、AdvanceDialogを受け付けない。
+	// ここでfalseのままだと、明転中にもう一度クリック/スペースが入った時に通常の会話処理へ流れ、
+	// CurrentDialogData.NextDialogIDの行をこちらで先に開始してしまい、その後のResumeAfterFadeNarrationと二重に開始される。
+	// このフラグはResumeAfterFadeNarrationが呼ぶTryStartDialog／CloseDialogが必ず解除する
+	bIsFadeNarrationPending = true;
+
 	OnFadeNarrationClosed.Broadcast();
 
 	if (UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetWorld()->GetGameInstance()))
@@ -535,5 +663,212 @@ void UDialogComponent::ResumeAfterFadeNarration(FName NextDialogID)
 	else
 	{
 		CloseDialog();
+	}
+}
+
+// ----------------------------------------------------
+// 会話UI（旧BP_ThirdPersonCharacterのOnDialogUpdated/OnDialogClosed/OnHideChoicesイベントの移植）
+// ----------------------------------------------------
+
+void UDialogComponent::BeginPlay()
+{
+	Super::BeginPlay();
+
+	// GameInstanceがイベント開始/終了ナレーションや睡眠ナレーションでも直接BroadcastするOnFadeNarrationLine/Closedを、
+	// 暗転ナレーション用ウィジェットの更新に使う（会話起点のナレーションも同じ経路を通る）
+	OnFadeNarrationLine.AddUniqueDynamic(this, &UDialogComponent::HandleFadeNarrationLineUI);
+	OnFadeNarrationClosed.AddUniqueDynamic(this, &UDialogComponent::HandleFadeNarrationClosedUI);
+}
+
+APlayerController* UDialogComponent::GetOwnerPlayerController() const
+{
+	const APawn* OwnerPawn = Cast<APawn>(GetOwner());
+	return OwnerPawn ? Cast<APlayerController>(OwnerPawn->GetController()) : nullptr;
+}
+
+AMyProject1HUD* UDialogComponent::GetOwnerHUD() const
+{
+	const APlayerController* PC = GetOwnerPlayerController();
+	return PC ? Cast<AMyProject1HUD>(PC->GetHUD()) : nullptr;
+}
+
+void UDialogComponent::ApplyDialogInputMode(UUserWidget* WidgetToFocus)
+{
+	if (APlayerController* PC = GetOwnerPlayerController())
+	{
+		FInputModeGameAndUI InputMode;
+		if (WidgetToFocus)
+		{
+			InputMode.SetWidgetToFocus(WidgetToFocus->TakeWidget());
+		}
+		InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+		InputMode.SetHideCursorDuringCapture(false);
+		PC->SetInputMode(InputMode);
+		PC->bShowMouseCursor = true;
+	}
+
+	if (IRpgCharacterInterface* RpgInterface = Cast<IRpgCharacterInterface>(GetOwner()))
+	{
+		RpgInterface->SetInputLocked(true);
+	}
+}
+
+void UDialogComponent::EnsureDialogAdvanceWidget()
+{
+	if (IsValid(DialogAdvanceWidget) && DialogAdvanceWidget->IsInViewport())
+	{
+		return;
+	}
+
+	APlayerController* PC = GetOwnerPlayerController();
+	const AMyProject1HUD* HUD = GetOwnerHUD();
+	if (!PC || !HUD || !HUD->DialogAdvanceClass)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Dialog] HUDの DialogAdvanceClass が未設定のため、会話を進めるウィジェットを作れません。BP_HUDのクラスデフォルトで WBP_DialogAdvance を指定してください。"));
+		return;
+	}
+
+	if (!IsValid(DialogAdvanceWidget))
+	{
+		DialogAdvanceWidget = CreateWidget<UWBP_DialogAdvance>(PC, HUD->DialogAdvanceClass);
+	}
+	if (DialogAdvanceWidget)
+	{
+		DialogAdvanceWidget->AddToViewport();
+	}
+}
+
+void UDialogComponent::UpdateDialogUI(const FDialogData& DisplayData, AActor* NPC)
+{
+	IRpgCharacterInterface* RpgInterface = Cast<IRpgCharacterInterface>(GetOwner());
+
+	// クエストNPC相手の会話だけ、「NPC名：セリフ」をログへ出す（従来のBPと同じ仕様。SpeakerNameは使わない）
+	if (const AQuestNPCBase* QuestNPC = Cast<AQuestNPCBase>(NPC))
+	{
+		if (RpgInterface)
+		{
+			RpgInterface->OnReceiveLogMessage(QuestNPC->NPCName + TEXT("：") + DisplayData.DialogText.ToString(), ELogMessageType::Default);
+		}
+
+		// このセリフで会話を終える指定なら、選択肢・「進む」ウィジェットは出さずにUIを片付ける
+		if (DisplayData.bEndDialog)
+		{
+			CloseDialogUI();
+			return;
+		}
+	}
+
+	if (DisplayData.Choices.Num() > 0)
+	{
+		APlayerController* PC = GetOwnerPlayerController();
+		const AMyProject1HUD* HUD = GetOwnerHUD();
+		if (!PC || !HUD || !HUD->DialogChoiceMenuClass)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[Dialog] HUDの DialogChoiceMenuClass が未設定のため、選択肢を表示できません。BP_HUDのクラスデフォルトで WBP_ChoiceMenu を指定してください。"));
+			return;
+		}
+
+		if (!IsValid(ChoiceMenuWidget))
+		{
+			ChoiceMenuWidget = CreateWidget<UWBP_ChoiceMenu>(PC, HUD->DialogChoiceMenuClass);
+		}
+		if (ChoiceMenuWidget)
+		{
+			if (!ChoiceMenuWidget->IsInViewport())
+			{
+				ChoiceMenuWidget->AddToViewport();
+			}
+			ChoiceMenuWidget->RefreshChoices(DisplayData.Choices);
+			ApplyDialogInputMode(ChoiceMenuWidget);
+		}
+	}
+	else if (!DisplayData.NextDialogID.IsNone())
+	{
+		// 次の行がある（クリック／スペースで進める）セリフ。NextDialogIDが空のセリフは、ShowCurrentLineが自動で会話を閉じる
+		EnsureDialogAdvanceWidget();
+		if (DialogAdvanceWidget)
+		{
+			ApplyDialogInputMode(DialogAdvanceWidget);
+		}
+	}
+
+	// 既に出ている「進む」ウィジェットは、選択肢の入力待ちの間だけ隠す（選択肢ボタンへクリックを通すため）
+	if (IsValid(DialogAdvanceWidget) && DialogAdvanceWidget->IsInViewport())
+	{
+		DialogAdvanceWidget->UpdateAdvanceVisibility();
+	}
+}
+
+void UDialogComponent::CloseDialogUI()
+{
+	if (IRpgCharacterInterface* RpgInterface = Cast<IRpgCharacterInterface>(GetOwner()))
+	{
+		RpgInterface->SetInputLocked(false);
+	}
+
+	if (IsValid(ChoiceMenuWidget))
+	{
+		ChoiceMenuWidget->RemoveFromParent();
+	}
+	ChoiceMenuWidget = nullptr;
+
+	if (IsValid(DialogAdvanceWidget))
+	{
+		DialogAdvanceWidget->RemoveFromParent();
+	}
+	DialogAdvanceWidget = nullptr;
+
+	if (APlayerController* PC = GetOwnerPlayerController())
+	{
+		FInputModeGameOnly InputMode;
+		PC->SetInputMode(InputMode);
+		PC->bShowMouseCursor = false;
+	}
+}
+
+void UDialogComponent::HideChoicesUI()
+{
+	if (IsValid(ChoiceMenuWidget))
+	{
+		ChoiceMenuWidget->HideChoices();
+	}
+}
+
+void UDialogComponent::HandleFadeNarrationLineUI(const FText& Line)
+{
+	if (!IsValid(FadeNarrationWidget))
+	{
+		APlayerController* PC = GetOwnerPlayerController();
+		const AMyProject1HUD* HUD = GetOwnerHUD();
+		if (!PC || !HUD || !HUD->FadeNarrationClass)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[Dialog] HUDの FadeNarrationClass が未設定のため、暗転ナレーションを表示できません。BP_HUDのクラスデフォルトで WBP_FadeNarration を指定してください。"));
+			return;
+		}
+		FadeNarrationWidget = CreateWidget<UWBP_FadeNarration>(PC, HUD->FadeNarrationClass);
+	}
+
+	if (FadeNarrationWidget)
+	{
+		if (!FadeNarrationWidget->IsInViewport())
+		{
+			FadeNarrationWidget->AddToViewport(10);
+		}
+		FadeNarrationWidget->ShowLine(Line);
+	}
+
+	// 「進む」ウィジェットが既にあれば、ナレーション中は必ず見える状態にしてキー入力を受けさせる
+	if (IsValid(DialogAdvanceWidget) && DialogAdvanceWidget->IsInViewport())
+	{
+		DialogAdvanceWidget->UpdateAdvanceVisibility();
+		DialogAdvanceWidget->RequestAdvanceFocus();
+	}
+}
+
+void UDialogComponent::HandleFadeNarrationClosedUI()
+{
+	if (IsValid(FadeNarrationWidget))
+	{
+		FadeNarrationWidget->HideNarration();
 	}
 }

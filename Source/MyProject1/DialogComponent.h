@@ -15,6 +15,10 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnHideChoices);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnFadeNarrationLine, const FText&, Line);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnFadeNarrationClosed);
 
+class UWBP_ChoiceMenu;
+class UWBP_DialogAdvance;
+class UWBP_FadeNarration;
+
 UCLASS(ClassGroup = (Custom), meta = (BlueprintSpawnableComponent))
 class MYPROJECT1_API UDialogComponent : public UActorComponent
 {
@@ -59,7 +63,9 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Dialog")
 	float ChoiceRevealDelay = 0.5f;
 
-	// UI側でこれにイベントバインドする
+	// 会話UI（ログ出力・選択肢・クリックで進めるウィジェット・暗転ナレーション）はこのコンポーネント自身がC++で生成・管理する
+	// （HUDの DialogChoiceMenuClass / DialogAdvanceClass / FadeNarrationClass が必要）。以下のデリゲートはその上で追加のUIを
+	// 作りたい場合の通知用に引き続きBroadcastされるが、標準の会話UIをBP側でも購読すると二重に表示されるため購読しないこと
 	UPROPERTY(BlueprintAssignable, Category = "Dialog")
 	FOnDialogUpdated OnDialogUpdated;
 
@@ -83,6 +89,9 @@ public:
 	// GameInstance側から、ナレーション読了後の明転が完了した瞬間に呼ばれ、NextDialogIDへ会話を継続する
 	void ResumeAfterFadeNarration(FName NextDialogID);
 
+protected:
+	virtual void BeginPlay() override;
+
 private:
 	// 現在使用中のデータテーブルとNPC
 	UPROPERTY()
@@ -102,7 +111,23 @@ private:
 	// FadeNarrationText/NextDialogIDForNarrationはActionType=ShowTextDuringFade専用。
 	// 戻り値：ShowTextDuringFadeで暗転ナレーションを開始した場合はtrue。呼び出し側（SelectChoice/ShowCurrentLine）は
 	// この場合、通常のNextDialogID遷移・CloseDialogを行わず、ResumeAfterFadeNarrationに継続を委ねる
-	bool ExecuteActionCore(EDialogActionType ActionType, const FString& ActionPayload, FName GrantFlag, bool bFadeOnGrantFlag, FName FlagToRemove, bool bFadeOnRemoveFlag, ETargetStat StatToChange, EStatTargetActor StatTargetActor, FName ExtraStatName, float StatChangeAmount, FName ItemID, int32 ItemAmount, bool bAdvanceDailySequence, EStatTargetActor AnimSequenceRowPlayTarget, const TSoftObjectPtr<class USkeletalMesh>& AnimSequenceNPCMeshOverride, const FText& FadeNarrationText, FName NextDialogIDForNarration, bool bHideTalkingNPCDuringAnimEvent);
+	bool ExecuteActionCore(EDialogActionType ActionType, const FString& ActionPayload, FName GrantFlag, bool bFadeOnGrantFlag, FName FlagToRemove, bool bFadeOnRemoveFlag, ETargetStat StatToChange, EStatTargetActor StatTargetActor, FName ExtraStatName, float StatChangeAmount, FName ItemID, int32 ItemAmount, bool bAdvanceDailySequence, EStatTargetActor AnimSequenceRowPlayTarget, const TSoftObjectPtr<class USkeletalMesh>& AnimSequenceNPCMeshOverride, const FText& FadeNarrationText, FName NextDialogIDForNarration, bool bHideTalkingNPCDuringAnimEvent, const TArray<FEventAction>& AdditionalActions);
+
+	/** AdditionalActions（FDialogData/FDialogChoice）を上から順に実行する。話しかけている相手（CurrentNPC）がコンテキストになる */
+	void ExecuteAdditionalActions(const TArray<FEventAction>& Actions);
+
+	// --- 行ごとのループAnimEvent（FDialogData::LoopAnimEventID）用 ---
+
+	/** ループ用AnimEventを、会話の進行を待たずに再生開始する。IDが空なら何もしない（再生中のものはそのまま継続）。
+	 *  同じIDが既に再生中ならそのまま継続し、別のIDが再生中なら先に正規の後片付けで止めてから切り替える */
+	void StartRowLoopAnimEvent(FName LoopAnimEventID);
+
+	/** StartRowLoopAnimEventで開始したAnimEventが再生中なら、後片付け込みで即座に止める */
+	void StopRowLoopAnimEvent();
+
+	/** StartRowLoopAnimEventで再生を開始した、現在再生中のAnimEventID（なければNone）。
+	 *  別のAnimEvent（PlayAnimSequenceアクション等）に置き換わった場合は、そちらを誤って止めないようNoneへ戻す */
+	FName ActiveLoopAnimEventID;
 
 	// --- 逐次表示システム用の変数と関数 ---
 
@@ -137,9 +162,51 @@ private:
 	FName PendingNarrationExtraStatName;
 	float PendingNarrationStatChangeAmount = 0.0f;
 
+	/** 同じく真っ暗になった瞬間（BeginFadeNarration）に実行する追加アクション。ExecuteActionCoreが暗転要求時に保存する */
+	TArray<FEventAction> PendingNarrationAdditionalActions;
+
 	/** 現在のナレーション行をUIへ送信する（OnFadeNarrationLineをBroadcast） */
 	void ShowFadeNarrationLine();
 
 	/** ナレーション表示中、クリック/決定入力のたびにAdvanceDialogから呼ばれる */
 	void AdvanceFadeNarrationLine();
+
+	// --- 会話UI（旧BP_ThirdPersonCharacterのOnDialogUpdated/OnDialogClosed/OnHideChoicesイベントの移植） ---
+
+	/** 選択肢一覧（会話中は使い回し、会話終了で消す） */
+	UPROPERTY()
+	UWBP_ChoiceMenu* ChoiceMenuWidget = nullptr;
+
+	/** クリック／スペースで会話を進める全画面ウィジェット（会話中は1つだけ使い回し、会話終了で消す） */
+	UPROPERTY()
+	UWBP_DialogAdvance* DialogAdvanceWidget = nullptr;
+
+	/** 暗転ナレーションの本文表示。最初に必要になった時に作り、以降は使い回す */
+	UPROPERTY()
+	UWBP_FadeNarration* FadeNarrationWidget = nullptr;
+
+	/** ShowCurrentLineが1ページ分を表示するたびに呼ぶ。NPC名付きのログ出力、選択肢／「進む」ウィジェットの表示、入力ロックを行う */
+	void UpdateDialogUI(const FDialogData& DisplayData, AActor* NPC);
+
+	/** 会話UIを片付ける（選択肢と「進む」ウィジェットを消し、入力ロックとマウスカーソルを通常に戻す） */
+	void CloseDialogUI();
+
+	/** 選択肢が選ばれた直後に呼ぶ。選択肢を隠す */
+	void HideChoicesUI();
+
+	/** 会話用の入力モード（UI操作可＋カーソル表示）にして、指定ウィジェットへフォーカスを移し、プレイヤーを入力ロックする */
+	void ApplyDialogInputMode(class UUserWidget* WidgetToFocus);
+
+	/** 「進む」ウィジェットが無ければ（または画面から外れていれば）作って画面に出す。HUDにクラス指定が無ければnullptrのまま */
+	void EnsureDialogAdvanceWidget();
+
+	class APlayerController* GetOwnerPlayerController() const;
+	class AMyProject1HUD* GetOwnerHUD() const;
+
+	/** OnFadeNarrationLine/OnFadeNarrationClosedの購読先（イベント／睡眠ナレーションなどGameInstanceが直接Broadcastする分も含めて受ける） */
+	UFUNCTION()
+	void HandleFadeNarrationLineUI(const FText& Line);
+
+	UFUNCTION()
+	void HandleFadeNarrationClosedUI();
 };

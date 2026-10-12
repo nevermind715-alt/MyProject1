@@ -829,6 +829,32 @@ void UMyProject1GameInstance::ExecuteWarpProcess()
 					Movement->GravityScale = 0.0f;
 				}
 
+				// EventContextActorの座標が台のコリジョンに埋まっている（台の上面より低い）場合、ワープ後にCharacterMovementが
+				// 押し出し・床判定で台の上へ持ち上げてくれるかは、周囲のコリジョン（ランドスケープ等との同時重なり）次第で
+				// 成否が変わり、失敗するとその位置のままAnimEventの固定位置になって台に埋まる。
+				// 移動コンポーネント任せにせず、座標の少し上から真下へカプセルをスイープして、立てる位置（台の上面）へ明示的に置き直す。
+				// 何にも当たらなかった場合や、スイープ開始地点が既に埋まっていた場合は何もせず元の位置のままにする
+				if (const UCapsuleComponent* WarpCapsule = Character->GetCapsuleComponent())
+				{
+					const FVector WarpLocation = Character->GetActorLocation();
+					const FVector SweepStart = WarpLocation + FVector(0.0f, 0.0f, 150.0f);
+					const FVector SweepEnd = WarpLocation - FVector(0.0f, 0.0f, 150.0f);
+
+					FCollisionQueryParams SweepParams(SCENE_QUERY_STAT(EventWarpSnapToSurface), false, Character);
+					if (const AActor* WarpContextActor = ActiveEventContextActor.Get())
+					{
+						SweepParams.AddIgnoredActor(WarpContextActor);
+					}
+
+					FHitResult SurfaceHit;
+					const bool bHitSurface = GetWorld()->SweepSingleByChannel(SurfaceHit, SweepStart, SweepEnd, FQuat::Identity, ECC_Pawn,
+						FCollisionShape::MakeCapsule(WarpCapsule->GetScaledCapsuleRadius(), WarpCapsule->GetScaledCapsuleHalfHeight()), SweepParams);
+					if (bHitSurface && !SurfaceHit.bStartPenetrating)
+					{
+						Character->SetActorLocation(FVector(WarpLocation.X, WarpLocation.Y, SurfaceHit.Location.Z), false, nullptr, ETeleportType::TeleportPhysics);
+					}
+				}
+
 				// EventContextActor（BP_SleepPoint等）やその周囲の壁等にCameraBoom（SpringArm）の衝突判定が
 				// ヒットし、カメラが引き寄せられて（キャラに埋まって）見えるテレポート直後の一瞬だけを防ぎたいので、
 				// ここでは無効化のみ行う。ずっと無効のままだとカメラ回転時に壁を素通しして裏が見えてしまうため、
@@ -2041,6 +2067,39 @@ void UMyProject1GameInstance::RestoreAnimEventFaceMorphs()
 	AnimEventAppliedMorphs.Reset();
 }
 
+void UMyProject1GameInstance::PlayAnimSequenceEventHeld(FName AnimEventID, ACharacter* PrimaryCharacter, AActor* SecondaryContextActor)
+{
+	// 前の再生が残っていると、PlayAnimSequenceEvent冒頭の打ち切り（AbortCurrentAnimEventStepChain）が保持フラグまで消してしまうため、
+	// フラグを立てる前に済ませておく
+	if (CurrentAnimEventStepIndex != INDEX_NONE)
+	{
+		AbortCurrentAnimEventStepChain();
+	}
+
+	bAnimEventHoldUntilStopped = true;
+	PlayAnimSequenceEvent(AnimEventID, PrimaryCharacter, SecondaryContextActor, /*bFadeInBeforeStart=*/false);
+
+	// 開始に失敗した場合（AnimEventID未登録等）はフラグを残さない
+	if (CurrentAnimEventStepIndex == INDEX_NONE)
+	{
+		bAnimEventHoldUntilStopped = false;
+	}
+}
+
+void UMyProject1GameInstance::StopAnimSequenceEventImmediately()
+{
+	if (CurrentAnimEventStepIndex == INDEX_NONE) return;
+
+	// 暗転待ちの次ステップ遷移が残っていると、後からタイマーが古いステップへ再生し直してしまうため先に消しておく
+	GetTimerManager().ClearTimer(AnimEventStepTransitionTimerHandle);
+
+	// 遷移先をINDEX_NONE（＝全Step完了扱い）にしてHandleAnimEventStepTransitionFadeCompleteを直接呼ぶ。
+	// ループ中のモンタージュ（メイン・Extra全参加者）の打ち切りと、PlayAnimEventStepの全Step完了時の後片付けが
+	// そのまま実行される（正常終了パスと同じ復元内容にするため、独自の後片付けは書かない）
+	PendingAnimEventNextStepIndex = INDEX_NONE;
+	HandleAnimEventStepTransitionFadeComplete();
+}
+
 bool UMyProject1GameInstance::IsPlayingAnimSequenceEventFor(const ACharacter* Character) const
 {
 	return Character && AnimEventPrimaryCharacter.Get() == Character;
@@ -2095,6 +2154,8 @@ void UMyProject1GameInstance::PlayAnimEventStep(int32 StepIndex)
 
 	if (!AnimEvent || !AnimEvent->Steps.IsValidIndex(StepIndex))
 	{
+		bAnimEventHoldUntilStopped = false;
+
 		// 全ステップ再生完了：入力ロックを解除し、EventBGMでオーバーライドしていれば元のBGMに戻してから状態をクリアする
 		if (AMyProject1Character* MyPrimaryCharacter = Cast<AMyProject1Character>(AnimEventPrimaryCharacter.Get()))
 		{
@@ -2309,7 +2370,14 @@ void UMyProject1GameInstance::PlayAnimEventStep(int32 StepIndex)
 		}
 	}
 
-	if (Step.bLoop && Step.Duration > 0.0f)
+	if (bAnimEventHoldUntilStopped)
+	{
+		// 保持再生（PlayAnimSequenceEventHeld）：Durationの時間切れ・モンタージュ終了による次ステップへの暗転遷移は行わず、
+		// bAnimEventStepLoopingだけ立ててHandleAnimEventStepMontageBlendingOutに継ぎ目の再生し直しをさせ続ける。
+		// 打ち切りはStopAnimSequenceEventImmediately（HandleAnimEventStepTransitionFadeComplete経由）だけが行う
+		bAnimEventStepLooping = true;
+	}
+	else if (Step.bLoop && Step.Duration > 0.0f)
 	{
 		bAnimEventStepLooping = true;
 
@@ -2613,6 +2681,7 @@ void UMyProject1GameInstance::AbortCurrentAnimEventStepChain()
 	GetTimerManager().ClearTimer(AnimEventStepTransitionTimerHandle);
 	CurrentAnimEventStepIndex = INDEX_NONE;
 	bAnimEventStepLooping = false;
+	bAnimEventHoldUntilStopped = false;
 	bAnimEventSequenceStarted = false;
 	CurrentAnimEventID = NAME_None;
 	PendingAnimEventNextStepIndex = INDEX_NONE;

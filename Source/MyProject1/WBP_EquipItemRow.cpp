@@ -3,6 +3,7 @@
 #include "WBP_EquipDetail.h"
 #include "InventoryComponent.h"
 #include "Components/Button.h"
+#include "Components/ButtonSlot.h"
 #include "Components/TextBlock.h"
 #include "GameFramework/Pawn.h"
 
@@ -24,6 +25,15 @@ void UWBP_EquipItemRow::NativeConstruct()
 		Btn_SelectItem->OnClicked.RemoveDynamic(this, &UWBP_EquipItemRow::HandleSelectClicked);
 		Btn_SelectItem->OnClicked.AddDynamic(this, &UWBP_EquipItemRow::HandleSelectClicked);
 	}
+	// 項目名を左寄せにする（ボタン内の文字は既定で中央揃えになるため）
+	if (Text_ItemName)
+	{
+		if (UButtonSlot* TextSlot = Cast<UButtonSlot>(Text_ItemName->Slot))
+		{
+			TextSlot->SetHorizontalAlignment(HAlign_Left);
+		}
+		Text_ItemName->SetJustification(ETextJustify::Left);
+	}
 	RefreshName();
 }
 
@@ -41,7 +51,12 @@ void UWBP_EquipItemRow::RefreshName()
 			DisplayName = Data.Name;
 		}
 	}
-	if (bEquipped)
+	if (Text_Equipped)
+	{
+		// 専用のTextBlockがあれば、名前とは別に右端へ表示する
+		Text_Equipped->SetText(bEquipped ? FText::FromString(TEXT("【装備中】")) : FText::GetEmpty());
+	}
+	else if (bEquipped)
 	{
 		DisplayName += TEXT("【装備中】");
 	}

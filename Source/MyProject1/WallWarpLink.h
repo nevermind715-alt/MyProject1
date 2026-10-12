@@ -21,6 +21,7 @@ public:
 
 protected:
 	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 public:
 	// --- コンポーネント ---
@@ -51,6 +52,16 @@ public:
 	    ExitOffsetDistanceだけでは往復トリガーを防ぎきれない配置向けの保険 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wall Warp Settings")
 	float ReTriggerCooldown = 0.5f;
+
+	/** ONにすると、RequiredFlagが立ってから AutoClearFlagGameHours（ゲーム内時間）経過した時点で
+	    プレイヤーからRequiredFlagを自動で外す。フラグが外れるとこのリンクは再び非表示・当たり判定OFF（入れなくなる）。
+	    出口側の別リンク（RequiredFlag空欄）は影響を受けないので、「入れないが出られる」宿屋などに使える */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wall Warp Settings")
+	bool bAutoClearFlag = false;
+
+	/** bAutoClearFlagがONの時、フラグが立ってから自動で外れるまでのゲーム内時間（時間単位） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wall Warp Settings", meta = (EditCondition = "bAutoClearFlag", ClampMin = "0.0"))
+	float AutoClearFlagGameHours = 15.0f;
 
 	// --- 実行関数 ---
 	/** キャラクターがボックスに触れた時に呼ばれる */
@@ -84,6 +95,20 @@ private:
 	/** プレイヤーがフラグを獲得した時に呼ばれる（OnFlagAddedの購読先）。RequiredFlag一致時のみ表示を更新する */
 	UFUNCTION()
 	void OnPlayerFlagAdded(FName FlagName);
+
+	/** プレイヤーがフラグを失った時に呼ばれる（OnFlagRemovedの購読先）。RequiredFlag一致時のみ再び非表示・当たり判定OFFに戻す */
+	UFUNCTION()
+	void OnPlayerFlagRemoved(FName FlagName);
+
+	/** ゲーム内時間が進むたびに呼ばれる（OnInGameTimeChangedの購読先）。自動OFFの期限を過ぎていればフラグを外す */
+	UFUNCTION()
+	void OnInGameTimeChangedHandler(int32 Year, int32 Month, int32 Day, int32 Hour, int32 Minute);
+
+	/** 自動OFFの期限を過ぎていればRequiredFlagをプレイヤーから外す */
+	void CheckAutoClearDeadline();
+
+	/** 自動OFFの期限を（未設定なら）今からAutoClearFlagGameHours後に設定する */
+	void StartAutoClearDeadline();
 
 	/** 直近でこのリンク経由でワープしてきたキャラクターと、そのクールダウン終了時刻 */
 	TMap<TWeakObjectPtr<AActor>, float> RecentlyArrivedActors;

@@ -1029,7 +1029,47 @@ enum class EDialogActionType : uint8
 	PayGil          UMETA(DisplayName = "お金を支払う（ActionPayload=金額）"),
 	// プレイヤーの蓄積疲労度(BaseEnergy)をシャワーで回復する。睡眠ではBaseEnergyのうちShowerEnergy分より下には回復できないが、
 	// これはその分（ShowerEnergy）を取れる。ActionPayloadに回復量を数値で入れる（空欄なら溜まっている分を全て取る）
-	Shower          UMETA(DisplayName = "シャワーで疲労を回復する（ActionPayload=回復量。空欄で全回復）")
+	Shower          UMETA(DisplayName = "シャワーで疲労を回復する（ActionPayload=回復量。空欄で全回復）"),
+	// ItemID/ItemAmountで指定したアイテムを、プレイヤーのインベントリから使用する（UInventoryComponent::UseItemと同じ。
+	// 効果が発動し1個消費される。所持していない・使用不可のアイテムは何も起きない）
+	UseItem         UMETA(DisplayName = "アイテムを使用する（ItemID/ItemAmountを使用）")
+};
+
+// イベント成立時／失敗時／会話の追加アクションとして実行する1アクション分のデータ（FDialogChoiceのアクション部分の簡易版）。
+// ActionTypeはEDialogActionTypeをそのまま流用し、実行はUGameplayActionLibrary::ExecuteAction/ApplyStatChangeが
+// DialogComponentと共通で行う
+USTRUCT(BlueprintType)
+struct FEventAction
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event")
+	EDialogActionType ActionType = EDialogActionType::None;
+
+	// アクションの引数（QuestIDの文字列やフラグ名など）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event")
+	FString ActionPayload;
+
+	// ActionType=AddItem/RemoveItem/UseItem時に対象となるアイテムの行名
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event", meta = (EditCondition = "ActionType == EDialogActionType::AddItem || ActionType == EDialogActionType::RemoveItem || ActionType == EDialogActionType::UseItem"))
+	FName ItemID;
+
+	// ActionType=AddItem/RemoveItem/UseItem時の個数
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event", meta = (EditCondition = "ActionType == EDialogActionType::AddItem || ActionType == EDialogActionType::RemoveItem || ActionType == EDialogActionType::UseItem", ClampMin = "1"))
+	int32 ItemAmount = 1;
+
+	// ActionTypeとは独立して、併用できるステータス変化（FDialogChoiceのStatToChangeと同じ扱い）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event")
+	ETargetStat StatToChange = ETargetStat::None;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event", meta = (EditCondition = "StatToChange != ETargetStat::None"))
+	EStatTargetActor StatTargetActor = EStatTargetActor::Player;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event", meta = (EditCondition = "StatToChange == ETargetStat::CustomExtraStat"))
+	FName ExtraStatName;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event")
+	float StatChangeAmount = 0.0f;
 };
 
 // --- 選択肢1つ分のデータ ---
@@ -1106,13 +1146,19 @@ struct FDialogChoice
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (EditCondition = "ActionType == EDialogActionType::PlayAnimSequence || ActionType == EDialogActionType::TriggerEvent"))
 	bool bHideTalkingNPCDuringAnimEvent = false;
 
-	// ActionType=AddItem/RemoveItem時に対象となるアイテムの行名（DT_ItemData等の行名）
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (EditCondition = "ActionType == EDialogActionType::AddItem || ActionType == EDialogActionType::RemoveItem"))
+	// ActionType=AddItem/RemoveItem/UseItem時に対象となるアイテムの行名（DT_ItemData等の行名）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (EditCondition = "ActionType == EDialogActionType::AddItem || ActionType == EDialogActionType::RemoveItem || ActionType == EDialogActionType::UseItem"))
 	FName ItemID;
 
-	// ActionType=AddItem/RemoveItem時の個数（常に正の値。奪う場合もRemoveItem側で減算する）
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (EditCondition = "ActionType == EDialogActionType::AddItem || ActionType == EDialogActionType::RemoveItem", ClampMin = "1"))
+	// ActionType=AddItem/RemoveItem/UseItem時の個数（常に正の値。奪う場合もRemoveItem側で減算する）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog", meta = (EditCondition = "ActionType == EDialogActionType::AddItem || ActionType == EDialogActionType::RemoveItem || ActionType == EDialogActionType::UseItem", ClampMin = "1"))
 	int32 ItemAmount = 1;
+
+	// ActionTypeとは別に、続けて実行する追加アクション（上から順に実行）。ActionType=ShowTextDuringFadeの場合は
+	// 画面が真っ暗になった瞬間（ナレーション表示の開始時）に実行する。それ以外はActionTypeの直後に実行する。
+	// TriggerEvent/Close/ShowTextDuringFadeは追加アクションでは動作しない（ActionType側で指定すること）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog")
+	TArray<FEventAction> AdditionalActions;
 
 	// 空欄でなければ、ActionTypeが何であっても（TalkProgressなどと併用でも）このフラグを追加で獲得する
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog")
@@ -1201,6 +1247,17 @@ struct FDialogData : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Animation", meta = (EditCondition = "ActionType == EDialogActionType::PlayAnimSequence || ActionType == EDialogActionType::TriggerEvent"))
 	bool bHideTalkingNPCDuringAnimEvent = false;
 
+	// このセリフの表示開始と同時に再生を始める、DT_AnimEventsの行名（AnimEventID）。尋問のように「会話しながら姿勢を保つ」演出用で、
+	// 会話の進行は待たない。DT_AnimEvents側のStep設定（bLoop/Duration）に関わらず、先頭ステップのアニメーションを止められるまでループし続ける
+	// （時間切れによる暗転・待機姿勢への復帰は起こらない）。複数ステップあるAnimEventは先頭ステップだけが再生される。
+	// 空欄なら何もしない（再生中のループはそのまま継続する）。直前の行と同じIDで再生中なら止めずに継続し、別のIDなら切り替える。
+	// 再生中のループは、会話が終了した時・別のAnimEvent（PlayAnimSequenceアクション等）が再生される時に止まる（暗転ナレーションでは止まらない）。
+	// 暗転ナレーションが絡む場合は、画面が真っ暗で見えなくなってから切り替える：
+	// ・このセリフ自身が暗転ナレーションを起動する行（選択肢なしのShowTextDuringFade）なら、暗転に入ってから再生を始める
+	// ・暗転ナレーションの直後に続く行にこれが設定されていれば、そのIDへ暗転中のうちに切り替える（無ければこの行の指定を使う）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Animation")
+	FName LoopAnimEventID;
+
 	// このセリフを読み終わった時に会話を明示的に終了するフラグ
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog")
 	bool bEndDialog = false;
@@ -1219,13 +1276,19 @@ struct FDialogData : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Action")
 	FString ActionPayload;
 
-	// ActionType=AddItem/RemoveItem時に対象となるアイテムの行名（DT_ItemData等の行名）
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Action", meta = (EditCondition = "ActionType == EDialogActionType::AddItem || ActionType == EDialogActionType::RemoveItem"))
+	// ActionType=AddItem/RemoveItem/UseItem時に対象となるアイテムの行名（DT_ItemData等の行名）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Action", meta = (EditCondition = "ActionType == EDialogActionType::AddItem || ActionType == EDialogActionType::RemoveItem || ActionType == EDialogActionType::UseItem"))
 	FName ItemID;
 
-	// ActionType=AddItem/RemoveItem時の個数（常に正の値。奪う場合もRemoveItem側で減算する）
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Action", meta = (EditCondition = "ActionType == EDialogActionType::AddItem || ActionType == EDialogActionType::RemoveItem", ClampMin = "1"))
+	// ActionType=AddItem/RemoveItem/UseItem時の個数（常に正の値。奪う場合もRemoveItem側で減算する）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Action", meta = (EditCondition = "ActionType == EDialogActionType::AddItem || ActionType == EDialogActionType::RemoveItem || ActionType == EDialogActionType::UseItem", ClampMin = "1"))
 	int32 ItemAmount = 1;
+
+	// ActionTypeとは別に、続けて実行する追加アクション（上から順に実行）。ActionType=ShowTextDuringFadeの場合は
+	// 画面が真っ暗になった瞬間（ナレーション表示の開始時）に実行する。それ以外はActionTypeの直後に実行する。
+	// TriggerEvent/Close/ShowTextDuringFadeは追加アクションでは動作しない（ActionType側で指定すること）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Action")
+	TArray<FEventAction> AdditionalActions;
 
 	// 空欄でなければ、ActionTypeが何であっても（TalkProgressなどと併用でも）このフラグを追加で獲得する
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Action")
@@ -1826,43 +1889,6 @@ struct FEventPoolData : public FTableRowBase
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event")
 	TArray<FEventPoolEntry> Entries;
-};
-
-// イベント成立時／失敗時に実行する1アクション分のデータ（FDialogChoiceのアクション部分の簡易版）。
-// ActionTypeはEDialogActionTypeをそのまま流用し、実行はUGameplayActionLibrary::ExecuteAction/ApplyStatChangeが
-// DialogComponentと共通で行う
-USTRUCT(BlueprintType)
-struct FEventAction
-{
-	GENERATED_BODY()
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event")
-	EDialogActionType ActionType = EDialogActionType::None;
-
-	// アクションの引数（QuestIDの文字列やフラグ名など）
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event")
-	FString ActionPayload;
-
-	// ActionType=AddItem/RemoveItem時に対象となるアイテムの行名
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event", meta = (EditCondition = "ActionType == EDialogActionType::AddItem || ActionType == EDialogActionType::RemoveItem"))
-	FName ItemID;
-
-	// ActionType=AddItem/RemoveItem時の個数
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event", meta = (EditCondition = "ActionType == EDialogActionType::AddItem || ActionType == EDialogActionType::RemoveItem", ClampMin = "1"))
-	int32 ItemAmount = 1;
-
-	// ActionTypeとは独立して、併用できるステータス変化（FDialogChoiceのStatToChangeと同じ扱い）
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event")
-	ETargetStat StatToChange = ETargetStat::None;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event", meta = (EditCondition = "StatToChange != ETargetStat::None"))
-	EStatTargetActor StatTargetActor = EStatTargetActor::Player;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event", meta = (EditCondition = "StatToChange == ETargetStat::CustomExtraStat"))
-	FName ExtraStatName;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event")
-	float StatChangeAmount = 0.0f;
 };
 
 // イベント1つ分の実体データ（DT_EventDefinitions用）

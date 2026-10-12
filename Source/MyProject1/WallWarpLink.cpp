@@ -42,6 +42,81 @@ void AWallWarpLink::BeginPlay()
 
 	// RequiredFlagが空欄でも購読だけはしておいて問題ない（OnPlayerFlagAdded側で無視される）
 	PlayerChar->OnFlagAdded.AddDynamic(this, &AWallWarpLink::OnPlayerFlagAdded);
+	PlayerChar->OnFlagRemoved.AddDynamic(this, &AWallWarpLink::OnPlayerFlagRemoved);
+
+	if (bAutoClearFlag && !RequiredFlag.IsNone())
+	{
+		if (UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetGameInstance()))
+		{
+			GameInst->OnInGameTimeChanged.AddDynamic(this, &AWallWarpLink::OnInGameTimeChangedHandler);
+		}
+
+		// すでにフラグを持った状態で始まった場合（レベル移動後・ロード後）。期限の記録が無ければ今から数え始め、
+		// 期限が過ぎていればその場で外す
+		if (PlayerChar->HasFlag(RequiredFlag))
+		{
+			StartAutoClearDeadline();
+			CheckAutoClearDeadline();
+		}
+	}
+}
+
+void AWallWarpLink::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	if (UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetGameInstance()))
+	{
+		GameInst->OnInGameTimeChanged.RemoveDynamic(this, &AWallWarpLink::OnInGameTimeChangedHandler);
+	}
+
+	Super::EndPlay(EndPlayReason);
+}
+
+void AWallWarpLink::StartAutoClearDeadline()
+{
+	UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetGameInstance());
+	if (!GameInst || GameInst->FlagAutoClearDeadlines.Contains(RequiredFlag)) return;
+
+	const int32 NowMinutes = GameInst->TotalElapsedDays * 1440 + GameInst->CurrentTimeInMinutes;
+	GameInst->FlagAutoClearDeadlines.Add(RequiredFlag, NowMinutes + FMath::RoundToInt(AutoClearFlagGameHours * 60.0f));
+}
+
+void AWallWarpLink::CheckAutoClearDeadline()
+{
+	UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetGameInstance());
+	if (!GameInst) return;
+
+	const int32* Deadline = GameInst->FlagAutoClearDeadlines.Find(RequiredFlag);
+	if (!Deadline) return;
+
+	const int32 NowMinutes = GameInst->TotalElapsedDays * 1440 + GameInst->CurrentTimeInMinutes;
+	if (NowMinutes < *Deadline) return;
+
+	// 期限記録の削除はOnPlayerFlagRemoved側でも行うが、プレイヤーが取れない場合に毎分ここへ来続けないよう先に消す
+	GameInst->FlagAutoClearDeadlines.Remove(RequiredFlag);
+
+	if (AMyProject1Character* PlayerChar = Cast<AMyProject1Character>(UGameplayStatics::GetPlayerCharacter(this, 0)))
+	{
+		PlayerChar->RemoveFlag(RequiredFlag);
+	}
+}
+
+void AWallWarpLink::OnInGameTimeChangedHandler(int32 Year, int32 Month, int32 Day, int32 Hour, int32 Minute)
+{
+	CheckAutoClearDeadline();
+}
+
+void AWallWarpLink::OnPlayerFlagRemoved(FName FlagName)
+{
+	if (RequiredFlag.IsNone() || FlagName != RequiredFlag) return;
+
+	// 他の手段（会話のRemoveFlag等）で外れた場合に、期限の記録だけ残って次回の取得時に早く切れないようにする
+	if (UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetGameInstance()))
+	{
+		GameInst->FlagAutoClearDeadlines.Remove(RequiredFlag);
+	}
+
+	SetActorHiddenInGame(true);
+	SetActorEnableCollision(false);
 }
 
 void AWallWarpLink::UpdateFlagVisibility(const AMyProject1Character* PlayerChar)
@@ -58,6 +133,16 @@ void AWallWarpLink::OnPlayerFlagAdded(FName FlagName)
 
 	SetActorHiddenInGame(false);
 	SetActorEnableCollision(true);
+
+	if (bAutoClearFlag)
+	{
+		// 新しくフラグが立った時点から数え直す（前回の期限記録が残っていても上書き）
+		if (UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetGameInstance()))
+		{
+			GameInst->FlagAutoClearDeadlines.Remove(RequiredFlag);
+		}
+		StartAutoClearDeadline();
+	}
 }
 
 void AWallWarpLink::OnOverlapBegin(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)

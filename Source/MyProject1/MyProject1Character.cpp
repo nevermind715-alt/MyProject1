@@ -611,6 +611,12 @@ void AMyProject1Character::DebugLearnAllAbilities()
 	}
 }
 
+void AMyProject1Character::DebugSetRank(const FString& RankRowName)
+{
+	// 存在しない等級名の場合はSetAdventurerRank側がシステムログを出してfalseを返す
+	SetAdventurerRank(FName(*RankRowName));
+}
+
 bool AMyProject1Character::TryOpenTimeSkipMenu(bool bIsSleepMode)
 {
 	// 会話中・カットシーン中・戦闘中（オートアタック中）・AnimEvent再生中は時間を進めさせない
@@ -5567,6 +5573,18 @@ void AMyProject1Character::TryAddSkinOverlay(FName RowName, bool bIsShopPurchase
 	if (OnSkinOverlayUIChangedDelegate.IsBound())
 	{
 		OnSkinOverlayUIChangedDelegate.Broadcast();
+	}
+
+	// ダイアログ等からDisplayName無しで呼ばれた場合は、刺青テーブルのDisplayNameをログに使う
+	if (DisplayName.IsEmpty() && ShopCategory == EShopModeCategory::Tattoo)
+	{
+		if (UDataTable* TattooDT = SkinOverlayComp->GetOverlayDataTableByCategory(ShopCategory))
+		{
+			if (const FSkinOverlayDataRow* Data = TattooDT->FindRow<FSkinOverlayDataRow>(RowName, TEXT("TattooLogDisplayName")))
+			{
+				DisplayName = Data->DisplayName;
+			}
+		}
 	}
 
 	FString TargetName = DisplayName.IsEmpty() ? RowName.ToString() : DisplayName;
