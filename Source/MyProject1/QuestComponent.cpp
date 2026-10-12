@@ -87,7 +87,7 @@ void UQuestComponent::ClearObjectiveClearedFlag(const FQuestData& Data) const
 
 void UQuestComponent::TryAutoReport(const FQuestData& Data, FName QuestID)
 {
-	if (!Data.bAutoReportOnObjectiveCleared || Data.QuestType == EQuestType::Delivery) return;
+	if (!Data.bAutoReportOnObjectiveCleared) return;
 
 	if (UWorld* World = GetWorld())
 	{
@@ -547,6 +547,7 @@ void UQuestComponent::UpdateKillObjective(FName EnemyID)
 				{
 					Progress.DeliveryKillCount = NeedKills; // 上限で止める
 					Progress.Status = EQuestStatus::ObjectiveCleared; // ここで初めて報告待ちへ
+					TryAutoReport(Data, Progress.QuestID);
 
 					// 対象を討伐した時点で出現トリガーは役目終了。ここで落とすことで、
 					// 報告前に別レベルへ出入りしても対象が重複POPしなくなる
@@ -865,6 +866,7 @@ void UQuestComponent::UpdateTalkObjective(FName QuestID, AActor* TalkedToNPC)
 			else
 			{
 				Progress.Status = EQuestStatus::ObjectiveCleared; // 依頼主への報告待ち状態へ
+				TryAutoReport(Data, Progress.QuestID);
 
 				if (OwnerChar)
 				{

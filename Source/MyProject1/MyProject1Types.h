@@ -1491,8 +1491,8 @@ struct FQuestData : public FTableRowBase
 
 	// trueにすると、目的を達成した時に依頼主への報告を待たず、自動で報告（報酬付与・クリア）まで進める。
 	// ObjectiveClearedFlagを「達成〜報告の間だけ立つトリガー」として使うクエストでは、達成と同時に外れるため併用しないこと。
-	// Deliveryは現状「依頼主への報告」を残す仕様のため対象外（設定しても無効）
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Objective", meta = (EditCondition = "QuestType != EQuestType::Delivery"))
+	// Deliveryでも有効：会話（インタラクト）パート／討伐パートの完了時点で自動報告する（依頼主への報告が不要なお使い・お参りクエスト用）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Objective")
 	bool bAutoReportOnObjectiveCleared = false;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quest|Reward")
