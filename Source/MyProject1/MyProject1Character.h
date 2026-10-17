@@ -771,8 +771,8 @@ public:
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category = "Movement|Restraint")
 	float RestrainedSpeedCap = 0.0f;
 
-	/** 現在、拘束用ABPに差し替え中か */
-	bool bUsesRestrainedAnimBlueprint = false;
+	/** 現在差し替え中の拘束用ABPの番号（GameInstanceの配列エレメント番号）。差し替えていなければINDEX_NONE */
+	int32 ActiveRestrainedAnimIndex = INDEX_NONE;
 
 	/** 拘束用ABPに差し替える前の、元々のAnimBlueprintクラス（解除時に復元するため） */
 	UPROPERTY()
@@ -1468,7 +1468,7 @@ public:
 	FText GetAdventurerRankDisplayName() const;
 
 protected:
-	/** bUsesRestrainedAnimBlueprintの状態に応じて、拘束用ABPへの差し替え／元のABPへの復元を実際に行う */
+	/** ActiveRestrainedAnimIndexの状態に応じて、拘束用ABPへの差し替え／元のABPへの復元を実際に行う */
 	void ApplyRestrainedAnimBlueprint();
 
 	/** ターゲットが死亡した際に、次のターゲットを自動で探す関数 */

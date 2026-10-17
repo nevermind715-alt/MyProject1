@@ -2517,6 +2517,10 @@ struct FEquipmentData : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment|Restraint")
 	bool bOverridesLocomotionAnim = false;
 
+	/** 差し替え先ABPの番号（GameInstanceの Restrained Anim Blueprint Classes 配列のエレメント番号、0始まり） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment|Restraint", meta = (EditCondition = "bOverridesLocomotionAnim", ClampMin = "0"))
+	int32 LocomotionAnimIndex = 0;
+
 };
 
 // --- ExtraStatsとモーフターゲットを連動させるための設定 ---

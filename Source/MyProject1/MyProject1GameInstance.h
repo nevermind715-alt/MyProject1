@@ -290,9 +290,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Restrained Movement")
 	float RestrainedSlowWalkSpeed = 150.0f;
 
-	/** 拘束具装備中に差し替えるAnimBlueprint（ブレンドスペースを差し替えたABPを複製して設定） */
+	/** 拘束具装備中に差し替えるAnimBlueprintの一覧（ブレンドスペースを差し替えたABPを複製して登録）。DT_Equipmentsの LocomotionAnimIndex がこの配列のエレメント番号を指す */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Restrained Movement")
-	TSoftClassPtr<class UAnimInstance> RestrainedAnimBlueprintClass;
+	TArray<TSoftClassPtr<class UAnimInstance>> RestrainedAnimBlueprintClasses;
 
 	/** プリセットに対応する移動速度上限を取得する */
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Restrained Movement")
@@ -463,6 +463,12 @@ public:
 	 *  ステップ遷移の暗転（OnWarpFadeOutRequested）を起こさないため、暗転ナレーション中に呼んでも暗転が解除されない */
 	void PlayAnimSequenceEventHeld(FName AnimEventID, class ACharacter* PrimaryCharacter, class AActor* SecondaryContextActor = nullptr);
 
+	/** PlayAnimSequenceEvent(bFadeInBeforeStart=true)を呼んだ直後に呼ぶ（C++専用）。開始前の暗転が完了して画面が真っ暗になった
+	 *  タイミングで、PrimaryCharacterの固定位置（XY）と向き（Yaw）をこの値へ差し替える（Z・Pitch・Rollは再生開始時のまま）。
+	 *  暗転開始前に動かすと明るい画面でテレポートが見えてしまうため、QuestItemPointのbAlignPlayerToPointOnAnimEvent用に
+	 *  暗転完了まで保留する。暗転待ちの状態でない（PlayAnimSequenceEventが開始できなかった等）場合は何もしない */
+	void AlignAnimEventPrimaryAtFadeEnd(const FVector& WorldLocation, float WorldYaw);
+
 	/** Characterが現在PlayAnimSequenceEventのPrimaryCharacterとして再生中（開始〜完了通知の間）かどうか。
 	 *  会話終了処理など、他システムがアニメ再生中の入力ロック（SetInputLocked）を誤って解除しないためのガードに使う */
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "AnimEvent")
@@ -619,6 +625,11 @@ private:
 	FRotator AnimEventPrimaryLockedActorRotation = FRotator::ZeroRotator;
 	FVector AnimEventSecondaryLockedActorLocation = FVector::ZeroVector;
 	FRotator AnimEventSecondaryLockedActorRotation = FRotator::ZeroRotator;
+
+	// AlignAnimEventPrimaryAtFadeEndで予約された、開始前の暗転完了時にPrimaryの固定位置・向きへ反映する値
+	bool bHasPendingAnimEventPrimaryAlign = false;
+	FVector PendingAnimEventPrimaryAlignLocation = FVector::ZeroVector;
+	float PendingAnimEventPrimaryAlignYaw = 0.0f;
 
 	// 再生中、Primary/SecondaryのCapsuleがPawnチャンネルに対して持っていた元のコリジョン応答。
 	// AnimEvent再生中はPawn同士の押し出しを防ぐため一時的にECR_Ignoreにし、終了時にこの値へ戻す

@@ -107,6 +107,16 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item Interact|Quest")
 	FName RequiredFlag;
 
+	/** 空欄でなければ、インタラクト成功時にプレイヤーからこのフラグを消去する。
+	    AnimEventID再生ありの場合は、他の成功後処理と同じくアニメーション再生完了後に消去する */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item Interact|Quest")
+	FName SuccessRemoveFlag;
+
+	/** 空欄でなければ、インタラクト失敗時（Absorbでアイテム不足/カバンが満杯/使用済み）にプレイヤーからこのフラグを消去する。
+	    成功率つき追加抽選（Chance Outcome）の失敗はここには含まれない（ChanceFailureActionsで指定する） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item Interact|Quest")
+	FName FailureRemoveFlag;
+
 	// --- 使用回数 ---
 	/** trueなら成功後に使用済みとなり、以後インタラクトできなくなる（ゴミ拾いなど）。
 	    falseなら何度でも使える（賽銭箱など） */
@@ -157,9 +167,16 @@ public:
 	    再生対象はFAnimEventStep::PlayTargetで決まる（Player想定。このアクタ自身はSecondaryContextActorとして渡すが、
 	    ACharacterではないためPlayTarget=NPCを対象にしても再生されない）。
 	    設定した場合、下のSuccessLogText等（成功ログ・クエスト連携・イベント分岐・効果音・使用済み化）は
-	    アニメーション再生完了まで遅延される。空欄なら従来通り即座に実行する */
+	    アニメーション再生完了まで遅延される。再生中、このアクタ自身は非表示になる（完了後に元の表示へ戻る）。
+	    空欄なら従来通り即座に実行する */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item Interact|Animation")
 	FName AnimEventID;
+
+	/** trueなら、AnimEventID再生の開始前暗転が明けるまでの間（画面が真っ暗な間）に、プレイヤーの位置（XY）と向き（Yaw）を
+	    このアクタのものへ合わせてから再生する。高さ（Z）は変えない。再生後もプレイヤーはその位置・向きのまま残る。
+	    falseならインタラクトした時の位置・向きのまま再生する（従来通り）。AnimEventIDが空欄なら無効 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item Interact|Animation")
+	bool bAlignPlayerToPointOnAnimEvent = false;
 
 	// --- 演出 ---
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item Interact|Audio")

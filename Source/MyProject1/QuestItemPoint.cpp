@@ -160,6 +160,10 @@ void AQuestItemPoint::TryInteract(AMyProject1Character* Interactor)
 		{
 			Interactor->OnReceiveLogMessage(TEXT("もう何も残っていないようだ。"), ELogMessageType::System);
 		}
+		if (!FailureRemoveFlag.IsNone())
+		{
+			Interactor->RemoveFlag(FailureRemoveFlag);
+		}
 		return;
 	}
 
@@ -216,6 +220,10 @@ void AQuestItemPoint::TryInteract(AMyProject1Character* Interactor)
 			const FString DefaultMsg = (Mode == EItemInteractMode::Absorb) ? TEXT("必要なアイテムが足りない。") : TEXT("これ以上持てない。");
 			Interactor->OnReceiveLogMessage(DefaultMsg, ELogMessageType::System);
 		}
+		if (!FailureRemoveFlag.IsNone())
+		{
+			Interactor->RemoveFlag(FailureRemoveFlag);
+		}
 		return;
 	}
 
@@ -268,8 +276,17 @@ void AQuestItemPoint::TryInteract(AMyProject1Character* Interactor)
 			PendingAnimEventInteractor = Interactor;
 			bWaitingForAnimEventCompletion = true;
 			GameInst->OnAnimSequenceEventFinished.AddUniqueDynamic(this, &AQuestItemPoint::OnInteractAnimEventFinished);
+			// 再生中はこのポイント自身を非表示にする（再表示はOnInteractAnimEventFinishedで行う）。
+			// PlayAnimSequenceEventは再生を始められない場合にその場でOnAnimSequenceEventFinishedを呼ぶため、
+			// 非表示は必ず呼び出しより前に行う（後だと再表示が先に済んで非表示のまま残る）
+			SetActorHiddenInGame(true);
 			// ワープを経由しない直接呼び出しのため、開始前にも暗転を挟む（GameplayActionLibraryのPlayAnimSequenceと同じ理由）
 			GameInst->PlayAnimSequenceEvent(AnimEventID, Interactor, this, true);
+			if (bAlignPlayerToPointOnAnimEvent)
+			{
+				// 暗転開始前に動かすと明るい画面でテレポートが見えるため、暗転完了時に反映してもらう
+				GameInst->AlignAnimEventPrimaryAtFadeEnd(GetActorLocation(), GetActorRotation().Yaw);
+			}
 			return;
 		}
 	}
@@ -286,11 +303,19 @@ void AQuestItemPoint::OnInteractAnimEventFinished(bool bCompletedNormally)
 
 	// bCompletedNormally=false（AnimEventID不正・対象不備等で再生自体が始まらなかった）の場合も、
 	// アイテムの授受は既に完了しているためインタラクト自体は成功扱いのまま後処理を進める
-	if (AMyProject1Character* Interactor = PendingAnimEventInteractor.Get())
+	AMyProject1Character* Interactor = PendingAnimEventInteractor.Get();
+	if (Interactor)
 	{
 		FinalizeInteractSuccess(Interactor);
 	}
 	PendingAnimEventInteractor = nullptr;
+
+	// 再生中の非表示を元に戻す。使用済みになった場合（bOneTimeUse）はFinalizeInteractSuccessのApplyUsedStateで
+	// 非表示が確定しているため触らない。それ以外はRequiredFlagの状態に応じた表示へ戻す
+	if (!bUsed)
+	{
+		UpdateFlagVisibility(Interactor);
+	}
 }
 
 void AQuestItemPoint::FinalizeInteractSuccess(AMyProject1Character* Interactor)
@@ -308,6 +333,11 @@ void AQuestItemPoint::FinalizeInteractSuccess(AMyProject1Character* Interactor)
 		{
 			QuestComp->UpdateTalkObjective(TalkProgressQuestID, this);
 		}
+	}
+
+	if (!SuccessRemoveFlag.IsNone())
+	{
+		Interactor->RemoveFlag(SuccessRemoveFlag);
 	}
 
 	// イベント分岐システム：このポイント自身にUEventDistributorComponentが付いていれば、インタラクト成功時に抽選を開始する

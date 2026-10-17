@@ -702,6 +702,13 @@ void AMyProject1Character::ToggleCombatMode()
 	}
 	else if (CurrentTarget)
 	{
+		// 拘束用ABPに差し替え中（拘束具装備中）は攻撃を開始できない。コマンドメニューも開かない
+		if (ActiveRestrainedAnimIndex != INDEX_NONE)
+		{
+			OnReceiveLogMessage(TEXT("拘束されているため、攻撃できません。"), ELogMessageType::System);
+			return;
+		}
+
 		// 直接攻撃せず、StartAutoAttack(準備)を呼ぶ
 		StartAutoAttack();
 
@@ -2150,8 +2157,8 @@ void AMyProject1Character::NotifyNearbyAllies(AActor* TargetToAttack)
 
 void AMyProject1Character::StartAutoAttack()
 {
-	// ターゲットがいる 且つ まだ戦闘中でも準備中でもない場合のみ開始
-	if (CurrentTarget && !bIsAutoAttacking && !bIsPreparingAttack)
+	// ターゲットがいる 且つ まだ戦闘中でも準備中でもない 且つ 拘束用ABPに差し替え中でない場合のみ開始
+	if (CurrentTarget && !bIsAutoAttacking && !bIsPreparingAttack && ActiveRestrainedAnimIndex == INDEX_NONE)
 	{
 		// 自分がプレイヤー操作の時だけ、「相手がEnemyか」をチェックして攻撃を制限する
 		if (IsPlayerControlled())
@@ -4520,7 +4527,7 @@ void AMyProject1Character::RefreshMovementRestriction()
 	// ABP差し替え：速度とは独立に判定する。どれか1つでも「ブレンドスペース変更」に
 	// チェックが入っていればON（OR条件）。速度側の勝敗とは連動させない。
 	const FEquipmentData* WinningRestraintRow = nullptr;
-	bool bNewAnimOverride = false;
+	int32 NewAnimIndex = INDEX_NONE;
 
 	if (EquipmentDataTable)
 	{
@@ -4547,9 +4554,10 @@ void AMyProject1Character::RefreshMovementRestriction()
 					WinningRestraintRow = Row;
 				}
 
+				// 複数の装備がABP差し替えを指定している場合は、番号が最小のものを採用する（装備順に依存させないため）
 				if (Row->bOverridesLocomotionAnim)
 				{
-					bNewAnimOverride = true;
+					NewAnimIndex = (NewAnimIndex == INDEX_NONE) ? Row->LocomotionAnimIndex : FMath::Min(NewAnimIndex, Row->LocomotionAnimIndex);
 				}
 			}
 		}
@@ -4572,10 +4580,17 @@ void AMyProject1Character::RefreshMovementRestriction()
 	}
 
 	// ABPの差し替え/復元は状態が変化した時だけ行う（毎回SetAnimInstanceClassし直すとAnim側の状態がリセットされるため）
-	if (bNewAnimOverride != bUsesRestrainedAnimBlueprint)
+	if (NewAnimIndex != ActiveRestrainedAnimIndex)
 	{
-		bUsesRestrainedAnimBlueprint = bNewAnimOverride;
+		ActiveRestrainedAnimIndex = NewAnimIndex;
 		ApplyRestrainedAnimBlueprint();
+	}
+
+	// 戦闘中に拘束された場合は戦闘を強制終了する（拘束ABP中は攻撃を開始できない仕様との整合のため）
+	if (ActiveRestrainedAnimIndex != INDEX_NONE && (bIsAutoAttacking || bIsPreparingAttack))
+	{
+		OnReceiveLogMessage(TEXT("拘束されたため、戦闘が強制終了した。"), ELogMessageType::System);
+		ToggleCombatMode(); // 戦闘中なので「戦闘解除」側の処理（ターゲット解除・フラグ解除・コマンドメニューを閉じる）が走る
 	}
 }
 
@@ -4586,13 +4601,20 @@ void AMyProject1Character::ApplyRestrainedAnimBlueprint()
 		return;
 	}
 
-	if (bUsesRestrainedAnimBlueprint)
+	if (ActiveRestrainedAnimIndex != INDEX_NONE)
 	{
 		UMyProject1GameInstance* GI = GetGameInstance<UMyProject1GameInstance>();
-		TSubclassOf<UAnimInstance> RestrainedClass = GI ? GI->RestrainedAnimBlueprintClass.LoadSynchronous() : nullptr;
+		if (!GI || !GI->RestrainedAnimBlueprintClasses.IsValidIndex(ActiveRestrainedAnimIndex))
+		{
+			UE_LOG(LogTemp, Warning, TEXT("ApplyRestrainedAnimBlueprint: LocomotionAnimIndex %d は GameInstance の Restrained Anim Blueprint Classes の範囲外です"), ActiveRestrainedAnimIndex);
+			return;
+		}
+
+		TSubclassOf<UAnimInstance> RestrainedClass = GI->RestrainedAnimBlueprintClasses[ActiveRestrainedAnimIndex].LoadSynchronous();
 
 		if (!RestrainedClass)
 		{
+			UE_LOG(LogTemp, Warning, TEXT("ApplyRestrainedAnimBlueprint: Restrained Anim Blueprint Classes[%d] が未設定です"), ActiveRestrainedAnimIndex);
 			return;
 		}
 
@@ -5509,6 +5531,27 @@ void AMyProject1Character::SetupCableSystem(const FCableAttachmentSettings& Sett
 	}
 }
 
+// ログ用: DisplayNameが渡されなかった場合に、カテゴリ別データテーブルから表示名を引く（見つからなければ空のまま）
+static FString LookupSkinOverlayDisplayName(USkinOverlayComponent* Comp, FName RowName, EShopModeCategory ShopCategory)
+{
+	UDataTable* DT = Comp ? Comp->GetOverlayDataTableByCategory(ShopCategory) : nullptr;
+	if (!DT) return FString();
+
+	if (ShopCategory == EShopModeCategory::Tattoo)
+	{
+		if (const FSkinOverlayDataRow* Row = DT->FindRow<FSkinOverlayDataRow>(RowName, TEXT("OverlayLogDisplayName"))) return Row->DisplayName;
+	}
+	else if (ShopCategory == EShopModeCategory::Scar)
+	{
+		if (const FScarDataRow* Row = DT->FindRow<FScarDataRow>(RowName, TEXT("OverlayLogDisplayName"))) return Row->DisplayName;
+	}
+	else if (ShopCategory == EShopModeCategory::Disease)
+	{
+		if (const FDiseaseTreatmentDataRow* Row = DT->FindRow<FDiseaseTreatmentDataRow>(RowName, TEXT("OverlayLogDisplayName"))) return Row->DisplayName;
+	}
+	return FString();
+}
+
 void AMyProject1Character::TryAddSkinOverlay(FName RowName, bool bIsShopPurchase, int32 OverridePrice, FString DisplayName, EShopModeCategory ShopCategory)
 {
 	if (!SkinOverlayComp || RowName.IsNone()) return;
@@ -5575,16 +5618,10 @@ void AMyProject1Character::TryAddSkinOverlay(FName RowName, bool bIsShopPurchase
 		OnSkinOverlayUIChangedDelegate.Broadcast();
 	}
 
-	// ダイアログ等からDisplayName無しで呼ばれた場合は、刺青テーブルのDisplayNameをログに使う
-	if (DisplayName.IsEmpty() && ShopCategory == EShopModeCategory::Tattoo)
+	// DisplayName無しで呼ばれた場合は、カテゴリ別テーブルのDisplayNameをログに使う
+	if (DisplayName.IsEmpty())
 	{
-		if (UDataTable* TattooDT = SkinOverlayComp->GetOverlayDataTableByCategory(ShopCategory))
-		{
-			if (const FSkinOverlayDataRow* Data = TattooDT->FindRow<FSkinOverlayDataRow>(RowName, TEXT("TattooLogDisplayName")))
-			{
-				DisplayName = Data->DisplayName;
-			}
-		}
+		DisplayName = LookupSkinOverlayDisplayName(SkinOverlayComp, RowName, ShopCategory);
 	}
 
 	FString TargetName = DisplayName.IsEmpty() ? RowName.ToString() : DisplayName;
@@ -5681,6 +5718,12 @@ void AMyProject1Character::TryRemoveSkinOverlay(FName RowName, bool bIsShopPurch
 		}
 	}
 
+	// ダイアログ等の強制削除経路はDisplayNameを渡さないため、空ならデータテーブルから引いてログに表示名を使う
+	if (DisplayName.IsEmpty())
+	{
+		DisplayName = LookupSkinOverlayDisplayName(SkinOverlayComp, RowName, ShopCategory);
+	}
+
 	SkinOverlayComp->RemoveOverlay(RowName, ShopCategory);
 
 	if (OnSkinOverlayUIChangedDelegate.IsBound())
@@ -5697,7 +5740,7 @@ void AMyProject1Character::TryRemoveSkinOverlay(FName RowName, bool bIsShopPurch
 	else
 	{
 		if (ShopCategory == EShopModeCategory::Disease) OnReceiveLogMessage(FString::Printf(TEXT("【%s】が完治した。"), *TargetName), ELogMessageType::System);
-		else OnReceiveLogMessage(FString::Printf(TEXT("体から【%s】が消滅した。"), *TargetName), ELogMessageType::System);
+		else OnReceiveLogMessage(FString::Printf(TEXT("身体から【%s】がきれいに消えた。"), *TargetName), ELogMessageType::System);
 	}
 }
 

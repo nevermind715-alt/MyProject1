@@ -141,6 +141,14 @@ private:
 	/** 現在の行のテキストをUIへ送信する関数 */
 	void ShowCurrentLine();
 
+	/** 選択肢なしのセリフ行に直接設定されたアクション（ActionType等）を実行する。戻り値はExecuteActionCoreと同じ */
+	bool ExecuteRowAction();
+
+	/** 選択肢なしの最終ページで、アクション付きの行がまだアクションを実行せずクリック待ちの間true。
+	 *  最後のセリフのログと、アクションが出すログ（クエスト受注など）が同時に出て読みにくくなるのを避けるため、
+	 *  セリフを表示した後、もう一度クリック/決定入力されてからAdvanceDialogが実行する */
+	bool bRowActionPending = false;
+
 	// --- 暗転中ナレーション（ShowTextDuringFade）用の状態 ---
 
 	/** ExecuteActionCoreが暗転を要求してから、BeginFadeNarrationで実際に表示が始まるまでの間true。
@@ -161,6 +169,12 @@ private:
 	EStatTargetActor PendingNarrationStatTargetActor = EStatTargetActor::Player;
 	FName PendingNarrationExtraStatName;
 	float PendingNarrationStatChangeAmount = 0.0f;
+
+	/** 同じく真っ暗になった瞬間（BeginFadeNarration）に実行するフラグ付与／消去と日替わり会話の進行。ExecuteActionCoreが暗転要求時に保存する。
+	 *  暗転は既に起きているため、bFadeOnGrantFlag／bFadeOnRemoveFlagの追加の暗転は挟まず即時に付与／消去する */
+	FName PendingNarrationGrantFlag;
+	FName PendingNarrationRemoveFlag;
+	bool bPendingNarrationAdvanceDailySequence = false;
 
 	/** 同じく真っ暗になった瞬間（BeginFadeNarration）に実行する追加アクション。ExecuteActionCoreが暗転要求時に保存する */
 	TArray<FEventAction> PendingNarrationAdditionalActions;

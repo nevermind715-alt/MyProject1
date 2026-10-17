@@ -46,8 +46,9 @@ bool UDialogComponent::TryStartDialog(FName RowName, UDataTable* DialogTable, AA
 	// （通常フローではBeginFadeNarration/AdvanceFadeNarrationLineが正しく片付けるため、ここは保険）
 	bIsFadeNarrationPending = false;
 	bIsShowingFadeNarration = false;
+	bRowActionPending = false;
 
-	FDialogData* Data = DialogTable->FindRow<FDialogData>(RowName, TEXT("DialogContext"));
+	FDialogData* Data =DialogTable->FindRow<FDialogData>(RowName, TEXT("DialogContext"));
 	if (!Data)
 	{
 		// 行名の設定漏れ・タイプミス。ここでfalseを返し、呼び出し側が入力ロックしないようにすることで
@@ -173,6 +174,9 @@ bool UDialogComponent::ExecuteActionCore(EDialogActionType ActionType, const FSt
 		PendingNarrationExtraStatName = ExtraStatName;
 		PendingNarrationStatChangeAmount = StatChangeAmount;
 		PendingNarrationAdditionalActions = AdditionalActions;
+		PendingNarrationGrantFlag = GrantFlag;
+		PendingNarrationRemoveFlag = FlagToRemove;
+		bPendingNarrationAdvanceDailySequence = bAdvanceDailySequence;
 
 		// 暗転演出中（まだ真っ暗になっていない）のAdvanceDialog誤動作を防ぐため、要求と同時に立てる
 		bIsFadeNarrationPending = true;
@@ -354,6 +358,7 @@ void UDialogComponent::CloseDialog()
 	// 暗転ナレーション状態が残ったまま会話が閉じることのないよう、念のためここでもリセットする（保険）
 	bIsFadeNarrationPending = false;
 	bIsShowingFadeNarration = false;
+	bRowActionPending = false;
 
 	// ループ用AnimEventが再生中なら、下のIsPlayingAnimSequenceEventForの判定より前に止めておく
 	// （止めずに判定すると「再生中」と見なされ、入力ロックが解除されないまま会話が閉じてしまう）
@@ -416,6 +421,22 @@ void UDialogComponent::AdvanceDialog()
 		CurrentLineIndex++;
 		ShowCurrentLine();
 		return;
+	}
+
+	// 最後のセリフを読み終えて、もう一度入力された：保留していたアクション（クエスト受注など）を実行する
+	if (bRowActionPending)
+	{
+		bRowActionPending = false;
+		if (ExecuteRowAction())
+		{
+			// 暗転／ワープ後の再開を予約した場合、以降は明転完了後のResumeAfterFadeNarrationに委ねる
+			return;
+		}
+		if (CurrentDialogData.ActionType == EDialogActionType::Close)
+		{
+			// アクション側で会話を閉じ済み。NextDialogIDが設定されていても続きは始めない
+			return;
+		}
 	}
 
 	// 最終ページで選択肢が出ている場合、「クリック/スペースで進む」は無効にする。
@@ -522,6 +543,24 @@ void UDialogComponent::ShowCurrentLine()
 		DisplayData.bEndDialog = false;
 	}
 
+	// 選択肢なしの最終ページにアクション（クエスト受注・ステータス変化など）が付いている行は、
+	// 最後のセリフのログとアクションのログが同時に出て読みにくくなるため、ここではアクションを実行せず、
+	// もう一度クリック/決定入力されてからAdvanceDialogが実行する。
+	// UIには途中ページと同じ「次がある」表示（DummyNextPage）を送り、「進む」ウィジェットを出して入力を待つ。
+	// ShowTextDuringFadeは暗転演出そのものが目的なので従来通りすぐ実行する。
+	// フラグの付与／消去だけの行はログを出さないため、従来通りすぐ実行する
+	const bool bDeferRowAction = (CurrentLineIndex == CurrentDialogLines.Num() - 1)
+		&& CurrentDialogData.Choices.Num() == 0
+		&& CurrentDialogData.ActionType != EDialogActionType::ShowTextDuringFade
+		&& (CurrentDialogData.ActionType != EDialogActionType::None
+			|| CurrentDialogData.StatToChange != ETargetStat::None
+			|| CurrentDialogData.AdditionalActions.Num() > 0);
+	bRowActionPending = bDeferRowAction;
+	if (bDeferRowAction)
+	{
+		DisplayData.NextDialogID = FName(TEXT("DummyNextPage"));
+		DisplayData.bEndDialog = false;
+	}
 
 	if (APawn* OwnerPawn = Cast<APawn>(GetOwner()))
 	{
@@ -558,7 +597,13 @@ void UDialogComponent::ShowCurrentLine()
 		// （会話終了設定の場合、この下でAdvanceDialogを経由せず直接CloseDialogするため、ここで実行しないと機会を失う）
 		if (CurrentDialogData.Choices.Num() == 0)
 		{
-			bool bStartedFadeNarration = ExecuteActionCore(CurrentDialogData.ActionType, CurrentDialogData.ActionPayload, CurrentDialogData.GrantFlag, CurrentDialogData.bFadeOnGrantFlag, CurrentDialogData.RemoveFlag, CurrentDialogData.bFadeOnRemoveFlag, CurrentDialogData.StatToChange, CurrentDialogData.StatTargetActor, CurrentDialogData.ExtraStatName, CurrentDialogData.StatChangeAmount, CurrentDialogData.ItemID, CurrentDialogData.ItemAmount, CurrentDialogData.bAdvanceDailySequence, EStatTargetActor::Player, CurrentDialogData.AnimSequenceNPCMeshOverride, CurrentDialogData.FadeNarrationText, CurrentDialogData.NextDialogID, CurrentDialogData.bHideTalkingNPCDuringAnimEvent, CurrentDialogData.AdditionalActions);
+			// アクション付きの行は、上で保留にしてクリック待ち（AdvanceDialogが実行する）
+			if (bDeferRowAction)
+			{
+				return;
+			}
+
+			bool bStartedFadeNarration = ExecuteRowAction();
 
 			// 暗転ナレーションを開始した場合、以降（CloseDialog判定含む）は明転完了後の
 			// ResumeAfterFadeNarrationに委ねるため、ここで抜ける
@@ -581,6 +626,11 @@ void UDialogComponent::ShowCurrentLine()
 				}, 0.05f, false);
 		}
 	}
+}
+
+bool UDialogComponent::ExecuteRowAction()
+{
+	return ExecuteActionCore(CurrentDialogData.ActionType, CurrentDialogData.ActionPayload, CurrentDialogData.GrantFlag, CurrentDialogData.bFadeOnGrantFlag, CurrentDialogData.RemoveFlag, CurrentDialogData.bFadeOnRemoveFlag, CurrentDialogData.StatToChange, CurrentDialogData.StatTargetActor, CurrentDialogData.ExtraStatName, CurrentDialogData.StatChangeAmount, CurrentDialogData.ItemID, CurrentDialogData.ItemAmount, CurrentDialogData.bAdvanceDailySequence, EStatTargetActor::Player, CurrentDialogData.AnimSequenceNPCMeshOverride, CurrentDialogData.FadeNarrationText, CurrentDialogData.NextDialogID, CurrentDialogData.bHideTalkingNPCDuringAnimEvent, CurrentDialogData.AdditionalActions);
 }
 
 // ----------------------------------------------------
@@ -618,6 +668,30 @@ void UDialogComponent::BeginFadeNarration()
 	}
 	PendingNarrationStatToChange = ETargetStat::None;
 	PendingNarrationStatChangeAmount = 0.0f;
+
+	// 同じく、保存しておいたフラグ付与／消去と日替わり会話の進行を実行する。
+	// 既に暗転しているため、bFadeOnGrantFlag／bFadeOnRemoveFlagでも追加の暗転は挟まず即時に行う
+	if (IRpgCharacterInterface* RpgInterface = Cast<IRpgCharacterInterface>(GetOwner()))
+	{
+		if (bPendingNarrationAdvanceDailySequence)
+		{
+			if (AQuestNPCBase* QuestNPC = Cast<AQuestNPCBase>(CurrentNPC))
+			{
+				QuestNPC->AdvanceDailyDialogSequence(Cast<AMyProject1Character>(GetOwner()));
+			}
+		}
+		if (!PendingNarrationGrantFlag.IsNone())
+		{
+			RpgInterface->AddFlag(PendingNarrationGrantFlag);
+		}
+		if (!PendingNarrationRemoveFlag.IsNone())
+		{
+			RpgInterface->RemoveFlag(PendingNarrationRemoveFlag);
+		}
+	}
+	PendingNarrationGrantFlag = NAME_None;
+	PendingNarrationRemoveFlag = NAME_None;
+	bPendingNarrationAdvanceDailySequence = false;
 
 	// 追加アクションは、ナレーションより先にログが出て読む順序が迷子にならないよう、
 	// 全行読み終えた時点（AdvanceFadeNarrationLine）で実行する

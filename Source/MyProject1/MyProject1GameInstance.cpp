@@ -2161,6 +2161,16 @@ bool UMyProject1GameInstance::GetAnimSequenceLockedTransform(const AActor* Actor
 	return false;
 }
 
+void UMyProject1GameInstance::AlignAnimEventPrimaryAtFadeEnd(const FVector& WorldLocation, float WorldYaw)
+{
+	// 開始前の暗転待ち（Step0への遷移待ち）の間だけ有効。それ以外では予約が暗転完了で消費されず残ってしまう
+	if (PendingAnimEventNextStepIndex != 0 || !AnimEventPrimaryCharacter.IsValid()) return;
+
+	bHasPendingAnimEventPrimaryAlign = true;
+	PendingAnimEventPrimaryAlignLocation = WorldLocation;
+	PendingAnimEventPrimaryAlignYaw = WorldYaw;
+}
+
 void UMyProject1GameInstance::PlayAnimEventStep(int32 StepIndex)
 {
 	GetTimerManager().ClearTimer(AnimEventStepDurationTimerHandle);
@@ -2728,6 +2738,7 @@ void UMyProject1GameInstance::AbortCurrentAnimEventStepChain()
 	bAnimEventSequenceStarted = false;
 	CurrentAnimEventID = NAME_None;
 	PendingAnimEventNextStepIndex = INDEX_NONE;
+	bHasPendingAnimEventPrimaryAlign = false;
 	CurrentAnimEventExtraMeshOverride.Reset();
 
 	// PlayAnimEventStep側の後片付けが動かないため、止めた入力ロック・NPCのAIロジックをここで明示的に戻す。
@@ -3304,6 +3315,21 @@ void UMyProject1GameInstance::HandleAnimEventStepTransitionFadeComplete()
 {
 	const int32 NextStepIndex = PendingAnimEventNextStepIndex;
 	PendingAnimEventNextStepIndex = INDEX_NONE;
+
+	// AlignAnimEventPrimaryAtFadeEndの予約を、画面が真っ暗になった今のタイミングで反映する。
+	// 固定基準値を差し替えるだけでなくActorも即座に移動させるのは、直後のPlayAnimEventStep(0)が
+	// Extra参加者・Propをプレイヤーの現在位置基準でスポーンするため（次のTickを待つと古い位置基準になる）
+	if (bHasPendingAnimEventPrimaryAlign)
+	{
+		bHasPendingAnimEventPrimaryAlign = false;
+		if (ACharacter* AlignCharacter = AnimEventPrimaryCharacter.Get())
+		{
+			AnimEventPrimaryLockedActorLocation.X = PendingAnimEventPrimaryAlignLocation.X;
+			AnimEventPrimaryLockedActorLocation.Y = PendingAnimEventPrimaryAlignLocation.Y;
+			AnimEventPrimaryLockedActorRotation.Yaw = PendingAnimEventPrimaryAlignYaw;
+			AlignCharacter->SetActorLocationAndRotation(AnimEventPrimaryLockedActorLocation, AnimEventPrimaryLockedActorRotation);
+		}
+	}
 
 	// ループ中のステップから抜ける場合は、暗転が完全に終わった今のタイミングでモンタージュを打ち切る
 	// （メイン・Extra全参加者分）。Montageを明示して打ち切ることで、直後にPlayAnimEventStepが再生する
