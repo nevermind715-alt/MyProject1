@@ -183,6 +183,16 @@ void ANPCSpawner::SpawnEnemy()
 
 		SpawnedEnemy->MyStats.HP = SpawnedEnemy->MyStats.MaxHP;
 
+		// ポップ直後からプレイヤーを捕捉させる（BOSS用）。FinishSpawning済みのためAIコントローラーとBlackboardは
+		// 構築済みで、SetCurrentTargetがBlackboardのTargetActorも更新し、ビヘイビアツリーが追跡・攻撃に入る
+		if (bAggroPlayerOnSpawn)
+		{
+			if (AMyProject1Character* PlayerChar = Cast<AMyProject1Character>(UGameplayStatics::GetPlayerCharacter(this, 0)))
+			{
+				SpawnedEnemy->SetCurrentTarget(PlayerChar);
+			}
+		}
+
 		// スポーン回数をカウント
 		CurrentSpawnCount++;
 	}

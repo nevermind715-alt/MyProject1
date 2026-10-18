@@ -146,6 +146,12 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Overrides|AI")
 	float SpawnerPatrolRadius = 1000.0f;
 
+	/** trueなら、スポーンした瞬間にプレイヤーをターゲットとして捕捉し、すぐ攻撃行動に入る（BOSS用）。
+	    視界・視野角・知覚距離に関係なく捕捉する。bOverridePatrolSettingsの設定とは独立して動作する。
+	    一度捕捉した後に見失う挙動は、敵側のbNeverLoseSight（Combat|Sensors）に従う */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Overrides|AI")
+	bool bAggroPlayerOnSpawn = false;
+
 	// --- 追加：AIの知覚（目と耳）設定 ---
 
 	/** 敵を見つける距離（元の SpawnerPerceptionRadius） */

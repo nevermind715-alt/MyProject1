@@ -4,6 +4,7 @@
 #include "GameFramework/PlayerController.h"
 #include "MyProject1Character.h"
 #include "MyProject1GameInstance.h"
+#include "SkinOverlayComponent.h"
 #include "Kismet/GameplayStatics.h"
 
 // 日本語文字化け・コンパイルエラー対策
@@ -188,9 +189,55 @@ void AWallWarpLink::InteractWithLink(ACharacter* Interactor)
 	}
 }
 
+bool AWallWarpLink::CanPassThrough(const AMyProject1Character* PlayerChar) const
+{
+	if (RequiredOverlays.IsEmpty() && RequiredEquipmentIDs.IsEmpty()) return true;
+
+	// 「どれか1つ」なら1件でも満たせばtrue、「全て」なら1件でも欠ければfalse
+	int32 MetCount = 0;
+	for (const FWallWarpOverlayCondition& Cond : RequiredOverlays)
+	{
+		if (PlayerChar->SkinOverlayComp->IsOverlayActive(Cond.OverlayRowName, Cond.Category)) ++MetCount;
+	}
+	for (const FName& ItemID : RequiredEquipmentIDs)
+	{
+		if (PlayerChar->IsItemEquipped(ItemID)) ++MetCount;
+	}
+
+	const int32 TotalCount = RequiredOverlays.Num() + RequiredEquipmentIDs.Num();
+	return bRequireAllConditions ? (MetCount == TotalCount) : (MetCount > 0);
+}
+
+void AWallWarpLink::SendPassLog(AMyProject1Character* PlayerChar, const FString& Message) const
+{
+	if (Message.IsEmpty()) return;
+
+	// 話者名ありはショップNPCの挨拶と同じ「名前 : 文章」のDialogue、無しは従来どおりSystem
+	if (LogSpeakerName.IsEmpty())
+	{
+		PlayerChar->OnReceiveLogMessage(Message, ELogMessageType::System);
+	}
+	else
+	{
+		PlayerChar->OnReceiveLogMessage(FString::Printf(TEXT("%s : %s"), *LogSpeakerName, *Message), ELogMessageType::Dialogue);
+	}
+}
+
 void AWallWarpLink::ExecuteWarp(ACharacter* TargetCharacter)
 {
 	if (!TargetCharacter || !TargetLink) return;
+
+	// 通行条件（傷・タトゥー・装備）を満たしていなければ、暗転も移動もせずここで弾く
+	if (AMyProject1Character* PlayerChar = Cast<AMyProject1Character>(TargetCharacter))
+	{
+		if (!CanPassThrough(PlayerChar))
+		{
+			SendPassLog(PlayerChar, DeniedLogMessage);
+			return;
+		}
+
+		SendPassLog(PlayerChar, PassedLogMessage);
+	}
 
 	// エリアChangeと同じ暗転（OnWarpFadeOutRequested）を挟む。GameInstance側で入力も禁止されるため、
 	// 暗転中にプレイヤーが動けてしまうことはない。実際の移動は暗転後にExecuteWarpNowで行う

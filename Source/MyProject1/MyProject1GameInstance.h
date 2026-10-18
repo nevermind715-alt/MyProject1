@@ -836,6 +836,10 @@ private:
 	/** 明転が終わったタイミングでタイマーから呼ばれ、入力を戻す */
 	void HandleWarpFadeInComplete();
 
+	/** 別マップへのワープ（OpenLevel）でDialogComponentごと破棄された会話を、新しいレベルのプレイヤーで
+	 *  PendingCrossLevelDialogRowNameから再開する。新しいプレイヤーがまだ生成されていなければ少し待って再試行する */
+	void ResumeDialogAfterCrossLevelWarp();
+
 	/** bPendingSleepTimeAdvanceApplyがtrueで、かつイベント（bHasActiveEvent）が進行中でなければ、
 	 *  保留していたAdvanceTimeBy・ApplyFatigueForSkippedMinutesをここで確定させる。
 	 *  HandleWarpFadeInComplete（通常の最後の明転）と、ResolveActiveEvent（イベント後にワープが
@@ -1038,6 +1042,17 @@ private:
 	// 明転完了後にResumeAfterFadeNarrationを呼び戻す相手と、続ける会話ID（ResumeFadeInAfterNarration用）
 	TWeakObjectPtr<class UDialogComponent> ReservedNarrationResumeComponent;
 	FName ReservedNarrationResumeNextDialogID;
+
+	// 別マップへのワープでは会話中のDialogComponentがOpenLevelで破棄されるため、再開に必要な会話テーブルと
+	// 続きの行名（空なら会話を閉じるだけ）をここへ移し、新しいレベルのHandleWarpFadeInCompleteが再開／終了する
+	// （StashDialogForCrossLevelResume参照）
+	bool bPendingCrossLevelDialogResume = false;
+	TSoftObjectPtr<class UDataTable> PendingCrossLevelDialogTable;
+	FName PendingCrossLevelDialogRowName;
+	FString PendingCrossLevelDialogSpeakerName;
+
+	/** 別マップへのワープでDialogComponentが破棄される前に、会話の再開／終了に必要な情報をGameInstanceへ移す */
+	void StashDialogForCrossLevelResume(class UDialogComponent* DialogComponent, FName NextDialogID);
 
 	/** 現在のプレイヤー状態を新しいUMyProject1SaveGameへ複製する（ディスクへは書き込まない一時オブジェクト）。
 	 *  ディスクへのセーブ（SaveCurrentGame）と、別マップへのワープでキャラクターが再生成される際の

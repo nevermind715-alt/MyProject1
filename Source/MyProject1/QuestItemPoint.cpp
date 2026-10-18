@@ -246,6 +246,11 @@ void AQuestItemPoint::TryInteract(AMyProject1Character* Interactor)
 		}
 		else
 		{
+			if (!ChanceFailureLogText.IsEmpty())
+			{
+				Interactor->OnReceiveLogMessage(ChanceFailureLogText, ELogMessageType::System);
+			}
+
 			if (bResolveActiveEventOnChanceFailure)
 			{
 				if (UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetWorld()->GetGameInstance()))

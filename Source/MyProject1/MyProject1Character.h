@@ -282,6 +282,10 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
 	class UAbilityComponent* AbilityComp;
 
+	// --- 没収・返却コンポーネント（捕まって装備と持ち物を取り上げられるイベント用） ---
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+	class UConfiscationComponent* ConfiscationComp;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Combat|Loot")
 	TArray<FLootItem> PersonalLootTable;
 

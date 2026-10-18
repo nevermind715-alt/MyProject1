@@ -32,6 +32,7 @@
 #include "QuestComponent.h"
 #include "DialogComponent.h"
 #include "AbilityComponent.h"
+#include "ConfiscationComponent.h"
 #include "MyProject1GameInstance.h"
 #include "MusicControlComponent.h"
 #include "Engine/DamageEvents.h"
@@ -53,6 +54,7 @@ AMyProject1Character::AMyProject1Character()
 
 
 	AbilityComp = CreateDefaultSubobject<UAbilityComponent>(TEXT("AbilityComp"));
+	ConfiscationComp = CreateDefaultSubobject<UConfiscationComponent>(TEXT("ConfiscationComp"));
 
 	// --- 武器コンポーネントの作成と設定（ここで行う） ---
 	WeaponMeshComp = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("WeaponMeshComp"));

@@ -29,6 +29,15 @@ void UDialogComponent::StartDialog(FName RowName, UDataTable* DialogTable, AActo
 	TryStartDialog(RowName, DialogTable, InNPC);
 }
 
+FString UDialogComponent::GetCurrentSpeakerName() const
+{
+	if (const AQuestNPCBase* QuestNPC = Cast<AQuestNPCBase>(CurrentNPC))
+	{
+		return QuestNPC->NPCName;
+	}
+	return ResumedSpeakerName;
+}
+
 bool UDialogComponent::TryStartDialog(FName RowName, UDataTable* DialogTable, AActor* InNPC)
 {
 	if (!DialogTable) return false;
@@ -346,6 +355,14 @@ void UDialogComponent::ExecuteAdditionalActions(const TArray<FEventAction>& Acti
 
 	for (const FEventAction& Action : Actions)
 	{
+		// 行のループAnimEvent（LoopAnimEventID）の再生中は、AMyProject1Character::Tickが毎フレームPlayerを再生開始位置へ
+		// 固定し直すため、ワープで移動しても次のTickで元の位置へ戻されてしまう。移動前にループを正規の後片付けで止めて固定を解除する
+		// （ワープ先で会話を続ける場合は、続く行のLoopAnimEventIDがワープ先の位置で改めて開始される）
+		if (Action.ActionType == EDialogActionType::Warp)
+		{
+			StopRowLoopAnimEvent();
+		}
+
 		UGameplayActionLibrary::ExecuteAction(RpgInterface, GetOwner(), CurrentNPC, GetWorld(),
 			Action.ActionType, Action.ActionPayload, Action.ItemID, Action.ItemAmount);
 		UGameplayActionLibrary::ApplyStatChange(RpgInterface, CurrentNPC,
@@ -359,6 +376,8 @@ void UDialogComponent::CloseDialog()
 	bIsFadeNarrationPending = false;
 	bIsShowingFadeNarration = false;
 	bRowActionPending = false;
+	ResumedSpeakerName.Empty();
+	bResumedAcrossLevel = false;
 
 	// ループ用AnimEventが再生中なら、下のIsPlayingAnimSequenceEventForの判定より前に止めておく
 	// （止めずに判定すると「再生中」と見なされ、入力ロックが解除されないまま会話が閉じてしまう）
@@ -841,12 +860,17 @@ void UDialogComponent::UpdateDialogUI(const FDialogData& DisplayData, AActor* NP
 {
 	IRpgCharacterInterface* RpgInterface = Cast<IRpgCharacterInterface>(GetOwner());
 
-	// クエストNPC相手の会話だけ、「NPC名：セリフ」をログへ出す（従来のBPと同じ仕様。SpeakerNameは使わない）
-	if (const AQuestNPCBase* QuestNPC = Cast<AQuestNPCBase>(NPC))
+	// クエストNPC相手の会話だけ、「話者名：セリフ」をログへ出す。話者名は、行のSpeakerNameが入っていればそれ
+	// （話しかけた相手とは別人が喋る行用）、空欄ならNPCのNPCName。
+	// 別マップのワープ後に再開した会話はNPCが存在しないため、引き継いだ話者名（ResumedSpeakerName）で代わりに出す
+	const AQuestNPCBase* QuestNPC = Cast<AQuestNPCBase>(NPC);
+	if (QuestNPC || bResumedAcrossLevel)
 	{
 		if (RpgInterface)
 		{
-			RpgInterface->OnReceiveLogMessage(QuestNPC->NPCName + TEXT("：") + DisplayData.DialogText.ToString(), ELogMessageType::Default);
+			const FString& SpeakerName = !DisplayData.SpeakerName.IsEmpty() ? DisplayData.SpeakerName
+				: (QuestNPC ? QuestNPC->NPCName : ResumedSpeakerName);
+			RpgInterface->OnReceiveLogMessage(SpeakerName + TEXT("：") + DisplayData.DialogText.ToString(), ELogMessageType::Default);
 		}
 
 		// このセリフで会話を終える指定なら、選択肢・「進む」ウィジェットは出さずにUIを片付ける

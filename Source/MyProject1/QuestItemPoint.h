@@ -161,6 +161,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item Interact|Chance Outcome", meta = (EditCondition = "bUseChanceOutcome && !bResolveActiveEventOnChanceFailure"))
 	TArray<FEventAction> ChanceFailureActions;
 
+	/** 追加抽選に失敗した時にログへ流す台詞（空欄なら何も流さない）。鍵開けの失敗など、失敗しても施設から退場させない箱向け */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item Interact|Chance Outcome", meta = (EditCondition = "bUseChanceOutcome"))
+	FString ChanceFailureLogText;
+
 	// --- アニメーションイベント ---
 	/** 空欄でなければ、インタラクト成功時にDT_AnimEvents（UMyProject1GameInstance::AnimEventDataTable）のこの行を
 	    再生する（GameplayActionLibraryのEDialogActionType::PlayAnimSequenceと同じ経路。イベント抽選・ワープは経由しない）。

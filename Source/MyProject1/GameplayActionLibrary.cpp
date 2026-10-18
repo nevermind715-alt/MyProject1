@@ -2,6 +2,7 @@
 #include "RpgCharacterInterface.h"
 #include "QuestComponent.h"
 #include "InventoryComponent.h"
+#include "ConfiscationComponent.h"
 #include "MyProject1GameInstance.h"
 #include "MyProject1Character.h"
 #include "WarpPortal.h"
@@ -189,6 +190,29 @@ void UGameplayActionLibrary::ExecuteAction(IRpgCharacterInterface* RpgInterface,
 				{
 					if (!Inv->UseItemFree(ItemID)) break;
 				}
+			}
+		}
+		break;
+
+	case EDialogActionType::ConfiscateBelongings:
+		// ActionPayloadにDT_ConfiscationProfilesの行名を入れる。装備とカバンの中身を没収し、行に指定された服を着せる
+		if (UConfiscationComponent* ConfiscationComp = OwnerActor ? OwnerActor->FindComponentByClass<UConfiscationComponent>() : nullptr)
+		{
+			ConfiscationComp->ConfiscateByProfile(FName(*ActionPayload));
+		}
+		break;
+
+	case EDialogActionType::ReturnBelongings:
+		// ActionPayloadに保管先IDを入れる。空欄なら保管中のすべてを返却する
+		if (UConfiscationComponent* ConfiscationComp = OwnerActor ? OwnerActor->FindComponentByClass<UConfiscationComponent>() : nullptr)
+		{
+			if (ActionPayload.IsEmpty())
+			{
+				ConfiscationComp->ReturnAllStashes();
+			}
+			else
+			{
+				ConfiscationComp->ReturnStash(FName(*ActionPayload));
 			}
 		}
 		break;

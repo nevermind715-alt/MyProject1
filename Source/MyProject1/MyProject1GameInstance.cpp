@@ -8,6 +8,7 @@
 #include "QuestComponent.h"
 #include "SkinOverlayComponent.h"
 #include "AbilityComponent.h"
+#include "ConfiscationComponent.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "WallWarpLink.h"
@@ -470,7 +471,27 @@ void UMyProject1GameInstance::RequestFadeThenShowNarration(UDialogComponent* Nar
 void UMyProject1GameInstance::ResumeFadeInAfterNarration(UDialogComponent* NarrationComponent, FName NextDialogID)
 {
 	// HandleWarpFadeOutCompleteが保留していたFadeInタイマーを、ここで初めて開始する
-	if (!bWaitingForNarrationCompletion) return;
+	if (!bWaitingForNarrationCompletion)
+	{
+		// 読了時に実行した追加アクション（ワープ等）のBeginWarpFadeが、既に暗転を引き継いで
+		// 明転タイマーを開始済みの場合。明転完了後（HandleWarpFadeInComplete）に会話を終了／継続できるよう、
+		// 継続先だけ登録する（登録しないと会話が閉じず、入力ロックされたまま固まる）
+		if (GetTimerManager().IsTimerActive(WarpFadeInTimerHandle))
+		{
+			if (bHasPendingWarp)
+			{
+				// その追加アクションのワープが別マップ行き（OpenLevel待ち）なら、NarrationComponentはこの後
+				// 破棄されるため、再開／終了に必要な情報をGameInstanceへ移して新しいレベルで会話を片付ける
+				StashDialogForCrossLevelResume(NarrationComponent, NextDialogID);
+			}
+			else
+			{
+				ReservedNarrationResumeComponent = NarrationComponent;
+				ReservedNarrationResumeNextDialogID = NextDialogID;
+			}
+		}
+		return;
+	}
 	bWaitingForNarrationCompletion = false;
 
 	ReservedNarrationResumeComponent = NarrationComponent;
@@ -481,6 +502,14 @@ void UMyProject1GameInstance::ResumeFadeInAfterNarration(UDialogComponent* Narra
 
 	GetTimerManager().SetTimer(WarpFadeInTimerHandle, this,
 		&UMyProject1GameInstance::HandleWarpFadeInComplete, WarpFadeInDuration, false);
+}
+
+void UMyProject1GameInstance::StashDialogForCrossLevelResume(UDialogComponent* DialogComponent, FName NextDialogID)
+{
+	bPendingCrossLevelDialogResume = true;
+	PendingCrossLevelDialogTable = DialogComponent->GetCurrentTable();
+	PendingCrossLevelDialogRowName = NextDialogID;
+	PendingCrossLevelDialogSpeakerName = DialogComponent->GetCurrentSpeakerName();
 }
 
 bool UMyProject1GameInstance::ReserveDialogResumeAfterWarp(UDialogComponent* DialogComponent, FName NextDialogID)
@@ -654,9 +683,49 @@ void UMyProject1GameInstance::HandleWarpFadeInComplete()
 		return;
 	}
 
+	// 別マップへのワープ後：再開予約したDialogComponentは破棄済みのため、新しいレベルのプレイヤーで会話を再開する
+	if (bPendingCrossLevelDialogResume)
+	{
+		ResumeDialogAfterCrossLevelWarp();
+		return;
+	}
+
 	// 保留中の時間経過・疲労反映は、ここ（明転が終わって画面が見える状態）ではなく、暗転がまだ真っ暗な
 	// うちに明転を始める直前（HandleWarpFadeOutComplete/ResumeFadeInAfterSleepEvent）で確定済み
 	BeginAnimEventSequenceIfNeeded();
+}
+
+void UMyProject1GameInstance::ResumeDialogAfterCrossLevelWarp()
+{
+	ACharacter* PlayerCharacter = UGameplayStatics::GetPlayerCharacter(this, 0);
+	UDialogComponent* DialogComponent = PlayerCharacter ? PlayerCharacter->FindComponentByClass<UDialogComponent>() : nullptr;
+	if (!DialogComponent)
+	{
+		// ALoadingGameModeが待機中で、新しいレベルのプレイヤーがまだ生成されていない。生成されるまで待つ
+		FTimerHandle RetryTimerHandle;
+		GetTimerManager().SetTimer(RetryTimerHandle, this,
+			&UMyProject1GameInstance::ResumeDialogAfterCrossLevelWarp, 0.1f, false);
+		return;
+	}
+
+	UDataTable* DialogTable = PendingCrossLevelDialogTable.LoadSynchronous();
+	const FName RowName = PendingCrossLevelDialogRowName;
+	bPendingCrossLevelDialogResume = false;
+	PendingCrossLevelDialogTable.Reset();
+	PendingCrossLevelDialogRowName = NAME_None;
+
+	// NPCがいなくてもログに「NPC名：セリフ」が出るよう、話者名だけ引き継ぐ
+	DialogComponent->SetResumedSpeakerName(PendingCrossLevelDialogSpeakerName);
+	PendingCrossLevelDialogSpeakerName.Empty();
+
+	// 話しかけていたNPCは元のマップにいたため、新しいレベルでは相手なし（nullptr）で続ける。
+	// 続きの行が無い（暗転セリフの追加アクションで別マップへ移った等）場合や開始できなかった場合も、
+	// 元のマップの会話中だった入力モード（UI操作・カーソル表示）がビューポートに残っているため、
+	// CloseDialogで元に戻す
+	if (RowName.IsNone() || !DialogTable || !DialogComponent->TryStartDialog(RowName, DialogTable, nullptr))
+	{
+		DialogComponent->CloseDialog();
+	}
 }
 
 void UMyProject1GameInstance::ApplyPendingSleepTimeAdvanceIfNeeded()
@@ -939,6 +1008,15 @@ void UMyProject1GameInstance::ExecuteWarpProcess()
 		bHasPendingWarp = true;
 		PendingWarpTransform = WarpData->DestinationTransform;
 
+		// Warp+NextDialogIDで再開予約したDialogComponentは、この後のOpenLevelでキャラクターごと破棄される。
+		// 再開に必要な情報だけをGameInstanceへ移し、新しいレベルのHandleWarpFadeInCompleteで再開する
+		if (UDialogComponent* ResumeComponent = ReservedNarrationResumeComponent.Get())
+		{
+			StashDialogForCrossLevelResume(ResumeComponent, ReservedNarrationResumeNextDialogID);
+			ReservedNarrationResumeComponent.Reset();
+			ReservedNarrationResumeNextDialogID = NAME_None;
+		}
+
 		// クエスト・所持品・装備・ステータス（称号フラグ含む）は、レベル移動でキャラクターが
 		// 再生成されると初期値に戻ってしまう。消える前の状態を一時スナップショットとして記憶しておき、
 		// 新しいキャラクターのBeginPlay（ApplyPendingCharacterLoad）に読み戻させる。
@@ -1033,6 +1111,12 @@ UMyProject1SaveGame* UMyProject1GameInstance::CapturePlayerStateSnapshot(AMyProj
 		SaveObj->InventoryContent = Inv->InventoryContent;
 		SaveObj->Gil = Inv->Gil;
 		SaveObj->ObtainedRareItemIDs = Inv->ObtainedRareItemIDs;
+	}
+
+	// 没収されて保管中の持ち物
+	if (Character->ConfiscationComp)
+	{
+		SaveObj->ConfiscatedStashes = Character->ConfiscationComp->Stashes;
 	}
 
 	// クエスト進行
@@ -1230,6 +1314,12 @@ bool UMyProject1GameInstance::ApplyPendingCharacterLoad(AMyProject1Character* Ch
 		Inv->Gil = Loaded->Gil;
 		Inv->ObtainedRareItemIDs = Loaded->ObtainedRareItemIDs;
 		Inv->OnInventoryUpdated.Broadcast();
+	}
+
+	// 没収されて保管中の持ち物
+	if (Character->ConfiscationComp)
+	{
+		Character->ConfiscationComp->Stashes = Loaded->ConfiscatedStashes;
 	}
 
 	// クエスト進行

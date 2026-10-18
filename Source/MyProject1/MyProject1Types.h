@@ -975,6 +975,79 @@ struct FInventorySlot
 	int32 Quantity;
 };
 
+// 没収（EDialogActionType::ConfiscateBelongings）の条件1件分。DT_ConfiscationProfilesの1行。
+// 行名がActionPayloadに入れるProfileIDになる。UConfiscationComponent::ProfileDataTableにこのテーブルを設定すること
+USTRUCT(BlueprintType)
+struct FConfiscationProfile : public FTableRowBase
+{
+	GENERATED_BODY()
+
+	/** 没収品の保管先ID。同じIDを返却アクション（ReturnBelongings）や箱のアクションに指定すると返却される。空欄ならこの行名をIDとして使う */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Confiscation")
+	FName StashID;
+
+	/** 没収後に着せる服（DT_Equipmentsの行名。囚人服など）。DT_Itemsにも同じ行名が必要（装備品の規約）。
+	 *  服自体を外せなくしたい場合は、DT_Equipments側でbCannotUnequipManuallyを付けておく */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Confiscation")
+	TArray<FName> OutfitRowNames;
+
+	/** 没収しない装備スロット。既定は髪型とピアス（Extra1〜5） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Confiscation")
+	TArray<EEquipmentSlot> SlotsToKeep = { EEquipmentSlot::Hair, EEquipmentSlot::Extra1, EEquipmentSlot::Extra2, EEquipmentSlot::Extra3, EEquipmentSlot::Extra4, EEquipmentSlot::Extra5 };
+
+	/** trueなら、自力で外せないロック装備（拘束具など）も没収する。falseならロック装備は着けたままにし、そのスロットには服を着せない */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Confiscation")
+	bool bConfiscateLockedEquipment = true;
+
+	/** trueなら、だいじなもの（ItemTypeがKeyItem）は没収しない */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Confiscation")
+	bool bKeepKeyItems = true;
+
+	/** trueなら、EXアイテム（FItemData::bIsEx）は没収しない */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Confiscation")
+	bool bKeepExItems = true;
+
+	/** 上記の種別とは別に、個別に没収しないアイテム（DT_Itemsの行名） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Confiscation")
+	TArray<FName> KeepItemIDs;
+
+	/** 所持金のうち没収する割合（0.0〜1.0）。1.0で全額、0.0で没収しない */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Confiscation", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float GilConfiscateRatio = 1.0f;
+
+	/** trueなら返却時に着せていた服を脱がせ（カバンからも消す）、没収時に着ていた装備を着せ直す。
+	 *  falseなら持ち物をカバンに戻すだけで、服はそのまま（着替えは自分でする） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Confiscation")
+	bool bReEquipOnReturn = true;
+};
+
+// 没収されて保管中の持ち物（StashIDごと）。UConfiscationComponent::Stashesに入り、セーブ/レベル移動で保持される
+USTRUCT(BlueprintType)
+struct FConfiscatedStash
+{
+	GENERATED_BODY()
+
+	/** 没収されたアイテム（まだ返却できていない分） */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Confiscation")
+	TArray<FInventorySlot> Items;
+
+	/** 没収時に着ていた装備（スロット→DT_Equipmentsの行名）。返却時の着せ直し用 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Confiscation")
+	TMap<EEquipmentSlot, FName> Equipment;
+
+	/** 没収された所持金 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Confiscation")
+	int32 Gil = 0;
+
+	/** 没収時に着せた服（DT_Equipmentsの行名）。返却時に脱がせる */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Confiscation")
+	TArray<FName> OutfitRowNames;
+
+	/** FConfiscationProfile::bReEquipOnReturnを没収時に写したもの */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Confiscation")
+	bool bReEquipOnReturn = true;
+};
+
 // --- 会話アクションの種類 ---
 UENUM(BlueprintType)
 enum class EDialogActionType : uint8
@@ -1035,7 +1108,13 @@ enum class EDialogActionType : uint8
 	UseItem         UMETA(DisplayName = "アイテムを使用する（ItemID/ItemAmountを使用）"),
 	// UseItemと同じ使用可否判定・効果発動を、プレイヤーの所持の有無に関係なく行う。
 	// インベントリの個数は確認せず、消費もしない（所持していても減らない）。ItemID/ItemAmountを使用
-	UseItemFree     UMETA(DisplayName = "アイテムを使用する（所持不問・消費なし。ItemID/ItemAmountを使用）")
+	UseItemFree     UMETA(DisplayName = "アイテムを使用する（所持不問・消費なし。ItemID/ItemAmountを使用）"),
+	// ActionPayloadにDT_ConfiscationProfiles（UConfiscationComponent::ProfileDataTable）の行名を入れる。
+	// プレイヤーの装備とカバンの中身（だいじなもの等を除く）を没収して保管し、行に指定された服（囚人服など）を着せる
+	ConfiscateBelongings UMETA(DisplayName = "持ち物を没収して着替えさせる（ActionPayload=DT_ConfiscationProfilesの行名）"),
+	// ActionPayloadに保管先ID（FConfiscationProfile::StashID）を入れる。没収した持ち物をカバンへ戻す。
+	// 空欄なら保管中のすべてを返却する。カバンに入り切らない分は保管されたまま残る
+	ReturnBelongings UMETA(DisplayName = "没収した持ち物を返却する（ActionPayload=保管先ID。空欄で全て）")
 };
 
 // イベント成立時／失敗時／会話の追加アクションとして実行する1アクション分のデータ（FDialogChoiceのアクション部分の簡易版）。

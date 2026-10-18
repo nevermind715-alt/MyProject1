@@ -5,6 +5,21 @@
 #include "MyProject1Types.h" // EWallWarpTriggerType
 #include "WallWarpLink.generated.h"
 
+/** AWallWarpLinkの通行条件：体に入っている傷・タトゥー等の指定1件 */
+USTRUCT(BlueprintType)
+struct FWallWarpOverlayCondition
+{
+	GENERATED_BODY()
+
+	/** 調べる箱の種類（SkinOverlayComponentが管理する4種類のみ有効） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wall Warp", meta = (ValidEnumValues = "Tattoo,Scar,Piercing,Disease"))
+	EShopModeCategory Category = EShopModeCategory::Tattoo;
+
+	/** 対応するデータテーブル（DT_Tattoo等）の行名 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wall Warp")
+	FName OverlayRowName;
+};
+
 /**
  * 壁一枚を挟んだ反対側などへ、同一レベル内で軽量に移動するためのワープリンク。
  * DT_WarpDestinations/GameInstance/ロード画面を一切介さず、TargetLinkが指す
@@ -63,6 +78,30 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wall Warp Settings", meta = (EditCondition = "bAutoClearFlag", ClampMin = "0.0"))
 	float AutoClearFlagGameHours = 15.0f;
 
+	/** 通行条件（傷・タトゥー等）。プレイヤーの体に実際に入っているかで判定する。RequiredFlagとは独立で、両方設定した場合は両方満たす必要がある */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wall Warp Settings|Pass Condition")
+	TArray<FWallWarpOverlayCondition> RequiredOverlays;
+
+	/** 通行条件（装備品）。DT_Equipmentsの行名（ItemID）を指定し、実際に装備している間だけ条件を満たす */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wall Warp Settings|Pass Condition")
+	TArray<FName> RequiredEquipmentIDs;
+
+	/** OFF：RequiredOverlays/RequiredEquipmentIDsのどれか1つを満たせば通れる。ON：全て満たさないと通れない */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wall Warp Settings|Pass Condition")
+	bool bRequireAllConditions = false;
+
+	/** 通行条件を満たさず弾かれた時にログへ出す文章（空欄なら何も出さない） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wall Warp Settings|Pass Condition")
+	FString DeniedLogMessage;
+
+	/** 通行条件を満たして通れた（ワープを開始する）時にログへ出す文章（空欄なら何も出さない） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wall Warp Settings|Pass Condition")
+	FString PassedLogMessage;
+
+	/** DeniedLogMessage/PassedLogMessageの話者名。入力すると「話者名 : 文章」の会話ログ形式で出る。空欄なら話者なしのシステムログとして出る */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wall Warp Settings|Pass Condition")
+	FString LogSpeakerName;
+
 	// --- 実行関数 ---
 	/** キャラクターがボックスに触れた時に呼ばれる */
 	UFUNCTION()
@@ -88,6 +127,12 @@ public:
 private:
 	/** ワープ実行を要求する（GameInstance経由で暗転を挟み、実際の移動はExecuteWarpNowで行う） */
 	void ExecuteWarp(class ACharacter* TargetCharacter);
+
+	/** RequiredOverlays/RequiredEquipmentIDsの条件を今この瞬間に満たしているか（条件が両方空なら常にtrue） */
+	bool CanPassThrough(const class AMyProject1Character* PlayerChar) const;
+
+	/** 通行判定の結果ログを出す。LogSpeakerNameがあれば会話ログ形式、無ければシステムログ形式。Messageが空なら何も出さない */
+	void SendPassLog(class AMyProject1Character* PlayerChar, const FString& Message) const;
 
 	/** RequiredFlagの所持状況に応じて、表示/当たり判定のON・OFFを切り替える */
 	void UpdateFlagVisibility(const class AMyProject1Character* PlayerChar);

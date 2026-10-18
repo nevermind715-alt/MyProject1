@@ -58,6 +58,15 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Dialog")
 	void CloseDialog();
 
+	// 現在使用中の会話データテーブル。別マップへのワープでこのコンポーネントが破棄される前に、
+	// GameInstanceが再開用に控えておくために使う（C++専用）
+	UDataTable* GetCurrentTable() const { return CurrentTable; }
+
+	// 現在の話者名（QuestNPC相手ならそのNPCName、別マップのワープ後に再開した会話なら引き継いだ名前）。
+	// 別マップへのワープでは話しかけていたNPCが新しいレベルに存在しないため、名前だけを控えて引き継ぐのに使う（C++専用）
+	FString GetCurrentSpeakerName() const;
+	void SetResumedSpeakerName(const FString& SpeakerName) { ResumedSpeakerName = SpeakerName; bResumedAcrossLevel = true; }
+
 	// セリフ表示から選択肢表示までの遅延秒数（ほぼ同時に出ると不自然なため）。
 	// 選択肢ボタンの表示自体はUI側（WBP_ChoiceMenu）が担当するため、ここではその際に使う秒数をBlueprintへ公開するだけ
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Dialog")
@@ -99,6 +108,10 @@ private:
 
 	UPROPERTY()
 	AActor* CurrentNPC;
+
+	// 別マップのワープ後に再開した会話で、CurrentNPCの代わりにログへ出す話者名（SetResumedSpeakerName参照。CloseDialogで消える）
+	FString ResumedSpeakerName;
+	bool bResumedAcrossLevel = false;
 
 	// 現在の会話データ
 	FDialogData CurrentDialogData;

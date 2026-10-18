@@ -51,6 +51,10 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Save|Inventory")
 	TArray<FName> ObtainedRareItemIDs;
 
+	// 没収されて保管中の持ち物（StashID → 中身）。古いセーブには存在せず、空のまま読み込まれる
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Save|Inventory")
+	TMap<FName, FConfiscatedStash> ConfiscatedStashes;
+
 	// --- クエスト進行 ---
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Save|Quest")
 	TArray<FQuestProgress> ActiveQuests;
