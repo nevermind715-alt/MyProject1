@@ -66,6 +66,11 @@ public:
 	    ログ「依頼を失敗した…」とFailurePenaltyStat等のペナルティ適用を行う。AcceptFlagの解除は呼び出し側の責務 */
 	bool FailQuest(FName QuestID);
 
+	/** 目的達成の有無に関わらず、進行中（または報告待ち）のクエストを強制的にクリアする（C++専用）。
+	    InProgressならObjectiveClearedへ進めてからReportQuestと同じ報酬付与・完了処理まで行う。
+	    受注していない・報告に失敗した（収集アイテム不足など）場合は状態を戻してfalseを返す */
+	bool ForceClearQuest(FName QuestID);
+
 	/** デバッグ用: Ctrlキーが押されている時だけ動作し、対象クエストを強制的に条件達成扱いにしてから報告処理まで行う（受注クエスト一覧のCtrl+クリックから呼ぶ想定。呼び出し元のノードを外せば無効化できる） */
 	UFUNCTION(BlueprintCallable, Category = "Quest|Debug")
 	bool Debug_ForceCompleteQuest(FName QuestID);

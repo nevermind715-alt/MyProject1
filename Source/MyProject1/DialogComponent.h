@@ -67,6 +67,13 @@ public:
 	FString GetCurrentSpeakerName() const;
 	void SetResumedSpeakerName(const FString& SpeakerName) { ResumedSpeakerName = SpeakerName; bResumedAcrossLevel = true; }
 
+	// 話しかけているNPCのEventDistributorComponentが持つ抽選プール情報（データテーブルとプール行名）。
+	// 別マップへのワープ後はNPCが新しいレベルに存在せずTriggerEventのイベント抽選ができなくなるため、
+	// ワープ前にGameInstanceがこれを控え、再開後にSetResumedEventPoolSourceで引き継ぐ（C++専用）。
+	// NPCがいない（引き継ぎ済みの会話をさらに別マップへ移す場合）は引き継いだ値を返す。取得できなければfalse
+	bool GetEventPoolSourceForResume(TSoftObjectPtr<UDataTable>& OutTable, FName& OutPoolID) const;
+	void SetResumedEventPoolSource(const TSoftObjectPtr<UDataTable>& InTable, FName InPoolID) { ResumedEventPoolTable = InTable; ResumedEventPoolID = InPoolID; }
+
 	// セリフ表示から選択肢表示までの遅延秒数（ほぼ同時に出ると不自然なため）。
 	// 選択肢ボタンの表示自体はUI側（WBP_ChoiceMenu）が担当するため、ここではその際に使う秒数をBlueprintへ公開するだけ
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Dialog")
@@ -113,6 +120,11 @@ private:
 	FString ResumedSpeakerName;
 	bool bResumedAcrossLevel = false;
 
+	// 別マップのワープ後に再開した会話で、CurrentNPCの代わりにTriggerEventの抽選に使う抽選プール情報
+	// （SetResumedEventPoolSource参照。CloseDialogで消える）
+	TSoftObjectPtr<UDataTable> ResumedEventPoolTable;
+	FName ResumedEventPoolID;
+
 	// 現在の会話データ
 	FDialogData CurrentDialogData;
 
@@ -125,6 +137,9 @@ private:
 	// 戻り値：ShowTextDuringFadeで暗転ナレーションを開始した場合はtrue。呼び出し側（SelectChoice/ShowCurrentLine）は
 	// この場合、通常のNextDialogID遷移・CloseDialogを行わず、ResumeAfterFadeNarrationに継続を委ねる
 	bool ExecuteActionCore(EDialogActionType ActionType, const FString& ActionPayload, FName GrantFlag, bool bFadeOnGrantFlag, FName FlagToRemove, bool bFadeOnRemoveFlag, ETargetStat StatToChange, EStatTargetActor StatTargetActor, FName ExtraStatName, float StatChangeAmount, FName ItemID, int32 ItemAmount, bool bAdvanceDailySequence, EStatTargetActor AnimSequenceRowPlayTarget, const TSoftObjectPtr<class USkeletalMesh>& AnimSequenceNPCMeshOverride, const FText& FadeNarrationText, FName NextDialogIDForNarration, bool bHideTalkingNPCDuringAnimEvent, const TArray<FEventAction>& AdditionalActions);
+
+	/** ActionType=TriggerEventの実行本体（会話行・選択肢のActionTypeとAdditionalActionsの両方から呼ぶ） */
+	void TriggerEventForCurrentNPC(const FString& EventPoolIDPayload, const TSoftObjectPtr<class USkeletalMesh>& ExtraParticipantMeshOverride, bool bHideContextActorDuringAnimEvent);
 
 	/** AdditionalActions（FDialogData/FDialogChoice）を上から順に実行する。話しかけている相手（CurrentNPC）がコンテキストになる */
 	void ExecuteAdditionalActions(const TArray<FEventAction>& Actions);

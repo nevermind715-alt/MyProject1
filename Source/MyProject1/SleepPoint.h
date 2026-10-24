@@ -25,7 +25,8 @@ public:
 	/** trueなら、このベッドで実際に眠り終えた時（時間スキップ完了時）に、このActorへ追加した
 	 *  UEventDistributorComponentの抽選を発生させる（金品を盗まれる等）。falseなら何も起きない。
 	 *  EventDistributorComponent自体はエディタでこのActor（BP_SleepPoint）にコンポーネントとして追加し、
-	 *  EventPoolID等を設定しておくこと */
+	 *  EventPoolID等を設定しておくこと。
+	 *  コンポーネントのEventDistributorStatCondition（ステータス条件）をオンにすると、その条件を満たした時だけ抽選する */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event")
 	bool bTriggerEventPoolOnSleep = false;
 

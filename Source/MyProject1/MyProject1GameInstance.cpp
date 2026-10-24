@@ -56,13 +56,14 @@ void UMyProject1GameInstance::UpdateInGameTime()
 	int32 Hour = CurrentTimeInMinutes / 60;
 	int32 Minute = CurrentTimeInMinutes % 60;
 
-	// 「時」が変わった瞬間（分が0になった瞬間）だけExStats17を減少させる（動作を軽くするため、毎分ではなくここだけで計算する）
+	// 「時」が変わった瞬間（分が0になった瞬間）だけExStats17を減少・欲求不満度を増加させる（動作を軽くするため、毎分ではなくここだけで計算する）
 	if (Minute == 0)
 	{
 		APlayerController* PC = GetWorld() ? GetWorld()->GetFirstPlayerController() : nullptr;
 		if (AMyProject1Character* Character = PC ? Cast<AMyProject1Character>(PC->GetPawn()) : nullptr)
 		{
 			Character->ApplyExStats17DecayForElapsedMinutes(60);
+			Character->ApplyFrustrationIncreaseForElapsedHours(1);
 		}
 	}
 
@@ -470,6 +471,19 @@ void UMyProject1GameInstance::RequestFadeThenShowNarration(UDialogComponent* Nar
 // ----------------------------------------------------
 void UMyProject1GameInstance::ResumeFadeInAfterNarration(UDialogComponent* NarrationComponent, FName NextDialogID)
 {
+	// 追加アクション（TriggerEvent等）が暗転を別の暗転セリフ（イベント開始ナレーション等）へ引き継いだ場合。
+	// bWaitingForNarrationCompletionがtrueなのはその新しいセリフの待ちなので、ここで明転してはいけない
+	// （してしまうと元の場所で明転した後、セリフ終了時に改めて暗転し直すことになる）。
+	// 明転は新しいセリフの後続処理（ワープ→HandleWarpFadeInComplete）が行うので、会話の継続先だけ予約する。
+	// 別マップ行きの場合は、その時のExecuteWarpProcessがこの予約をStashDialogForCrossLevelResumeへ移す
+	if (bNarrationHandedOver)
+	{
+		bNarrationHandedOver = false;
+		ReservedNarrationResumeComponent = NarrationComponent;
+		ReservedNarrationResumeNextDialogID = NextDialogID;
+		return;
+	}
+
 	// HandleWarpFadeOutCompleteが保留していたFadeInタイマーを、ここで初めて開始する
 	if (!bWaitingForNarrationCompletion)
 	{
@@ -510,6 +524,12 @@ void UMyProject1GameInstance::StashDialogForCrossLevelResume(UDialogComponent* D
 	PendingCrossLevelDialogTable = DialogComponent->GetCurrentTable();
 	PendingCrossLevelDialogRowName = NextDialogID;
 	PendingCrossLevelDialogSpeakerName = DialogComponent->GetCurrentSpeakerName();
+	// 話しかけていたNPCは新しいレベルに存在しないため、TriggerEventの抽選に必要なプール情報も控えておく
+	if (!DialogComponent->GetEventPoolSourceForResume(PendingCrossLevelEventPoolTable, PendingCrossLevelEventPoolID))
+	{
+		PendingCrossLevelEventPoolTable.Reset();
+		PendingCrossLevelEventPoolID = NAME_None;
+	}
 }
 
 bool UMyProject1GameInstance::ReserveDialogResumeAfterWarp(UDialogComponent* DialogComponent, FName NextDialogID)
@@ -608,6 +628,9 @@ void UMyProject1GameInstance::BeginWarpFade(ACharacter* TargetCharacter)
 		// その新しい暗転セリフ側の表示完了処理が、改めてBeginWarpFadeを呼び直して明転へつなぐ
 		if (bWaitingForNarrationCompletion)
 		{
+			// 会話の暗転セリフの読了時に実行した追加アクション（TriggerEvent等）が始めたイベント開始ナレーション等。
+			// 続けて呼ばれるResumeFadeInAfterNarrationが、これを会話自身の待ちと取り違えて明転しないよう目印を残す
+			bNarrationHandedOver = true;
 			return;
 		}
 
@@ -680,6 +703,10 @@ void UMyProject1GameInstance::HandleWarpFadeInComplete()
 		ReservedNarrationResumeNextDialogID = NAME_None;
 
 		NarrationComponent->ResumeAfterFadeNarration(NextDialogID);
+
+		// 暗転セリフの追加アクション（TriggerEvent）で始まったイベントがClearCondition=AnimationSequenceの場合、
+		// 通常のワープ明転後と同じくここでAnimEventを開始する。進行中イベントが無い／開始済みなら何もしない
+		BeginAnimEventSequenceIfNeeded();
 		return;
 	}
 
@@ -693,6 +720,9 @@ void UMyProject1GameInstance::HandleWarpFadeInComplete()
 	// 保留中の時間経過・疲労反映は、ここ（明転が終わって画面が見える状態）ではなく、暗転がまだ真っ暗な
 	// うちに明転を始める直前（HandleWarpFadeOutComplete/ResumeFadeInAfterSleepEvent）で確定済み
 	BeginAnimEventSequenceIfNeeded();
+
+	// イベントのActionType=StartDialogで予約された会話は、戻り先への移動と明転が終わったここで始める
+	StartPendingEventDialogIfNeeded();
 }
 
 void UMyProject1GameInstance::ResumeDialogAfterCrossLevelWarp()
@@ -718,6 +748,11 @@ void UMyProject1GameInstance::ResumeDialogAfterCrossLevelWarp()
 	DialogComponent->SetResumedSpeakerName(PendingCrossLevelDialogSpeakerName);
 	PendingCrossLevelDialogSpeakerName.Empty();
 
+	// 同様に、TriggerEventのイベント抽選に必要なNPCのプール情報も引き継ぐ
+	DialogComponent->SetResumedEventPoolSource(PendingCrossLevelEventPoolTable, PendingCrossLevelEventPoolID);
+	PendingCrossLevelEventPoolTable.Reset();
+	PendingCrossLevelEventPoolID = NAME_None;
+
 	// 話しかけていたNPCは元のマップにいたため、新しいレベルでは相手なし（nullptr）で続ける。
 	// 続きの行が無い（暗転セリフの追加アクションで別マップへ移った等）場合や開始できなかった場合も、
 	// 元のマップの会話中だった入力モード（UI操作・カーソル表示）がビューポートに残っているため、
@@ -725,6 +760,49 @@ void UMyProject1GameInstance::ResumeDialogAfterCrossLevelWarp()
 	if (RowName.IsNone() || !DialogTable || !DialogComponent->TryStartDialog(RowName, DialogTable, nullptr))
 	{
 		DialogComponent->CloseDialog();
+	}
+
+	// 暗転セリフの追加アクション（TriggerEvent）で始まったイベントが別マップ行きでClearCondition=AnimationSequenceの場合、
+	// 通常のワープ明転後（HandleWarpFadeInComplete）と同じくここでAnimEventを開始する。進行中イベントが無い／開始済みなら何もしない
+	BeginAnimEventSequenceIfNeeded();
+}
+
+void UMyProject1GameInstance::StartPendingEventDialogIfNeeded()
+{
+	if (PendingEventDialogRowName.IsNone()) return;
+
+	ACharacter* PlayerCharacter = UGameplayStatics::GetPlayerCharacter(this, 0);
+	UDialogComponent* DialogComponent = PlayerCharacter ? PlayerCharacter->FindComponentByClass<UDialogComponent>() : nullptr;
+	if (!DialogComponent)
+	{
+		// ALoadingGameModeが待機中で、別マップへ戻った先のプレイヤーがまだ生成されていない。生成されるまで待つ
+		FTimerHandle RetryTimerHandle;
+		GetTimerManager().SetTimer(RetryTimerHandle, this,
+			&UMyProject1GameInstance::StartPendingEventDialogIfNeeded, 0.1f, false);
+		return;
+	}
+
+	const FName RowName = PendingEventDialogRowName;
+	PendingEventDialogRowName = NAME_None;
+
+	// 進行中のイベントがある間（SuccessActionsでTriggerEventも実行した場合等）は、会話と重なってしまうため始めない
+	if (bHasActiveEvent)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Event] StartDialog '%s': 別のイベントが進行中のため会話を開始しない"), *RowName.ToString());
+		return;
+	}
+
+	// 相手NPCは居ないため、TryStartDialogにはnullptrを渡す（別マップのワープ後に再開した会話と同じ）
+	if (DialogComponent->TryStartDialog(RowName, DialogDataTable, nullptr))
+	{
+		if (IRpgCharacterInterface* RpgInterface = Cast<IRpgCharacterInterface>(PlayerCharacter))
+		{
+			RpgInterface->SetInputLocked(true);
+		}
+	}
+	else
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Event] StartDialog '%s': DialogDataTable未設定、または行が見つからないため会話を開始できない"), *RowName.ToString());
 	}
 }
 
@@ -738,6 +816,10 @@ void UMyProject1GameInstance::ApplyPendingSleepTimeAdvanceIfNeeded()
 	AMyProject1Character* Character = Cast<AMyProject1Character>(PendingSleepTimeAdvanceCharacter.Get());
 	PendingSleepTimeAdvanceCharacter.Reset();
 
+	// スキップ中にまたいだ「時」の数（通常の時間経過が分0で1回ずつ処理するのと同じ数え方）。AdvanceTimeByで時刻が変わる前に開始時刻を控える
+	const int32 StartMinutes = CurrentTimeInMinutes;
+	const int32 HoursCrossed = (StartMinutes + Minutes) / 60 - StartMinutes / 60;
+
 	AdvanceTimeBy(Minutes);
 
 	// HandleFatigueTickは現実時間の経過にしか反応しないため、待機/睡眠でジャンプした分の疲労度は
@@ -748,6 +830,9 @@ void UMyProject1GameInstance::ApplyPendingSleepTimeAdvanceIfNeeded()
 
 		// ExStats17の自然減少も同様に、スキップした分数に応じてまとめて反映する（例：2時間スキップなら4減る）
 		Character->ApplyExStats17DecayForElapsedMinutes(Minutes);
+
+		// 欲求不満度も同様に、スキップ中にまたいだ「時」の数だけ増やす（例：2時間スキップなら4増える）
+		Character->ApplyFrustrationIncreaseForElapsedHours(HoursCrossed);
 	}
 }
 
@@ -826,6 +911,7 @@ void UMyProject1GameInstance::ExecuteWarpProcess()
 	{
 		ReservedNarrationComponent.Reset();
 		bWaitingForNarrationCompletion = true;
+		bNarrationHandedOver = false;
 
 		NarrationComponent->BeginFadeNarration();
 		return;
@@ -1420,6 +1506,9 @@ void UMyProject1GameInstance::StartEvent(FName EventID, ACharacter* PlayerCharac
 			PendingSleepTimeAdvanceIsSleep = false;
 			ApplyPendingSleepTimeAdvanceIfNeeded();
 		}
+
+		// 暗転を挟まないので、SuccessActionsのStartDialogで予約された会話もここで始める
+		StartPendingEventDialogIfNeeded();
 		return;
 	}
 
@@ -1733,6 +1822,13 @@ void UMyProject1GameInstance::ExecuteEventActionList(const TArray<FEventAction>&
 
 	for (const FEventAction& Action : Actions)
 	{
+		// 会話は共通のExecuteActionにはなく、イベントの後始末（終了ナレーション・戻り先ワープ）が済んでから始めるため、
+		// ここでは行名を予約するだけにする（StartPendingEventDialogIfNeeded参照）
+		if (Action.ActionType == EDialogActionType::StartDialog)
+		{
+			PendingEventDialogRowName = FName(*Action.ActionPayload);
+		}
+
 		UGameplayActionLibrary::ExecuteAction(RpgInterface, PlayerChar, nullptr, GetWorld(),
 			Action.ActionType, Action.ActionPayload, Action.ItemID, Action.ItemAmount);
 		UGameplayActionLibrary::ApplyStatChange(RpgInterface, nullptr,
@@ -1928,6 +2024,9 @@ void UMyProject1GameInstance::ContinueEventAfterEndNarration()
 		// 戻り先が無く、ナレーションによる暗転も無かったケースの保険。既に画面は暗転していないため、
 		// HandleWarpFadeInComplete側の呼び出しを待たず、ここで保留中の時間経過・疲労反映を確定させる
 		ApplyPendingSleepTimeAdvanceIfNeeded();
+
+		// 暗転も戻り先ワープも無く、HandleWarpFadeInCompleteが呼ばれないため、予約された会話もここで始める
+		StartPendingEventDialogIfNeeded();
 	}
 }
 
@@ -2018,6 +2117,10 @@ void UMyProject1GameInstance::PlayAnimSequenceEvent(FName AnimEventID, ACharacte
 	{
 		AnimEventPrimaryBaseMeshLocation = PrimaryMesh->GetRelativeLocation();
 		AnimEventPrimaryBaseMeshRotation = PrimaryMesh->GetRelativeRotation();
+	}
+	{
+		const AMyProject1Character* MyPrimary = Cast<AMyProject1Character>(PrimaryCharacter);
+		AnimEventPrimaryShoesOffsetAtStart = MyPrimary ? MyPrimary->CurrentShoesOffset : 0.0f;
 	}
 	// 再生開始直前のワールドTransformを固定基準として保存する（GetAnimSequenceLockedTransform参照）。
 	// AMyProject1Character::Tickがこれを見て毎フレーム同じ位置・向きへ固定し直すため、ターゲット追従回転等の
@@ -2176,6 +2279,20 @@ void UMyProject1GameInstance::RestoreAnimEventFaceMorphs()
 	AnimEventAppliedMorphs.Reset();
 }
 
+FVector UMyProject1GameInstance::GetAnimEventMeshBaseLocation(bool bIsSecondaryTarget) const
+{
+	if (bIsSecondaryTarget)
+	{
+		return AnimEventSecondaryBaseMeshLocation;
+	}
+
+	// 基準値に含まれている「再生開始時に履いていた靴の高さ補正」を引いて素足の高さにする。
+	// これで靴を履き替えたり脱いでいても、MeshLocationOffsetを調整した時（素足）と同じ高さになる
+	FVector Base = AnimEventPrimaryBaseMeshLocation;
+	Base.Z -= AnimEventPrimaryShoesOffsetAtStart;
+	return Base;
+}
+
 void UMyProject1GameInstance::PlayAnimSequenceEventHeld(FName AnimEventID, ACharacter* PrimaryCharacter, AActor* SecondaryContextActor)
 {
 	// 前の再生が残っていると、PlayAnimSequenceEvent冒頭の打ち切り（AbortCurrentAnimEventStepChain）が保持フラグまで消してしまうため、
@@ -2279,6 +2396,7 @@ void UMyProject1GameInstance::PlayAnimEventStep(int32 StepIndex)
 		if (AMyProject1Character* MyPrimaryCharacter = Cast<AMyProject1Character>(AnimEventPrimaryCharacter.Get()))
 		{
 			MyPrimaryCharacter->SetAnimEventInputLocked(false);
+			MyPrimaryCharacter->ResetOGauge();
 
 			if (bAnimEventOverrodeMusic && MyPrimaryCharacter->MusicComp)
 			{
@@ -2378,7 +2496,7 @@ void UMyProject1GameInstance::PlayAnimEventStep(int32 StepIndex)
 		if (USkeletalMeshComponent* TargetMesh = TargetCharacter->GetMesh())
 		{
 			const bool bIsSecondaryTarget = (Step.PlayTarget == EStatTargetActor::NPC);
-			const FVector& BaseLocation = bIsSecondaryTarget ? AnimEventSecondaryBaseMeshLocation : AnimEventPrimaryBaseMeshLocation;
+			const FVector BaseLocation = GetAnimEventMeshBaseLocation(bIsSecondaryTarget);
 			const FRotator& BaseRotation = bIsSecondaryTarget ? AnimEventSecondaryBaseMeshRotation : AnimEventPrimaryBaseMeshRotation;
 			TargetMesh->SetRelativeLocation(BaseLocation + SelectedEntry->MeshLocationOffset);
 			TargetMesh->SetRelativeRotation(BaseRotation + SelectedEntry->MeshRotationOffset);
@@ -2408,6 +2526,15 @@ void UMyProject1GameInstance::PlayAnimEventStep(int32 StepIndex)
 			if (SelectedEntry->Sound)
 			{
 				CurrentAnimEventAudioComponent = UGameplayStatics::SpawnSoundAtLocation(this, SelectedEntry->Sound, TargetCharacter->GetActorLocation());
+
+				// O・Gauge発動SEの再生中に始まったサウンドは、無音から始めてAnimEventSoundFadeInTimerHandleで同じタイミングに戻す
+				if (bAnimEventSoundDucked)
+				{
+					if (UAudioComponent* NewAudio = CurrentAnimEventAudioComponent.Get())
+					{
+						NewAudio->AdjustVolume(0.01f, 0.0f);
+					}
+				}
 			}
 			CurrentAnimEventSound = SelectedEntry->Sound;
 		}
@@ -2467,12 +2594,10 @@ void UMyProject1GameInstance::PlayAnimEventStep(int32 StepIndex)
 		return;
 	}
 
-	// ステップ再生開始時に1回だけ、ステータス増減とO・Gauge加算を適用する（ループ再生し直しでは通らない）
+	// ステップ再生開始時に1回だけ、O・Gauge加算を適用する（ループ再生し直しでは通らない）。
+	// ステータス増減(StatToChange)は開始時ではなくステップの終わり（HandleAnimEventStepTransitionFadeComplete）で適用する
 	if (AMyProject1Character* StatPrimaryCharacter = Cast<AMyProject1Character>(AnimEventPrimaryCharacter.Get()))
 	{
-		UGameplayActionLibrary::ApplyStatChange(StatPrimaryCharacter, AnimEventSecondaryContextActor.Get(),
-			Step.StatToChange, Step.StatTargetActor, Step.ExtraStatName, Step.StatChangeAmount);
-
 		if (Step.OGaugeAmount != 0.0f)
 		{
 			// チェックされたExStats3〜7の現在値(0〜100)を合算し、100につき基本値の+100%として上乗せする
@@ -2486,6 +2611,10 @@ void UMyProject1GameInstance::PlayAnimEventStep(int32 StepIndex)
 			const int32 TriggerCountBefore = StatPrimaryCharacter->OGaugeTriggerCount;
 			StatPrimaryCharacter->AddOGauge(Step.OGaugeAmount * (1.0f + BonusPercent / 100.0f));
 			ActiveEventOGaugeTriggerCount += StatPrimaryCharacter->OGaugeTriggerCount - TriggerCountBefore;
+			if (StatPrimaryCharacter->OGaugeTriggerCount > TriggerCountBefore)
+			{
+				DuckAnimEventSoundForOGaugeTrigger(StatPrimaryCharacter);
+			}
 		}
 	}
 
@@ -2654,9 +2783,46 @@ float UMyProject1GameInstance::PlayAnimEventPairing(const FAnimEventPairing& Pai
 	return Montage->GetPlayLength();
 }
 
+// O・Gauge発動SE(OGaugeTriggerSound)の再生中、FAnimSequenceEntry::Soundを無音へフェードアウトさせ、
+// OGaugeTriggerSoundの再生が終わる直前からフェードインして戻す（再生中のAnimEventSoundがなければ何もしない）
+void UMyProject1GameInstance::DuckAnimEventSoundForOGaugeTrigger(const AMyProject1Character* TriggerCharacter)
+{
+	if (!TriggerCharacter || !TriggerCharacter->OGaugeTriggerSound) return;
+
+	const USoundBase* TriggerSound = TriggerCharacter->OGaugeTriggerSound;
+	const float TriggerSoundDuration = TriggerSound->GetDuration();
+	// ループ設定のSEは終わりが無く、フェードインのタイミングを決められないので対象外
+	if (TriggerSound->IsLooping() || TriggerSoundDuration <= 0.0f) return;
+
+	UAudioComponent* CurrentAudio = CurrentAnimEventAudioComponent.Get();
+	if (!CurrentAudio || !CurrentAudio->IsPlaying()) return;
+
+	const float FadeOutTime = TriggerCharacter->OGaugeTriggerSoundFadeOutTime;
+	const float FadeInTime = TriggerCharacter->OGaugeTriggerSoundFadeInTime;
+
+	// 0にしても止まらないよう、時間を持たせて下げる（Virtualization無効のSoundは、時間0・音量0のAdjustVolumeがStop扱いになるため）
+	CurrentAudio->AdjustVolume(FMath::Max(FadeOutTime, 0.01f), 0.0f);
+	bAnimEventSoundDucked = true;
+
+	// フェードイン開始はOGaugeTriggerSoundの終了のFadeInTime前（フェードアウトが終わるより前にはならない）
+	const float FadeInDelay = FMath::Max(TriggerSoundDuration - FadeInTime, FadeOutTime);
+	GetTimerManager().SetTimer(AnimEventSoundFadeInTimerHandle,
+		FTimerDelegate::CreateWeakLambda(this, [this, FadeInTime]()
+		{
+			bAnimEventSoundDucked = false;
+			if (UAudioComponent* Audio = CurrentAnimEventAudioComponent.Get())
+			{
+				Audio->AdjustVolume(FMath::Max(FadeInTime, 0.01f), 1.0f);
+			}
+		}), FadeInDelay, false);
+}
+
 // AnimEventExtraActorsに残っている全Extra参加者と、CurrentAnimSequencePropActorを破棄してクリアする
 void UMyProject1GameInstance::DestroyAnimEventExtraActors()
 {
+	GetTimerManager().ClearTimer(AnimEventSoundFadeInTimerHandle);
+	bAnimEventSoundDucked = false;
+
 	// FAnimSequenceEntry::Soundで再生中のサウンドを停止する（全Step完了・強制終了どちらの後片付けからも呼ばれる）
 	if (UAudioComponent* CurrentAudio = CurrentAnimEventAudioComponent.Get())
 	{
@@ -2802,8 +2968,8 @@ void UMyProject1GameInstance::RestoreAnimEventTemporaryEquipment()
 
 				// bHideAllEquipmentDuringPlayがこのキャラクターに対して引き続き有効な場合、
 				// SyncAnimEventTemporaryEquipmentがSetEquipmentSlotVisible(true)で強制表示していたスロットを
-				// 非表示状態へ合わせ直す（ロック装備は元々非表示化の対象外のため除く）
-				if (AnimEventHiddenEquipmentCharacter.Get() == MyTargetCharacter && !MyTargetCharacter->IsSlotLocked(Pair.Key))
+				// 非表示状態へ合わせ直す
+				if (AnimEventHiddenEquipmentCharacter.Get() == MyTargetCharacter)
 				{
 					MyTargetCharacter->SetEquipmentSlotVisible(Pair.Key, false);
 				}
@@ -2820,6 +2986,10 @@ void UMyProject1GameInstance::RestoreAnimEventTemporaryEquipment()
 // 新しいイベントが呼ばれた場合、古いExtra参加者が新しいMesh・位置設定を受けずに使い回されてしまうのを防ぐ）から呼ぶ
 void UMyProject1GameInstance::AbortCurrentAnimEventStepChain()
 {
+	// 正常完了後（PlayAnimEventStepが既にCurrentAnimEventIDを消している）やテスト再生だけの状態で呼ばれた場合は
+	// AnimEventが終わったわけではないので、O・Gaugeには触れない
+	const bool bAnimEventWasActive = !CurrentAnimEventID.IsNone();
+
 	GetTimerManager().ClearTimer(AnimEventStepDurationTimerHandle);
 	GetTimerManager().ClearTimer(AnimEventStepTransitionTimerHandle);
 	CurrentAnimEventStepIndex = INDEX_NONE;
@@ -2840,6 +3010,10 @@ void UMyProject1GameInstance::AbortCurrentAnimEventStepChain()
 		if (AMyProject1Character* MyPrimaryCharacter = Cast<AMyProject1Character>(PrimaryCharacter))
 		{
 			MyPrimaryCharacter->SetAnimEventInputLocked(false);
+			if (bAnimEventWasActive)
+			{
+				MyPrimaryCharacter->ResetOGauge();
+			}
 
 			// EventBGMでオーバーライドしていた場合、正常完了時（PlayAnimEventStep）と同じくBGM状態を戻す
 			if (bAnimEventOverrodeMusic && MyPrimaryCharacter->MusicComp)
@@ -2956,6 +3130,7 @@ void UMyProject1GameInstance::SpawnOrUpdateAnimSequenceProp(const FAnimSequenceE
 
 void UMyProject1GameInstance::PlayAnimSequenceRowDirect(FName RowName, ACharacter* PrimaryCharacter, AActor* SecondaryContextActor, EStatTargetActor PlayTarget)
 {
+
 	if (!PrimaryCharacter || RowName.IsNone() || !AnimSequenceDataTable)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("PlayAnimSequenceRowDirect: invalid arguments or AnimSequenceDataTable not set (RowName=%s)"), *RowName.ToString());
@@ -2988,6 +3163,10 @@ void UMyProject1GameInstance::PlayAnimSequenceRowDirect(FName RowName, ACharacte
 	{
 		AnimEventPrimaryBaseMeshLocation = PrimaryMesh->GetRelativeLocation();
 		AnimEventPrimaryBaseMeshRotation = PrimaryMesh->GetRelativeRotation();
+	}
+	{
+		const AMyProject1Character* MyPrimary = Cast<AMyProject1Character>(PrimaryCharacter);
+		AnimEventPrimaryShoesOffsetAtStart = MyPrimary ? MyPrimary->CurrentShoesOffset : 0.0f;
 	}
 	// PlayAnimSequenceEventと同じく、再生開始直前のワールドTransformを固定基準として保存する
 	AnimEventPrimaryLockedActorLocation = PrimaryCharacter->GetActorLocation();
@@ -3053,7 +3232,7 @@ void UMyProject1GameInstance::PlayAnimSequenceRowDirect(FName RowName, ACharacte
 		CurrentAnimSequenceRowDirectLocationOffset = Entry->MeshLocationOffset;
 		CurrentAnimSequenceRowDirectRotationOffset = Entry->MeshRotationOffset;
 
-		const FVector& BaseLocation = bIsSecondaryTarget ? AnimEventSecondaryBaseMeshLocation : AnimEventPrimaryBaseMeshLocation;
+		const FVector BaseLocation = GetAnimEventMeshBaseLocation(bIsSecondaryTarget);
 		const FRotator& BaseRotation = bIsSecondaryTarget ? AnimEventSecondaryBaseMeshRotation : AnimEventPrimaryBaseMeshRotation;
 		TargetMesh->SetRelativeLocation(BaseLocation + CurrentAnimSequenceRowDirectLocationOffset);
 		TargetMesh->SetRelativeRotation(BaseRotation + CurrentAnimSequenceRowDirectRotationOffset);
@@ -3116,7 +3295,7 @@ void UMyProject1GameInstance::NudgeAnimSequenceRowDirectOffset(FVector LocationD
 	CurrentAnimSequenceRowDirectRotationOffset += RotationDelta;
 
 	const bool bIsSecondaryTarget = (CurrentAnimSequenceRowDirectPlayTarget == EStatTargetActor::NPC);
-	const FVector& BaseLocation = bIsSecondaryTarget ? AnimEventSecondaryBaseMeshLocation : AnimEventPrimaryBaseMeshLocation;
+	const FVector BaseLocation = GetAnimEventMeshBaseLocation(bIsSecondaryTarget);
 	const FRotator& BaseRotation = bIsSecondaryTarget ? AnimEventSecondaryBaseMeshRotation : AnimEventPrimaryBaseMeshRotation;
 	TargetMesh->SetRelativeLocation(BaseLocation + CurrentAnimSequenceRowDirectLocationOffset);
 	TargetMesh->SetRelativeRotation(BaseRotation + CurrentAnimSequenceRowDirectRotationOffset);
@@ -3405,6 +3584,23 @@ void UMyProject1GameInstance::HandleAnimEventStepTransitionFadeComplete()
 {
 	const int32 NextStepIndex = PendingAnimEventNextStepIndex;
 	PendingAnimEventNextStepIndex = INDEX_NONE;
+
+	// 終わるステップ（この時点のCurrentAnimEventStepIndex）のStatToChangeを、次のステップへ切り替わるこのタイミングで1回だけ適用する。
+	// 開始前の暗転（TransitionToAnimEventStep(0)）ではCurrentAnimEventStepIndexがINDEX_NONEなので何も起きない
+	if (const FAnimEventDefinition* EndingAnimEvent = AnimEventDataTable
+		? AnimEventDataTable->FindRow<FAnimEventDefinition>(CurrentAnimEventID, TEXT("HandleAnimEventStepTransitionFadeComplete"))
+		: nullptr)
+	{
+		if (EndingAnimEvent->Steps.IsValidIndex(CurrentAnimEventStepIndex))
+		{
+			const FAnimEventStep& EndingStep = EndingAnimEvent->Steps[CurrentAnimEventStepIndex];
+			if (AMyProject1Character* StatPrimaryCharacter = Cast<AMyProject1Character>(AnimEventPrimaryCharacter.Get()))
+			{
+				UGameplayActionLibrary::ApplyStatChange(StatPrimaryCharacter, AnimEventSecondaryContextActor.Get(),
+					EndingStep.StatToChange, EndingStep.StatTargetActor, EndingStep.ExtraStatName, EndingStep.StatChangeAmount);
+			}
+		}
+	}
 
 	// AlignAnimEventPrimaryAtFadeEndの予約を、画面が真っ暗になった今のタイミングで反映する。
 	// 固定基準値を差し替えるだけでなくActorも即座に移動させるのは、直後のPlayAnimEventStep(0)が

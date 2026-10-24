@@ -77,6 +77,22 @@ protected:
     UPROPERTY(meta = (BindWidget))
     UTextBlock* Txt_Alcohol;
 
+    // 欲求不満度（0～100）
+    UPROPERTY(meta = (BindWidgetOptional))
+    UTextBlock* Txt_Frustration;
+
+    // 現在かかっている病気の数（SkinOverlayComponentのActiveDiseases）
+    UPROPERTY(meta = (BindWidgetOptional))
+    UTextBlock* Txt_DiseaseCount;
+
+    // 現在の怪我（傷跡オーバーレイ）の数（SkinOverlayComponentのActiveScars）
+    UPROPERTY(meta = (BindWidgetOptional))
+    UTextBlock* Txt_InjuryCount;
+
+    // 現在のタトゥーオーバーレイの数（SkinOverlayComponentのActiveTattoos）
+    UPROPERTY(meta = (BindWidgetOptional))
+    UTextBlock* Txt_TattooCount;
+
     // --- レベル・経験値 ---
     UPROPERTY(meta = (BindWidget))
     UTextBlock* Txt_Level;

@@ -1,6 +1,7 @@
 ﻿#include "StatusScreenWidget.h"
 #include "MyProject1Character.h" // MyStatsを取得するために必須
 #include "MyProject1GameInstance.h"
+#include "SkinOverlayComponent.h"
 
 void UStatusScreenWidget::UpdateAllStatus(AMyProject1Character* PlayerCharacter)
 {
@@ -48,6 +49,15 @@ void UStatusScreenWidget::UpdateAllStatus(AMyProject1Character* PlayerCharacter)
     if (Txt_Hostility)  Txt_Hostility->SetText(FText::AsNumber(FMath::RoundToInt(Stats.Hostility)));
     if (Txt_Charm)      Txt_Charm->SetText(FText::AsNumber(FMath::RoundToInt(Stats.Charm)));
     if (Txt_Alcohol)    Txt_Alcohol->SetText(FText::AsNumber(FMath::RoundToInt(Stats.Alcohol)));
+    if (Txt_Frustration) Txt_Frustration->SetText(FText::AsNumber(Stats.Frustration));
+
+    // --- 病気・怪我・タトゥーの数（SkinOverlayComponentに入っている件数） ---
+    if (const USkinOverlayComponent* SkinOverlay = PlayerCharacter->SkinOverlayComp)
+    {
+        if (Txt_DiseaseCount) Txt_DiseaseCount->SetText(FText::AsNumber(SkinOverlay->GetActiveDiseases().Num()));
+        if (Txt_InjuryCount)  Txt_InjuryCount->SetText(FText::AsNumber(SkinOverlay->GetActiveScars().Num()));
+        if (Txt_TattooCount)  Txt_TattooCount->SetText(FText::AsNumber(SkinOverlay->GetActiveTattoos().Num()));
+    }
 
     // --- レベル・経験値 ---
     if (Txt_Level)       Txt_Level->SetText(FText::AsNumber(Stats.Level));

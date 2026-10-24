@@ -1,6 +1,8 @@
 #include "WBP_TitleMenu.h"
 #include "WBP_SaveSlot.h"
+#include "WBP_FadeNarration.h"
 #include "MyProject1GameInstance.h"
+#include "InputCoreTypes.h"
 #include "Components/AudioComponent.h"
 #include "GameFramework/PlayerController.h"
 #include "Kismet/GameplayStatics.h"
@@ -58,6 +60,8 @@ void UWBP_TitleMenu::NativeConstruct()
 
 	ShowMainPanel();
 
+	if (Img_IntroBackground) Img_IntroBackground->SetVisibility(ESlateVisibility::Collapsed);
+
 	if (TitleBGM && !TitleBGMComponent)
 	{
 		TitleBGMComponent = UGameplayStatics::CreateSound2D(this, TitleBGM);
@@ -85,10 +89,87 @@ void UWBP_TitleMenu::ShowMainPanel()
 	if (Panel_Continue) Panel_Continue->SetVisibility(ESlateVisibility::Collapsed);
 }
 
+FReply UWBP_TitleMenu::NativeOnMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent)
+{
+	if (bIntroActive && InMouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
+	{
+		AdvanceIntro();
+		return FReply::Handled();
+	}
+
+	return Super::NativeOnMouseButtonDown(InGeometry, InMouseEvent);
+}
+
+FReply UWBP_TitleMenu::NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent)
+{
+	if (bIntroActive)
+	{
+		const FKey Key = InKeyEvent.GetKey();
+		if (Key == EKeys::SpaceBar || Key == EKeys::Enter)
+		{
+			AdvanceIntro();
+			return FReply::Handled();
+		}
+	}
+
+	return Super::NativeOnKeyDown(InGeometry, InKeyEvent);
+}
+
 void UWBP_TitleMenu::HandleNewGameClicked()
 {
-	if (NewGameLevel.IsNull()) return;
+	if (NewGameLevel.IsNull() || bIntroActive) return;
 
+	if (IntroPages.Num() > 0 && IntroNarrationClass)
+	{
+		BeginIntro();
+		return;
+	}
+
+	StartNewGame();
+}
+
+void UWBP_TitleMenu::BeginIntro()
+{
+	IntroNarrationWidget = CreateWidget<UWBP_FadeNarration>(GetOwningPlayer(), IntroNarrationClass);
+	if (!IntroNarrationWidget)
+	{
+		StartNewGame();
+		return;
+	}
+
+	bIntroActive = true;
+	IntroPageIndex = 0;
+
+	if (Panel_Main) Panel_Main->SetVisibility(ESlateVisibility::Collapsed);
+	if (Panel_Continue) Panel_Continue->SetVisibility(ESlateVisibility::Collapsed);
+	if (Img_IntroBackground) Img_IntroBackground->SetVisibility(ESlateVisibility::Visible);
+
+	// あらすじのウィジェットはこのウィジェットより手前に表示されるため、クリックを素通りさせて
+	// NativeOnMouseButtonDown（このウィジェット）で受け取る。自身はVisibleにして、何もない場所のクリックも拾えるようにする
+	IntroNarrationWidget->AddToViewport(10);
+	IntroNarrationWidget->SetVisibility(ESlateVisibility::HitTestInvisible);
+	IntroNarrationWidget->ShowLine(IntroPages[IntroPageIndex]);
+
+	SetVisibility(ESlateVisibility::Visible);
+	SetKeyboardFocus();
+}
+
+void UWBP_TitleMenu::AdvanceIntro()
+{
+	++IntroPageIndex;
+	if (IntroPages.IsValidIndex(IntroPageIndex))
+	{
+		IntroNarrationWidget->ShowLine(IntroPages[IntroPageIndex]);
+		return;
+	}
+
+	// 全ページ読み終えたので、通常のニューゲームを開始する（二重に呼ばれないよう先にフラグを下ろす）
+	bIntroActive = false;
+	StartNewGame();
+}
+
+void UWBP_TitleMenu::StartNewGame()
+{
 	RestoreGameInput();
 	UGameplayStatics::OpenLevelBySoftObjectPtr(this, NewGameLevel);
 }

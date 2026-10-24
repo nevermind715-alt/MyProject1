@@ -48,6 +48,20 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event")
 	bool bHideOwnerDuringAnimEventDefault = false;
 
+	/** イベント抽選に進むためのプレイヤーのステータス条件。条件オフ（初期状態）なら常に抽選へ進む（従来動作のまま）。
+	 *  使われる場面は次の2つ：
+	 *  - 戦闘敗北：条件を満たした時だけ抽選に進む。満たさなければイベントを起動せず、WarpToRestartIDが設定されていれば
+	 *    抽選に外れた時と同じくそこへワープし、空欄ならEventPoolID未設定の敵に倒された時と同じ通常の敗北復帰（PlayerStartへ復帰）になる。
+	 *    どちらの場合もDefeatDialogRowの会話は始まらず、敗北時クリーンアップ（OnDefeatedPlayer）は行われる。
+	 *  - ASleepPoint（bTriggerEventPoolOnSleep）：条件を満たさなければ抽選を行わず、何も起きずに通常通り睡眠が終わる。
+	 *  ANPCSpawner::EventDistributorStatCondition / SpawnerOverrides|Eventから上書きされる想定（敗北側のみ） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event")
+	FEventStatCondition EventDistributorStatCondition;
+
+	/** EventDistributorStatConditionを満たしているか。条件オフなら常にtrue。
+	 *  条件オンで、ステータスが取得できない設定（None、未登録のExtraStat名など）の場合は安全側でfalse（C++専用） */
+	bool IsEventDistributorStatConditionMet(class AMyProject1Character* PlayerCharacter) const;
+
 	/** 戦闘敗北によるTriggerEventPool呼び出し時のみ使用。WarpToRestartIDが空欄でない場合、この確率（%）の
 	 *  抽選でイベントディストリビュータを起動するかどうかを決める（AMyProject1Character::TakeDamage参照）。
 	 *  抽選に外れた場合はイベント抽選を行わず、代わりにWarpToRestartIDへワープする。
@@ -62,6 +76,22 @@ public:
 	 *  ANPCSpawner::WarpToRestartID / SpawnerOverrides|Eventから上書きされる想定 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event")
 	FName WarpToRestartID;
+
+	/** 空欄でなければ、戦闘敗北時にイベント抽選より先に、この会話（DT_Dialogsの行）をプレイヤーの会話として始める。
+	 *  話しかける相手（CurrentNPC）はこのコンポーネントの持ち主（倒した敵）。最初の行をShowTextDuringFade（暗転セリフ）にして
+	 *  NextDialogIDの行をActionType=TriggerEventにしておけば、暗転セリフの後に抽選・イベント開始へ進む。
+	 *  プレイヤーの全快とOnDefeatedPlayerの通知は、会話側のTriggerEventでTriggerEventPoolが呼ばれた時点で行う。
+	 *  WarpToRestartIDの抽選に外れてワープリスタートになる場合は使われない。
+	 *  ANPCSpawner::DefeatDialogRow / SpawnerOverrides|Eventから上書きされる想定 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event")
+	FDataTableRowHandle DefeatDialogRow;
+
+	/** DefeatDialogRowの会話を始めてから、会話側のTriggerEventでTriggerEventPoolが呼ばれるまでの間true（C++専用） */
+	bool bDefeatCleanupPending = false;
+
+	/** DefeatDialogRowが設定されていれば、PlayerCharacterの会話としてその行を始める。始められたらtrue。
+	 *  未設定、またはDialogComponent／行が見つからず始められなかった場合はfalse（呼び出し側が従来通りTriggerEventPoolへ進む） */
+	bool TryStartDefeatDialog(class AMyProject1Character* PlayerCharacter);
 
 	/** 戦闘敗北経由のTriggerEventPool呼び出し（または抽選外れのWarpToRestartID）の直後に呼ばれる。
 	 *  ANPCSpawner::bRemoveOnPlayerDefeat等が、敗北後の敵・フラグ用ポイントの削除とクエスト失敗のために購読する
@@ -93,4 +123,8 @@ public:
 	 *  ASleepPoint（睡眠イベント）等、抽選結果の判定と実際の発動タイミングを分離したい呼び出し元向け */
 	UFUNCTION(BlueprintCallable, Category = "Event")
 	FName RollEventPool(class AMyProject1Character* PlayerCharacter, FName EventPoolIDOverride = NAME_None) const;
+
+	/** RollEventPoolの抽選本体。コンポーネントを介さず、プールのデータテーブルとプール行名を直接指定して抽選する（C++専用）。
+	 *  別マップへのワープ後、コンポーネントを持つNPCが新しいレベルに存在しない会話のTriggerEventで使う */
+	static FName RollEventPoolFromTable(class AMyProject1Character* PlayerCharacter, const UDataTable* PoolTable, FName PoolIDToUse);
 };

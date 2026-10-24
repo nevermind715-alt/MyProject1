@@ -156,6 +156,11 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Warp")
 	bool IsWaitingForNarrationCompletion() const { return bWaitingForNarrationCompletion; }
 
+	/** 暗転セリフ（ShowTextDuringFade）の読了時に実行した追加アクション（TriggerEvent等）が、真っ暗な画面を別の暗転セリフ
+	 *  （イベント開始ナレーション等）へ引き継いだ場合にtrue。UDialogComponent::AdvanceFadeNarrationLineが、その場合は
+	 *  自分の暗転セリフの「閉じる」通知（引き継ぎ先のセリフまで消してしまう）を出さないために参照する（C++専用） */
+	bool IsNarrationHandedOver() const { return bNarrationHandedOver; }
+
 	// IsWaitingForNarrationCompletionと異なり、暗転要求が来た瞬間（RequestFadeThenShowNarration呼び出し直後、
 	// まだExecuteWarpProcessが実行されておらずbWaitingForNarrationCompletionがfalseの間）からtrueを返す。
 	// BP側のPlay Animation終了イベント（WarpFadeOutDuration秒のC++タイマーとは別系統で走る）が、
@@ -374,6 +379,11 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event")
 	UDataTable* EventDefinitionDataTable;
 
+	/** 会話データ（DT_Dialogs）のデータテーブル。イベントのActionType=StartDialogが、ActionPayloadの行名を
+	 *  この中から探してプレイヤーの会話として始める（NPC経由の会話は各NPCのDialogTableを使うため無関係） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event")
+	UDataTable* DialogDataTable;
+
 	/** 現在イベント進行中か（各トリガーが二重にイベントを発生させないためのガードにも使う） */
 	UPROPERTY(BlueprintReadOnly, Category = "Event")
 	bool bHasActiveEvent = false;
@@ -563,6 +573,13 @@ private:
 	TWeakObjectPtr<class UAudioComponent> CurrentAnimEventAudioComponent;
 	TWeakObjectPtr<class USoundBase> CurrentAnimEventSound;
 
+	// O・Gauge発動SE(OGaugeTriggerSound)の再生中、CurrentAnimEventAudioComponentを無音へ下げている間true。
+	// OGaugeTriggerSoundの終わり際にAnimEventSoundFadeInTimerHandleでフェードインして戻す。
+	// この間に別ステップで新しいサウンドが始まった場合も無音から始めて同じタイミングで戻す
+	bool bAnimEventSoundDucked = false;
+	FTimerHandle AnimEventSoundFadeInTimerHandle;
+	void DuckAnimEventSoundForOGaugeTrigger(const class AMyProject1Character* TriggerCharacter);
+
 	// FAnimEventPairing::ParticipantID → そのIDのためにスポーンした表示専用Character（AAnimEventActor）。
 	// AnimEventの開始時は空。抽選で選ばれたFAnimSequenceEntry::ExtraPairingsにそのIDが初登場したStepで
 	// スポーンし、全Step完了・イベント強制終了のどちらでもDestroyAnimEventExtraActorsで破棄してクリアする
@@ -614,6 +631,16 @@ private:
 	// PlayAnimSequenceEvent開始時点でのPrimary/SecondaryのMesh相対Transform（FAnimSequenceEntry::MeshLocationOffset/
 	// MeshRotationOffset適用前の基準値）。各ステップ開始時はこの基準値+Offsetを都度設定し、全ステップ完了時にこの値へ戻す
 	FVector AnimEventPrimaryBaseMeshLocation = FVector::ZeroVector;
+
+	// AnimEventPrimaryBaseMeshLocationを記録した時点でPrimaryが履いていた靴の高さ補正（AMyProject1Character::CurrentShoesOffset）。
+	// 基準値には靴の補正が含まれるため、メッシュ位置を決める時にここで引いて素足の高さにする（GetAnimEventMeshBaseLocation参照）
+	float AnimEventPrimaryShoesOffsetAtStart = 0.0f;
+
+	/** AnimEvent再生中のメッシュ位置の基準値（MeshLocationOffsetを足す前）を返す。
+	 *  Secondary（NPC）は従来通りキャッシュした基準値そのまま。Primary（プレイヤー）は靴の高さ補正を除いた素足の高さを返す
+	 *  （靴を履き替えても、MeshLocationOffsetを調整した時と同じ高さになる）。
+	 *  再生終了時の復元にはこれではなく、キャッシュした基準値そのものを使うこと */
+	FVector GetAnimEventMeshBaseLocation(bool bIsSecondaryTarget) const;
 	FRotator AnimEventPrimaryBaseMeshRotation = FRotator::ZeroRotator;
 	FVector AnimEventSecondaryBaseMeshLocation = FVector::ZeroVector;
 	FRotator AnimEventSecondaryBaseMeshRotation = FRotator::ZeroRotator;
@@ -840,6 +867,12 @@ private:
 	 *  PendingCrossLevelDialogRowNameから再開する。新しいプレイヤーがまだ生成されていなければ少し待って再試行する */
 	void ResumeDialogAfterCrossLevelWarp();
 
+	/** ExecuteEventActionListがActionType=StartDialogで予約した会話（PendingEventDialogRowName）を、
+	 *  今のプレイヤーの会話として始める。予約が無ければ何もしない。戻り先への移動・明転が終わるタイミング
+	 *  （HandleWarpFadeInComplete）と、暗転を伴わずにイベントが終わるタイミングから呼ぶ。
+	 *  別マップへ戻る場合は新しいプレイヤーがまだ生成されていないことがあるため、少し待って再試行する */
+	void StartPendingEventDialogIfNeeded();
+
 	/** bPendingSleepTimeAdvanceApplyがtrueで、かつイベント（bHasActiveEvent）が進行中でなければ、
 	 *  保留していたAdvanceTimeBy・ApplyFatigueForSkippedMinutesをここで確定させる。
 	 *  HandleWarpFadeInComplete（通常の最後の明転）と、ResolveActiveEvent（イベント後にワープが
@@ -1039,6 +1072,11 @@ private:
 	 *  HandleWarpFadeOutCompleteはこれがtrueの間、通常なら自動セットするFadeInタイマーを保留する */
 	bool bWaitingForNarrationCompletion = false;
 
+	/** 会話の暗転セリフを表示中に、BeginWarpFadeが暗転を引き継いだ結果、別の暗転セリフ（bWaitingForNarrationCompletionが
+	 *  再びtrue）が始まった場合にtrue。ResumeFadeInAfterNarrationはこの間、明転を始めず会話の継続先の予約だけを行う。
+	 *  会話の暗転セリフを始める時（ExecuteWarpProcess）と、ResumeFadeInAfterNarrationで消費する時にfalseへ戻す */
+	bool bNarrationHandedOver = false;
+
 	// 明転完了後にResumeAfterFadeNarrationを呼び戻す相手と、続ける会話ID（ResumeFadeInAfterNarration用）
 	TWeakObjectPtr<class UDialogComponent> ReservedNarrationResumeComponent;
 	FName ReservedNarrationResumeNextDialogID;
@@ -1050,6 +1088,12 @@ private:
 	TSoftObjectPtr<class UDataTable> PendingCrossLevelDialogTable;
 	FName PendingCrossLevelDialogRowName;
 	FString PendingCrossLevelDialogSpeakerName;
+
+	// イベントのActionType=StartDialogで予約された会話の行名（DialogDataTableの行）。StartPendingEventDialogIfNeededが消費する
+	FName PendingEventDialogRowName;
+	// 話しかけていたNPCのEventDistributorComponentの抽選プール情報（再開後の会話のTriggerEventで使う。UDialogComponent::GetEventPoolSourceForResume参照）
+	TSoftObjectPtr<class UDataTable> PendingCrossLevelEventPoolTable;
+	FName PendingCrossLevelEventPoolID;
 
 	/** 別マップへのワープでDialogComponentが破棄される前に、会話の再開／終了に必要な情報をGameInstanceへ移す */
 	void StashDialogForCrossLevelResume(class UDialogComponent* DialogComponent, FName NextDialogID);

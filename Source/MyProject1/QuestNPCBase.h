@@ -136,6 +136,17 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC|Equipment")
 	TArray<FName> InitialScarOverlayRowNames;
 
+	// --- 常時アニメーション再生（街中で踊るNPC等） ---
+	// DT_AnimSequences（UMyProject1GameInstance::AnimSequenceDataTable）の行名を指定すると、BeginPlay時にその行の
+	// Montageをこのキャラ自身のAnimInstanceでループ再生し続ける（空欄なら何もしない）。
+	// 行のMeshLocationOffset/MeshRotationOffsetはメッシュの相対位置に加算される。PropMeshが設定されていれば、
+	// PropRelativeLocation/RotationのActor相対位置にこのNPCのコンポーネントとして小道具を表示する。
+	// Line/Sound/ExtraPairings/bHideAllEquipmentDuringPlay/TemporaryEquipItemIDsは使わない。
+	// 再生中はGameInstance側のAnimEvent再生とは独立しているため、複数のNPCが同時に再生できる。
+	// 再生中はCharacterMovementをMOVE_Noneにし、AIロジック（BehaviorTree）も止める（RootMotionや徘徊で位置がズレないように）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC|Idle Animation")
+	FName IdleAnimSequenceRowName;
+
 	/** 会話終了後の向き戻し（ETurnMode::ReturnAfterTalk）が進行中なら、即座にPreTalkRotationへ確定させて打ち切る。
 	    AnimEvent（NPCとの位置合わせアニメーション）等、このNPCのActor向きを外部から使いたい処理が、
 	    TickTurnによる戻り回転の途中に基準値をキャッシュしてしまい、位置がズレるのを防ぐために呼ぶ */
@@ -149,6 +160,9 @@ protected:
 private:
 	/** InitialEquipmentRowNamesをEquipmentDataTableから引いて、BeginPlay時に見た目だけ反映する */
 	void ApplyInitialEquipment();
+
+	/** IdleAnimSequenceRowNameのDT_AnimSequences行を引いて、Montageのループ再生とメッシュ位置オフセットを開始する */
+	void StartIdleAnimSequence();
 
 	/** BeginPlay後、プレイヤー生成と別レベルからのステータス復元(ApplyPendingCharacterLoad)を待ってから
 	    VisibilityFlagを評価する。別レベル復元はUnlockedFlagsを一括代入するだけでOnFlagAddedが飛ばないため、

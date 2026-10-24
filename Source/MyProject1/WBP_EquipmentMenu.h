@@ -140,6 +140,36 @@ protected:
 	UPROPERTY(meta = (BindWidgetOptional))
 	UTextBlock* Txt_Ather5;
 
+	UPROPERTY(meta = (BindWidgetOptional))
+	UButton* Btn_Ather6;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	UTextBlock* Txt_Ather6;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	UButton* Btn_Ather7;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	UTextBlock* Txt_Ather7;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	UButton* Btn_Ather8;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	UTextBlock* Txt_Ather8;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	UButton* Btn_Ather9;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	UTextBlock* Txt_Ather9;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	UButton* Btn_Ather10;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	UTextBlock* Txt_Ather10;
+
 
 private:
 	UFUNCTION() void HandleWeponClicked();
@@ -159,6 +189,11 @@ private:
 	UFUNCTION() void HandleAther3Clicked();
 	UFUNCTION() void HandleAther4Clicked();
 	UFUNCTION() void HandleAther5Clicked();
+	UFUNCTION() void HandleAther6Clicked();
+	UFUNCTION() void HandleAther7Clicked();
+	UFUNCTION() void HandleAther8Clicked();
+	UFUNCTION() void HandleAther9Clicked();
+	UFUNCTION() void HandleAther10Clicked();
 
 	UPROPERTY()
 	UWBP_EquipItemList* CurrentListWidget = nullptr;

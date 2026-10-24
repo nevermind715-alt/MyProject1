@@ -3,6 +3,7 @@
 #include "NPCSpawner.h"
 #include "Components/BillboardComponent.h"
 #include "Components/ArrowComponent.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "Kismet/KismetMathLibrary.h"
 #include "Kismet/GameplayStatics.h"
 #include "EventDistributorComponent.h"
@@ -92,6 +93,9 @@ void ANPCSpawner::SpawnEnemy()
 		SpawnedEnemy->MyStats.Level = this->SpawnerLevel;
 		SpawnedEnemy->SetActorScale3D(FinalScale);
 
+		// 遠い/小さく映る敵のアニメ更新・評価を間引く（URO）。AQuestNPCBaseと同じ理由
+		SpawnedEnemy->GetMesh()->bEnableUpdateRateOptimizations = true;
+
 		if (bOverridePatrolSettings)
 		{
 			SpawnedEnemy->PatrolRadius = this->SpawnerPatrolRadius;
@@ -119,7 +123,7 @@ void ANPCSpawner::SpawnEnemy()
 		// 空欄でなければEventPoolIDを、bOverrideExtraParticipantMeshWithOwnMeshが有効なら敵自身のジョブメッシュを、
 		// 空欄でなければWarpToRestartID（とEventDistributorChance）を、
 		// この敵のEventDistributorComponent（設定されていれば）へ上書きする
-		if (!SpawnerEventPoolID.IsNone() || bOverrideExtraParticipantMeshWithOwnMesh || !WarpToRestartID.IsNone() || bHideEnemyDuringAnimEvent)
+		if (!SpawnerEventPoolID.IsNone() || bOverrideExtraParticipantMeshWithOwnMesh || !WarpToRestartID.IsNone() || bHideEnemyDuringAnimEvent || (DefeatDialogRow.DataTable && !DefeatDialogRow.RowName.IsNone()) || EventDistributorStatCondition.bUseStatCondition)
 		{
 			if (UEventDistributorComponent* EventComp = SpawnedEnemy->FindComponentByClass<UEventDistributorComponent>())
 			{
@@ -145,6 +149,17 @@ void ANPCSpawner::SpawnEnemy()
 				{
 					EventComp->WarpToRestartID = WarpToRestartID;
 					EventComp->EventDistributorChance = EventDistributorChance;
+				}
+
+				// ステータス条件はWarpToRestartIDの有無に関係なく使われるため、条件オンの時だけ別に上書きする
+				if (EventDistributorStatCondition.bUseStatCondition)
+				{
+					EventComp->EventDistributorStatCondition = EventDistributorStatCondition;
+				}
+
+				if (DefeatDialogRow.DataTable && !DefeatDialogRow.RowName.IsNone())
+				{
+					EventComp->DefeatDialogRow = DefeatDialogRow;
 				}
 			}
 		}

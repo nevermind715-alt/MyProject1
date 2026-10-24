@@ -204,6 +204,23 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Overrides|Event")
 	FName WarpToRestartID;
 
+	/** 設定すると、このスポナーが湧かせた敵に倒された際、イベント抽選より先にこの会話（DT_Dialogsの行）を始める。
+	 *  会話の相手は倒した敵。最初の行をShowTextDuringFade（暗転セリフ）にし、そのNextDialogIDの行をActionType=TriggerEvent
+	 *  （ActionPayload空欄ならSpawnerEventPoolID）にしておくと、暗転セリフの後にイベント抽選へ進む。
+	 *  プレイヤーの全快と敗北時クリーンアップ（Defeat Cleanup）は、その行でイベント抽選が呼ばれた時点で行う。
+	 *  WarpToRestartIDの抽選に外れてワープリスタートになる場合は使われない。
+	 *  スポーンした敵のUEventDistributorComponent::DefeatDialogRowへ上書きされる */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Overrides|Event")
+	FDataTableRowHandle DefeatDialogRow;
+
+	/** イベントディストリビュータの抽選に進むためのプレイヤーのステータス条件（例：欲求不満度が50以上）。
+	 *  条件を満たさないと抽選自体を行わず、WarpToRestartIDが設定されていれば抽選に外れた時と同じくそこへワープして
+	 *  リスタートし、空欄ならEventPoolID未設定の敵に倒された時と同じ通常の敗北復帰（PlayerStartへ復帰）になる。
+	 *  条件オフ（初期状態）なら常に抽選へ進む（従来動作のまま）。
+	 *  スポーンした敵のUEventDistributorComponent::EventDistributorStatConditionへ上書きされる */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Overrides|Event")
+	FEventStatCondition EventDistributorStatCondition;
+
 	/** イベントディストリビュータを起動する確率（%）。WarpToRestartIDが空欄でない場合のみ使用され、
 	 *  抽選に外れると代わりにWarpToRestartIDへワープしてリスタートする。初期値100＝常にイベントディストリビュータを
 	 *  起動する（従来動作のまま）。スポーンした敵のUEventDistributorComponent::EventDistributorChanceへ上書きされる */

@@ -53,6 +53,9 @@ bool ASleepPoint::TriggerSleepEventPoolIfEnabled(AMyProject1Character* PlayerCha
 	UEventDistributorComponent* Distributor = FindComponentByClass<UEventDistributorComponent>();
 	if (!Distributor) return false;
 
+	// EventDistributorStatConditionを満たさない場合は抽選自体を行わない（何も起きずに通常通り睡眠が終わる）
+	if (!Distributor->IsEventDistributorStatConditionMet(PlayerCharacter)) return false;
+
 	PendingSleepEventID = Distributor->RollEventPool(PlayerCharacter);
 	return !PendingSleepEventID.IsNone();
 }

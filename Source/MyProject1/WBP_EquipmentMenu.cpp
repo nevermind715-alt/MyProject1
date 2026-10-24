@@ -29,6 +29,11 @@ UTextBlock* UWBP_EquipmentMenu::GetSlotText(EEquipmentSlot EquipSlot) const
 		case EEquipmentSlot::Extra3: return Txt_Ather3;
 		case EEquipmentSlot::Extra4: return Txt_Ather4;
 		case EEquipmentSlot::Extra5: return Txt_Ather5;
+		case EEquipmentSlot::Extra6: return Txt_Ather6;
+		case EEquipmentSlot::Extra7: return Txt_Ather7;
+		case EEquipmentSlot::Extra8: return Txt_Ather8;
+		case EEquipmentSlot::Extra9: return Txt_Ather9;
+		case EEquipmentSlot::Extra10: return Txt_Ather10;
 		default: return nullptr;
 	}
 }
@@ -56,6 +61,11 @@ void UWBP_EquipmentMenu::NativeOnInitialized()
 	if (Btn_Ather3) Btn_Ather3->OnClicked.AddDynamic(this, &UWBP_EquipmentMenu::HandleAther3Clicked);
 	if (Btn_Ather4) Btn_Ather4->OnClicked.AddDynamic(this, &UWBP_EquipmentMenu::HandleAther4Clicked);
 	if (Btn_Ather5) Btn_Ather5->OnClicked.AddDynamic(this, &UWBP_EquipmentMenu::HandleAther5Clicked);
+	if (Btn_Ather6) Btn_Ather6->OnClicked.AddDynamic(this, &UWBP_EquipmentMenu::HandleAther6Clicked);
+	if (Btn_Ather7) Btn_Ather7->OnClicked.AddDynamic(this, &UWBP_EquipmentMenu::HandleAther7Clicked);
+	if (Btn_Ather8) Btn_Ather8->OnClicked.AddDynamic(this, &UWBP_EquipmentMenu::HandleAther8Clicked);
+	if (Btn_Ather9) Btn_Ather9->OnClicked.AddDynamic(this, &UWBP_EquipmentMenu::HandleAther9Clicked);
+	if (Btn_Ather10) Btn_Ather10->OnClicked.AddDynamic(this, &UWBP_EquipmentMenu::HandleAther10Clicked);
 }
 
 void UWBP_EquipmentMenu::NativeConstruct()
@@ -74,7 +84,8 @@ void UWBP_EquipmentMenu::UpdateEquipmentDisplay()
 		EEquipmentSlot::Weapon, EEquipmentSlot::Head, EEquipmentSlot::Neck, EEquipmentSlot::Torso,
 		EEquipmentSlot::Waist, EEquipmentSlot::Wrist, EEquipmentSlot::Hands, EEquipmentSlot::Legs,
 		EEquipmentSlot::Ankle, EEquipmentSlot::Feet, EEquipmentSlot::InnerUpper, EEquipmentSlot::InnerLower,
-		EEquipmentSlot::Extra1, EEquipmentSlot::Extra2, EEquipmentSlot::Extra3, EEquipmentSlot::Extra4, EEquipmentSlot::Extra5 };
+		EEquipmentSlot::Extra1, EEquipmentSlot::Extra2, EEquipmentSlot::Extra3, EEquipmentSlot::Extra4, EEquipmentSlot::Extra5,
+		EEquipmentSlot::Extra6, EEquipmentSlot::Extra7, EEquipmentSlot::Extra8, EEquipmentSlot::Extra9, EEquipmentSlot::Extra10 };
 
 	for (const EEquipmentSlot EquipSlot : DisplaySlots)
 	{
@@ -161,3 +172,8 @@ void UWBP_EquipmentMenu::HandleAther2Clicked() { OpenEquipList(EEquipmentSlot::E
 void UWBP_EquipmentMenu::HandleAther3Clicked() { OpenEquipList(EEquipmentSlot::Extra3); }
 void UWBP_EquipmentMenu::HandleAther4Clicked() { OpenEquipList(EEquipmentSlot::Extra4); }
 void UWBP_EquipmentMenu::HandleAther5Clicked() { OpenEquipList(EEquipmentSlot::Extra5); }
+void UWBP_EquipmentMenu::HandleAther6Clicked() { OpenEquipList(EEquipmentSlot::Extra6); }
+void UWBP_EquipmentMenu::HandleAther7Clicked() { OpenEquipList(EEquipmentSlot::Extra7); }
+void UWBP_EquipmentMenu::HandleAther8Clicked() { OpenEquipList(EEquipmentSlot::Extra8); }
+void UWBP_EquipmentMenu::HandleAther9Clicked() { OpenEquipList(EEquipmentSlot::Extra9); }
+void UWBP_EquipmentMenu::HandleAther10Clicked() { OpenEquipList(EEquipmentSlot::Extra10); }

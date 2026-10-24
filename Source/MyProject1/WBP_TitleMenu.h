@@ -9,6 +9,7 @@
 class UWBP_SaveSlot;
 class USoundBase;
 class UAudioComponent;
+class UWBP_FadeNarration;
 
 /**
  * タイトル画面（ニューゲーム／つづきから／終了）のC++基底クラス。
@@ -35,8 +36,18 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Title|Sound")
 	TObjectPtr<USoundBase> TitleBGM;
 
+	/** 「ニューゲーム」でレベルを開く前に、黒い画面で1ページずつ表示するあらすじ。空なら演出を挟まず即座にレベルを開く。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Title|Intro", meta = (MultiLine = true))
+	TArray<FText> IntroPages;
+
+	/** あらすじの表示に使うウィジェットクラス（暗転セリフと同じWBP_FadeNarration）。未指定ならあらすじは出さない。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Title|Intro")
+	TSubclassOf<UWBP_FadeNarration> IntroNarrationClass;
+
 	virtual void NativeConstruct() override;
 	virtual void NativeDestruct() override;
+	virtual FReply NativeOnMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
+	virtual FReply NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent) override;
 
 	// --- WBP側の変数名と完全一致させる（すべてBindWidgetOptionalなので、未配置でも安全に動く） ---
 
@@ -65,6 +76,10 @@ protected:
 	UPROPERTY(meta = (BindWidgetOptional))
 	UButton* Btn_ContinueBack;
 
+	/** あらすじ表示中に画面全体を覆う黒い背景（Designerで全画面の黒いImage/Borderを一番手前に置く。初期状態はC++側で隠す） */
+	UPROPERTY(meta = (BindWidgetOptional))
+	UWidget* Img_IntroBackground;
+
 private:
 	UFUNCTION()
 	void HandleNewGameClicked();
@@ -84,6 +99,17 @@ private:
 	// 再生中のタイトルBGM。NativeDestructで止めるため保持する。
 	UPROPERTY(Transient)
 	TObjectPtr<UAudioComponent> TitleBGMComponent;
+
+	// あらすじ表示中のウィジェットとページ位置
+	UPROPERTY(Transient)
+	TObjectPtr<UWBP_FadeNarration> IntroNarrationWidget;
+
+	bool bIntroActive = false;
+	int32 IntroPageIndex = 0;
+
+	void BeginIntro();
+	void AdvanceIntro();
+	void StartNewGame();
 
 	/** ゲーム開始（レベル遷移）直前に、タイトル用のUI専用入力モード・カーソル表示をゲーム操作用へ戻す */
 	void RestoreGameInput();

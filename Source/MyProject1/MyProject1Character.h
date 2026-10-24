@@ -208,6 +208,22 @@ protected:
 
 	void ExpireItemBuff(FString ItemName, TArray<FItemEffect> Effects, int32 StackID);
 
+	/** 時限バフの期限切れ待ち1件分（保存対象外。時限バフ自体がセーブされないのと同じ扱い） */
+	struct FPendingBuffExpiry
+	{
+		FString ItemName;
+		TArray<FItemEffect> Effects;
+		int32 StackID = 0;
+		/** 期限切れになるゲーム内累計分（TotalElapsedDays*1440 + CurrentTimeInMinutes 基準） */
+		double ExpireAtMinute = 0.0;
+	};
+
+	TArray<FPendingBuffExpiry> PendingBuffExpiries;
+
+	/** GameInstance::OnInGameTimeChangedにバインドし、ゲーム内時間が進むたびに期限切れの時限バフを解除する */
+	UFUNCTION()
+	void HandleInGameTimeChangedForBuffs(int32 Year, int32 Month, int32 Day, int32 Hour, int32 Minute);
+
 	// --- まばたき・目閉じ（モーフターゲット）制御 ---
 
 	/** 目を閉じるモーフターゲットの名前（VRMの場合は "Blink" や "Fcl_EYE_Close" など） */
@@ -374,6 +390,18 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Stats|ExStats17")
 	void ApplyExStats17DecayForElapsedMinutes(int32 MinutesElapsed);
 
+	// --- 欲求不満度設定（ゲーム内時間の経過で自然に増加するステータス） ---
+
+	/** ゲーム内1時間あたりに自然増加する欲求不満度の量 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats|Frustration")
+	int32 FrustrationIncreasePerHour = 2;
+
+	/** ゲーム内で「時」をまたいだ回数だけ欲求不満度を増加させる（上限100）。
+	 *  通常時はUMyProject1GameInstance::UpdateInGameTimeが「時」が変わった瞬間にHoursElapsed=1で呼び、
+	 *  待機/睡眠による時間スキップ時はApplyPendingSleepTimeAdvanceIfNeededがスキップ中にまたいだ「時」の数で呼ぶ */
+	UFUNCTION(BlueprintCallable, Category = "Stats|Frustration")
+	void ApplyFrustrationIncreaseForElapsedHours(int32 HoursElapsed);
+
 	// --- 疲労度によるペナルティ設定（3段階：軽度50超／中度75以上／重度90以上） ---
 
 	/** 軽度の疲労（デバフ①）が始まる数値（この値以上で発動） */
@@ -462,13 +490,32 @@ public:
 	FName OGaugeTriggerBuffID;
 
 	/** 発動時に適用するステータス異常の内容。各要素のEffectDurationが0以下なら即時・永続効果、
-	 *  0より大きければその秒数だけの時限効果（ApplyItemBuffと同じ仕組みで適用・自動解除）として扱う */
+	 *  0より大きければそのゲーム内の分数だけの時限効果（ApplyItemBuffと同じ仕組みで適用・自動解除）として扱う */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|OGauge")
 	TArray<FItemEffect> OGaugeTriggerEffects;
+
+	/** 発動した瞬間に鳴らすSE（位置非依存なのでPlaySound2D。未設定なら鳴らさない） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|OGauge")
+	USoundBase* OGaugeTriggerSound = nullptr;
+
+	/** AnimEvent中に発動した際、DT_AnimSequencesのSoundを無音へフェードアウトさせる秒数 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|OGauge", meta = (ClampMin = "0.0"))
+	float OGaugeTriggerSoundFadeOutTime = 0.3f;
+
+	/** AnimEvent中に発動した際、OGaugeTriggerSoundの再生終了のこの秒数前からDT_AnimSequencesのSoundをフェードインさせる */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|OGauge", meta = (ClampMin = "0.0"))
+	float OGaugeTriggerSoundFadeInTime = 1.0f;
+
+	/** 発動した瞬間にログへ出すテキスト（空なら出さない） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|OGauge")
+	FString OGaugeTriggerLogText;
 
 	/** O・Gaugeを安全に増減させ、閾値到達時の発動処理も行う関数（敵の攻撃／イベント／インタラクトから呼ぶ） */
 	UFUNCTION(BlueprintCallable, Category = "Combat|OGauge")
 	void AddOGauge(float Amount);
+
+	/** O・Gaugeを0に戻す（AnimEvent終了時に呼ぶ。OGaugeTriggerCountには触れない） */
+	void ResetOGauge();
 
 	/** AddOGaugeで閾値到達による発動が起きた累計回数（呼び出し側が前後で比較して発動有無を検知する用。セーブはしない） */
 	int32 OGaugeTriggerCount = 0;
@@ -624,6 +671,21 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Components")
 	USkeletalMeshComponent* Extra5MeshComp;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Components")
+	USkeletalMeshComponent* Extra6MeshComp;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Components")
+	USkeletalMeshComponent* Extra7MeshComp;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Components")
+	USkeletalMeshComponent* Extra8MeshComp;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Components")
+	USkeletalMeshComponent* Extra9MeshComp;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment|Components")
+	USkeletalMeshComponent* Extra10MeshComp;
+
 	/** 現在適用されている靴の高さ補正値（脱ぐ時に元に戻すため） */
 	float CurrentShoesOffset = 0.0f;
 
@@ -662,17 +724,7 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Equipment")
 	TMap<EEquipmentSlot, FName> CurrentEquippedItems;
 
-	// 直近でRefreshEquipmentStatsが装備から加算したExtraStats量（再計算時に差分だけ戻すための記録。ExtraStatsはアイテム消費等でも永続的に増減する値なので、単純な再計算だと二重加算になってしまうため）
-	UPROPERTY()
-	TMap<FName, float> EquipmentExtraStatBonuses;
-
-	// 直近でRefreshEquipmentStatsが病気・ケガ／タトゥー／ピアスから加算したExtraStats量（装備分とは別の記録が必要。同じ理由で二重加算防止のため）
-	UPROPERTY()
-	TMap<FName, float> SkinOverlayExtraStatBonuses;
-
-	// 直近でRefreshEquipmentStatsが月齢サイクルのフェーズから加算したExtraStats量（装備・肌の記録とは別に必要。同じ理由で二重加算防止のため）
-	UPROPERTY()
-	TMap<FName, float> CyclePhaseExtraStatBonuses;
+	// ※装備・肌・月齢サイクルが加算済みのExtraStats量の記録(EquipmentExtraStatBonuses等)は、ロード後の二重加算を防ぐためFCharacterStats(MyStats)側に持つ
 
 	// アイテムIDと装備データの両方を受け取るようにします
 	UFUNCTION(BlueprintCallable, Category = "Equipment")
@@ -719,15 +771,15 @@ public:
 	bool TryShopUnlockRestraint(EEquipmentSlot TargetSlot, int32 ShopLevel);
 
 	// --- ピアス医者ショップ（EShopModeCategory::Piercing）用 ---
-	// ピアス＝TargetSlotがExtra1〜Extra5の装備。将来 bIsPiercing を導入するならこの判定を差し替える。
+	// ピアス＝TargetSlotがExtra1〜Extra10の装備。将来 bIsPiercing を導入するならこの判定を差し替える。
 	UFUNCTION(BlueprintPure, Category = "Equipment")
 	static bool IsPiercingSlot(EEquipmentSlot Slot);
 
-	// 現在装備している「呪われピアス」（Extra1〜5 かつ bCannotUnequipManually）のスロット一覧。医者ショップの除去タブ用。
+	// 現在装備している「呪われピアス」（Extra1〜10 かつ bCannotUnequipManually）のスロット一覧。医者ショップの除去タブ用。
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Equipment")
 	TArray<EEquipmentSlot> GetEquippedCursedPiercingSlots();
 
-	// DT_Equipments のうち TargetSlot が Extra1〜5 の行名一覧。医者ショップの装着タブのカタログ用。
+	// DT_Equipments のうち TargetSlot が Extra1〜10 の行名一覧。医者ショップの装着タブのカタログ用。
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Equipment")
 	TArray<FName> GetAllPiercingEquipmentRowNames();
 
@@ -900,8 +952,8 @@ public:
 
 	// 装備の状態（CurrentEquippedItems）は変えず、現在装備している全パーツの表示/非表示だけを切り替える。
 	// HairMeshComp（髪型）・FaceMeshComp（顔面）はキャラクター本体の見た目のため対象外。
-	// 呪われ装備・拘束具など自力で外せないロック装備（bCannotUnequipManually）は、
-	// bVisible=falseで呼んでも非表示にせず常に表示したままにする（IsSlotLocked判定）。
+	// 呪われ装備・拘束具など自力で外せないロック装備（bCannotUnequipManually）も他の装備と同じく全て切り替える
+	// （隠したくない場合は呼び出し元をオフにする）。鎖（ケーブル）も一緒に切り替える。
 	// DT_AnimSequences再生中に一時的に装備を隠す用途（FAnimSequenceEntry::bHideAllEquipmentDuringPlay。
 	// UMyProject1GameInstance::SyncAnimEventEquipmentVisibility参照）。bVisible=trueへ戻す際は、
 	// インナー(InnerUpper/InnerLower)だけは単純に表示せず、RefreshInnerVisibility()で
@@ -923,6 +975,13 @@ public:
 
 private:
 	TSet<EEquipmentSlot> HiddenOverlaySlots;
+
+	/** 指定スロットの装備が鎖（FEquipmentData::CableSettings）を使っている場合に、その鎖の表示/非表示を切り替える。
+	 *  鎖は装備メッシュとは別のUCableComponent（Hands/Wristは_Hands側）なので、メッシュのSetVisibilityでは隠れない。
+	 *  Tickの鎖ダミー位置更新はIsVisible()を見ているため、更新を止めないようSetHiddenInGameで切り替える
+	 *  （再表示時に鎖が飛ぶのを防ぐ。ClearCableSystemが消した鎖はSetVisibility(false)のままなので再表示されない）。
+	 *  鎖につながる武器サブメッシュ（WeaponSubMeshComp）も同様に切り替える */
+	void ApplyCableVisibilityForSlot(EEquipmentSlot Slot, bool bVisible);
 
 public:
 
@@ -962,6 +1021,9 @@ protected:
 
 	/** 現在有効な鎖を安全に消去する関数 */
 	void ClearCableSystem(EEquipmentSlot Slot);
+
+	/** 鎖ダミー(Start/End)を、現在のソケット位置へワールド同期する。AnimEvent再生中のTickロックでもこれを呼ぶ */
+	void SyncCableDummyLocations();
 
 protected:
 

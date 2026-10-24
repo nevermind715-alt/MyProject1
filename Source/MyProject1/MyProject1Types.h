@@ -374,6 +374,10 @@ struct FCharacterStats
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats")
 	float Alcohol = 0.0f;
 
+	/** 欲求不満度（0～100の整数）。現状はStatusScreenへの表示のみで、将来の利用に備えた値 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats", meta = (ClampMin = "0", ClampMax = "100"))
+	int32 Frustration = 0;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats")
 	float Mental = 1.0f;
 
@@ -389,6 +393,19 @@ struct FCharacterStats
 	    これらはアイテム消費等でも恒久的に増減する値で単純な再計算ができないため。MyStatsごとセーブされるので、ロード後の二重加算も防げる） */
 	UPROPERTY()
 	TMap<FName, float> AppliedEquipmentBonuses; // キー: "Fame" "Favor" "Hostility" "Charm" "Alcohol" "SP"（ETargetStatはこの構造体より後ろで定義されているためFName）
+
+	/** 直近でRefreshEquipmentStatsが装備から加算したExtraStats量（再計算時に差分だけ戻すための記録。ExtraStatsはアイテム消費等でも永続的に増減する値なので、単純な再計算だと二重加算になってしまうため。
+	    加算済みの値はExtraStats本体にセーブされるため、この記録もMyStatsごとセーブしないと、ロード・ワープ復元のたびに同じボーナスが再加算されてしまう） */
+	UPROPERTY()
+	TMap<FName, float> EquipmentExtraStatBonuses;
+
+	/** 直近でRefreshEquipmentStatsが病気・ケガ／タトゥー／ピアスから加算したExtraStats量（装備分とは別の記録。理由は上記と同じ） */
+	UPROPERTY()
+	TMap<FName, float> SkinOverlayExtraStatBonuses;
+
+	/** 直近でRefreshEquipmentStatsが月齢サイクルのフェーズから加算したExtraStats量（装備・肌の記録とは別。理由は上記と同じ） */
+	UPROPERTY()
+	TMap<FName, float> CyclePhaseExtraStatBonuses;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats")
 	float Energy = 0.0f;
@@ -506,6 +523,7 @@ struct FCharacterStats
 		if (StatName == FName(TEXT("Mental")))        { OutValue = Mental; return true; }
 		if (StatName == FName(TEXT("SP")))            { OutValue = SP; return true; }
 		if (StatName == FName(TEXT("Alcohol")))       { OutValue = Alcohol; return true; }
+		if (StatName == FName(TEXT("Frustration")))   { OutValue = (float)Frustration; return true; }
 		if (StatName == FName(TEXT("Energy")))        { OutValue = Energy; return true; }
 		if (StatName == FName(TEXT("OGauge")))        { OutValue = OGauge; return true; }
 		if (StatName == FName(TEXT("CurrentXP")))     { OutValue = (float)CurrentXP; return true; }
@@ -539,6 +557,7 @@ struct FCharacterStats
 		Karma = FMath::Clamp(Karma, -100.0f, 100.0f);
 		Mental = FMath::Clamp(Mental, -100.0f, 100.0f);
 		Fame = FMath::Clamp(Fame, -100.0f, 100.0f);
+		Frustration = FMath::Clamp(Frustration, 0, 100);
 
 		// 2. [0, 999] グループ（その他の通常ステータス）
 		// ※ 既存の変数名に合わせて、必要に応じて行を追加・コメント解除してください
@@ -608,7 +627,12 @@ enum class EEquipmentSlot : uint8
 	Extra3        UMETA(DisplayName = "特殊枠3（ピアス等）"),
 	Extra4        UMETA(DisplayName = "特殊枠4（ピアス等）"),
 	Extra5        UMETA(DisplayName = "特殊枠5（ピアス等）"),
-	Max           UMETA(Hidden)
+	Extra6        UMETA(DisplayName = "特殊枠6（ピアス等）"),
+	Extra7        UMETA(DisplayName = "特殊枠7（ピアス等）"),
+	Extra8        UMETA(DisplayName = "特殊枠8（ピアス等）"),
+	Extra9        UMETA(DisplayName = "特殊枠9（ピアス等）"),
+	Extra10       UMETA(DisplayName = "特殊枠10（ピアス等）"),
+	Max          UMETA(Hidden)
 };
 
 //どのステータスを変化させるかの定義
@@ -642,7 +666,8 @@ enum class ETargetStat : uint8
 	SP          UMETA(DisplayName = "SP"),
 	CriticalRate    UMETA(DisplayName = "クリティカル発生率％ (CriticalRate)"),
 	AttackSpeedRate UMETA(DisplayName = "攻撃速度％ (AttackSpeedRate)"),
-	StaminaRecoveryRate UMETA(DisplayName = "スタミナ回復速度％ (StaminaRecoveryRate)")
+	StaminaRecoveryRate UMETA(DisplayName = "スタミナ回復速度％ (StaminaRecoveryRate)"),
+	Frustration UMETA(DisplayName = "欲求不満度 (Frustration)")
 };
 
 // Stats to Changeで変化させる対象。NPCを選ぶと、会話相手であるそのNPC自身のMyStats（個体ごとのFavor/Hostility等）を書き換える
@@ -700,7 +725,7 @@ struct FItemEffect
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	float CapValue = 0.0f;
 
-	/** 効果時間（0なら即時、0より大きければリジェネやバフとして扱う想定） */
+	/** 効果時間（ゲーム内の分。0なら即時、0より大きければリジェネやバフとして扱う想定。待機/睡眠の時間スキップでも経過する） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	float EffectDuration = 0.0f;
 
@@ -862,7 +887,7 @@ struct FActiveBuff
 	UPROPERTY(BlueprintReadOnly, Category = "Buff")
 	UTexture2D* BuffIcon = nullptr;
 
-	// ゲーム内時間（GetTimeSeconds）を基準にした、このバフが切れる時刻
+	// このバフが切れる時刻（ゲーム内の累計分。TotalElapsedDays*1440 + CurrentTimeInMinutes 基準。-1なら期限なし）
 	UPROPERTY(BlueprintReadOnly, Category = "Buff")
 	float ExpirationTime = 0.0f;
 
@@ -991,9 +1016,9 @@ struct FConfiscationProfile : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Confiscation")
 	TArray<FName> OutfitRowNames;
 
-	/** 没収しない装備スロット。既定は髪型とピアス（Extra1〜5） */
+	/** 没収しない装備スロット。既定は髪型とピアス（Extra1〜10） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Confiscation")
-	TArray<EEquipmentSlot> SlotsToKeep = { EEquipmentSlot::Hair, EEquipmentSlot::Extra1, EEquipmentSlot::Extra2, EEquipmentSlot::Extra3, EEquipmentSlot::Extra4, EEquipmentSlot::Extra5 };
+	TArray<EEquipmentSlot> SlotsToKeep = { EEquipmentSlot::Hair, EEquipmentSlot::Extra1, EEquipmentSlot::Extra2, EEquipmentSlot::Extra3, EEquipmentSlot::Extra4, EEquipmentSlot::Extra5, EEquipmentSlot::Extra6, EEquipmentSlot::Extra7, EEquipmentSlot::Extra8, EEquipmentSlot::Extra9, EEquipmentSlot::Extra10 };
 
 	/** trueなら、自力で外せないロック装備（拘束具など）も没収する。falseならロック装備は着けたままにし、そのスロットには服を着せない */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Confiscation")
@@ -1063,8 +1088,8 @@ enum class EDialogActionType : uint8
 	RemoveFlag      UMETA(DisplayName = "フラグを消去する"),
 	Warp            UMETA(DisplayName = "ワープを実行する"),
 	Close           UMETA(DisplayName = "会話を終了する"),
-	AddSkinOverlay     UMETA(DisplayName = "タトゥー/傷跡を強制追加"),
-	RemoveSkinOverlay  UMETA(DisplayName = "タトゥー/傷跡を強制削除"),
+	AddSkinOverlay     UMETA(DisplayName = "タトゥーを強制追加（ActionPayload=DT_TattooOverlayの行名）"),
+	RemoveSkinOverlay  UMETA(DisplayName = "タトゥーを強制削除（ActionPayload=DT_TattooOverlayの行名）"),
 	// ActionPayloadにDT_Equipments（EquipmentDataTable）の行名を入れる。プレイヤー自身（OwnerActor）に装備させる。
 	// 既に同じスロットへ何か装備していればEquipItem()の仕様通り上書きする
 	EquipEquipment     UMETA(DisplayName = "装備を着せる（ActionPayload=DT_Equipmentsの行名）"),
@@ -1114,7 +1139,19 @@ enum class EDialogActionType : uint8
 	ConfiscateBelongings UMETA(DisplayName = "持ち物を没収して着替えさせる（ActionPayload=DT_ConfiscationProfilesの行名）"),
 	// ActionPayloadに保管先ID（FConfiscationProfile::StashID）を入れる。没収した持ち物をカバンへ戻す。
 	// 空欄なら保管中のすべてを返却する。カバンに入り切らない分は保管されたまま残る
-	ReturnBelongings UMETA(DisplayName = "没収した持ち物を返却する（ActionPayload=保管先ID。空欄で全て）")
+	ReturnBelongings UMETA(DisplayName = "没収した持ち物を返却する（ActionPayload=保管先ID。空欄で全て）"),
+	// AddSkinOverlay/RemoveSkinOverlay（タトゥー用）の傷跡版。ActionPayloadにDT_ScarOverlayの行名を入れる。
+	// 既存データの数値を変えないよう、enumの末尾に追加している
+	AddScarOverlay     UMETA(DisplayName = "傷跡を強制追加（ActionPayload=DT_ScarOverlayの行名）"),
+	RemoveScarOverlay  UMETA(DisplayName = "傷跡を強制削除（ActionPayload=DT_ScarOverlayの行名）"),
+		// イベント（DT_EventDefinitionsのSuccessActions/FailureActions）専用。ActionPayloadにGameInstanceのDialogDataTable
+		// （DT_Dialogs）の行名を入れる。イベント終了後、戻り先への移動と明転が終わってからプレイヤーの会話として始める。
+		// 会話内のActionTypeに指定しても何も起きない（会話を続けるにはNextDialogIDを使う）
+		StartDialog        UMETA(DisplayName = "会話を始める（イベント専用。ActionPayload=DT_Dialogsの行名）"),
+	// ActionPayloadにDT_QuestDataのQuestIDを入れる。進行中（または報告待ち）のクエストを、目的を達成していなくても
+	// その場で強制的にクリアし、報告完了と同じ報酬付与・完了処理まで行う（NPCやItemPointがいない会話・イベントからの脱出成功など用）。
+	// 受注していない・既にクリア済みのクエストには何も起きない
+	ClearQuest         UMETA(DisplayName = "クエストを強制クリアする（ActionPayload=QuestID）")
 };
 
 // イベント成立時／失敗時／会話の追加アクションとして実行する1アクション分のデータ（FDialogChoiceのアクション部分の簡易版）。
@@ -1472,6 +1509,31 @@ struct FQuestStatRequirement
 		}
 		return false;
 	}
+};
+
+// --- イベントディストリビュータの抽選開始条件（プレイヤーのステータス値による判定。例：欲求不満度が50以上） ---
+// ETargetStat（TryGetTargetStatValueが対応する種別）で比較する。UEventDistributorComponent / ANPCSpawnerで共用
+USTRUCT(BlueprintType)
+struct FEventStatCondition
+{
+	GENERATED_BODY()
+
+	/** オンにすると、下のステータス条件を満たした時だけ抽選に進む */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event|Condition")
+	bool bUseStatCondition = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event|Condition", meta = (EditCondition = "bUseStatCondition"))
+	ETargetStat RequiredStat = ETargetStat::Frustration;
+
+	/** RequiredStatがCustomExtraStatの時の、ExtraStatsのキー名（ExStats1等） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event|Condition", meta = (EditCondition = "bUseStatCondition && RequiredStat == ETargetStat::CustomExtraStat"))
+	FName RequiredStatExtraName;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event|Condition", meta = (EditCondition = "bUseStatCondition"))
+	EStatCompareOp RequiredStatCompareOp = EStatCompareOp::GreaterOrEqual;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event|Condition", meta = (EditCondition = "bUseStatCondition"))
+	float RequiredStatValue = 0.0f;
 };
 
 // --- クエスト成功報酬のステータス増減1件分（例：Fame を +10） ---
@@ -2134,7 +2196,9 @@ struct FAnimSequenceEntry : public FTableRowBase
 	class UAnimMontage* Montage = nullptr;
 
 	// このMontage再生中、対象キャラのMesh相対位置（RelativeLocation）に加算するオフセット。
-	// 元の姿勢用オフセットを基準に加算するため、この値は「立ちポーズからのズレ量」だけを入れればよい
+	// 元の姿勢用オフセットを基準に加算するため、この値は「立ちポーズからのズレ量」だけを入れればよい。
+	// プレイヤー側の基準位置は、履いている靴の高さ補正（FEquipmentData::HeightOffset）を除いた素足の高さ。
+	// つまりこの値は「靴を脱いだ状態」で調整すること（靴を履いていても高さは変わらない）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent")
 	FVector MeshLocationOffset = FVector::ZeroVector;
 
@@ -2231,9 +2295,10 @@ struct FAnimEventStep
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent")
 	bool bLoop = false;
 
-	// このステップの再生開始時に1回だけ適用するステータス増減（FEventAction::StatToChange等と同じ仕様。
-	// UGameplayActionLibrary::ApplyStatChangeで処理するため、対応する種別もそちらに準じる）。
-	// bLoop=trueでもループのたびには適用されない。StatToChange=Noneまたは増減量0なら何もしない
+	// このステップの終わり（次のステップへ切り替わる時。最終ステップなら全ステップ完了の直前）に1回だけ適用するステータス増減
+	// （FEventAction::StatToChange等と同じ仕様。UGameplayActionLibrary::ApplyStatChangeで処理するため、対応する種別もそちらに準じる）。
+	// bLoop=trueでもループのたびには適用されない。イベントが強制終了された場合、途中のステップ分は適用されない。
+	// StatToChange=Noneまたは増減量0なら何もしない
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AnimEvent|Stats")
 	ETargetStat StatToChange = ETargetStat::None;
 

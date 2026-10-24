@@ -38,6 +38,24 @@ FString UDialogComponent::GetCurrentSpeakerName() const
 	return ResumedSpeakerName;
 }
 
+bool UDialogComponent::GetEventPoolSourceForResume(TSoftObjectPtr<UDataTable>& OutTable, FName& OutPoolID) const
+{
+	if (CurrentNPC)
+	{
+		if (const UEventDistributorComponent* EventComp = CurrentNPC->FindComponentByClass<UEventDistributorComponent>())
+		{
+			OutTable = EventComp->EventPoolDataTable;
+			OutPoolID = EventComp->EventPoolID;
+			return EventComp->EventPoolDataTable != nullptr;
+		}
+		return false;
+	}
+
+	OutTable = ResumedEventPoolTable;
+	OutPoolID = ResumedEventPoolID;
+	return !ResumedEventPoolTable.IsNull();
+}
+
 bool UDialogComponent::TryStartDialog(FName RowName, UDataTable* DialogTable, AActor* InNPC)
 {
 	if (!DialogTable) return false;
@@ -260,19 +278,7 @@ bool UDialogComponent::ExecuteActionCore(EDialogActionType ActionType, const FSt
 
 	if (ActionType == EDialogActionType::TriggerEvent)
 	{
-		// ActionPayloadに設定されたEventPoolIDで、話しかけている相手（CurrentNPC）のイベント抽選を開始する
-		// （空欄ならCurrentNPCのEventDistributorComponent自身が持つEventPoolIDにフォールバックする）。
-		// AnimSequenceNPCMeshOverrideは、抽選されたイベントがClearCondition=AnimationSequenceで再生する
-		// AnimEventIDのExtra参加者（ExtraPairings）のメッシュ差し替えに使う
-		if (CurrentNPC)
-		{
-			if (UEventDistributorComponent* EventComp = CurrentNPC->FindComponentByClass<UEventDistributorComponent>())
-			{
-				// FName(TEXT(""))はNAME_Noneと等しくならないため、空欄判定は先にFString側で行う
-				const FName EventPoolIDOverride = ActionPayload.IsEmpty() ? NAME_None : FName(*ActionPayload);
-				EventComp->TriggerEventPool(Cast<AMyProject1Character>(GetOwner()), EventPoolIDOverride, AnimSequenceNPCMeshOverride, bHideTalkingNPCDuringAnimEvent);
-			}
-		}
+		TriggerEventForCurrentNPC(ActionPayload, AnimSequenceNPCMeshOverride, bHideTalkingNPCDuringAnimEvent);
 	}
 	else if (ActionType == EDialogActionType::Close)
 	{
@@ -348,6 +354,43 @@ void UDialogComponent::StopRowLoopAnimEvent()
 	}
 }
 
+void UDialogComponent::TriggerEventForCurrentNPC(const FString& EventPoolIDPayload, const TSoftObjectPtr<USkeletalMesh>& ExtraParticipantMeshOverride, bool bHideContextActorDuringAnimEvent)
+{
+	// EventPoolIDPayloadに設定されたEventPoolIDで、話しかけている相手（CurrentNPC）のイベント抽選を開始する
+	// （空欄ならCurrentNPCのEventDistributorComponent自身が持つEventPoolIDにフォールバックする）。
+	// ExtraParticipantMeshOverrideは、抽選されたイベントがClearCondition=AnimationSequenceで再生する
+	// AnimEventIDのExtra参加者（ExtraPairings）のメッシュ差し替えに使う
+	if (!CurrentNPC)
+	{
+		// 別マップのワープ後に再開した会話：話しかけていたNPCは元のマップにいて、そのEventDistributorComponentも存在しない。
+		// ワープ前に引き継いだ抽選プール情報で抽選し、相手NPCなし（EventContextActor=nullptr）でイベントを始める
+		AMyProject1Character* PlayerChar = Cast<AMyProject1Character>(GetOwner());
+		UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetWorld()->GetGameInstance());
+		const UDataTable* PoolTable = ResumedEventPoolTable.LoadSynchronous();
+		if (!PlayerChar || !GameInst || !PoolTable)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[Dialog] TriggerEvent: CurrentNPCがnullで、引き継いだ抽選プール情報も無いためイベント抽選を開始できない"));
+			return;
+		}
+
+		const FName PoolID = EventPoolIDPayload.IsEmpty() ? ResumedEventPoolID : FName(*EventPoolIDPayload);
+		const FName ChosenEventID = UEventDistributorComponent::RollEventPoolFromTable(PlayerChar, PoolTable, PoolID);
+		UE_LOG(LogTemp, Log, TEXT("[EventPool] TriggerEventPool(NPCなし・ワープ後の会話) pool=%s chosen=%s"), *PoolID.ToString(), *ChosenEventID.ToString());
+		if (!ChosenEventID.IsNone())
+		{
+			GameInst->StartEvent(ChosenEventID, PlayerChar, nullptr, ExtraParticipantMeshOverride, bHideContextActorDuringAnimEvent);
+		}
+		return;
+	}
+
+	if (UEventDistributorComponent* EventComp = CurrentNPC->FindComponentByClass<UEventDistributorComponent>())
+	{
+		// FName(TEXT(""))はNAME_Noneと等しくならないため、空欄判定は先にFString側で行う
+		const FName EventPoolIDOverride = EventPoolIDPayload.IsEmpty() ? NAME_None : FName(*EventPoolIDPayload);
+		EventComp->TriggerEventPool(Cast<AMyProject1Character>(GetOwner()), EventPoolIDOverride, ExtraParticipantMeshOverride, bHideContextActorDuringAnimEvent);
+	}
+}
+
 void UDialogComponent::ExecuteAdditionalActions(const TArray<FEventAction>& Actions)
 {
 	IRpgCharacterInterface* RpgInterface = Cast<IRpgCharacterInterface>(GetOwner());
@@ -365,6 +408,14 @@ void UDialogComponent::ExecuteAdditionalActions(const TArray<FEventAction>& Acti
 
 		UGameplayActionLibrary::ExecuteAction(RpgInterface, GetOwner(), CurrentNPC, GetWorld(),
 			Action.ActionType, Action.ActionPayload, Action.ItemID, Action.ItemAmount);
+
+		// TriggerEventは共通のExecuteActionにはなく会話側（ExecuteActionCore）の処理なので、追加アクションでもここで実行する。
+		// 暗転セリフの追加アクションに置けば、読了直後の真っ暗なうちにイベントが始まる（Warpと同じ暗転の引き継ぎ）
+		if (Action.ActionType == EDialogActionType::TriggerEvent)
+		{
+			TriggerEventForCurrentNPC(Action.ActionPayload, nullptr, false);
+		}
+
 		UGameplayActionLibrary::ApplyStatChange(RpgInterface, CurrentNPC,
 			Action.StatToChange, Action.StatTargetActor, Action.ExtraStatName, Action.StatChangeAmount);
 	}
@@ -378,6 +429,8 @@ void UDialogComponent::CloseDialog()
 	bRowActionPending = false;
 	ResumedSpeakerName.Empty();
 	bResumedAcrossLevel = false;
+	ResumedEventPoolTable.Reset();
+	ResumedEventPoolID = NAME_None;
 
 	// ループ用AnimEventが再生中なら、下のIsPlayingAnimSequenceEventForの判定より前に止めておく
 	// （止めずに判定すると「再生中」と見なされ、入力ロックが解除されないまま会話が閉じてしまう）
@@ -757,9 +810,16 @@ void UDialogComponent::AdvanceFadeNarrationLine()
 	// このフラグはResumeAfterFadeNarrationが呼ぶTryStartDialog／CloseDialogが必ず解除する
 	bIsFadeNarrationPending = true;
 
-	OnFadeNarrationClosed.Broadcast();
+	UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetWorld()->GetGameInstance());
 
-	if (UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetWorld()->GetGameInstance()))
+	// 追加アクション（TriggerEvent等）が暗転を別の暗転セリフ（イベント開始ナレーション等）へ引き継いだ場合、
+	// その表示を消さないよう閉じる通知は出さない（引き継ぎ先が終了時に自分で閉じる）
+	if (!(GameInst && GameInst->IsNarrationHandedOver()))
+	{
+		OnFadeNarrationClosed.Broadcast();
+	}
+
+	if (GameInst)
 	{
 		GameInst->ResumeFadeInAfterNarration(this, PendingNarrationNextDialogID);
 	}

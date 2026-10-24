@@ -35,6 +35,11 @@ void UGameplayActionLibrary::ExecuteAction(IRpgCharacterInterface* RpgInterface,
 			QuestComp->CancelQuest(FName(*ActionPayload));
 		break;
 
+	case EDialogActionType::ClearQuest:
+		if (UQuestComponent* QuestComp = RpgInterface->GetQuestComponent())
+			QuestComp->ForceClearQuest(FName(*ActionPayload));
+		break;
+
 	case EDialogActionType::TalkProgress:
 		if (UQuestComponent* QuestComp = RpgInterface->GetQuestComponent())
 		{
@@ -88,7 +93,7 @@ void UGameplayActionLibrary::ExecuteAction(IRpgCharacterInterface* RpgInterface,
 		break;
 
 	case EDialogActionType::AddSkinOverlay:
-		// ActionPayloadにタトゥー/傷跡のRowName（TattooDataTable等の行名）を入れて使う。
+		// ActionPayloadにタトゥーのRowName（TattooDataTableの行名）を入れて使う。傷跡はAddScarOverlayを使う。
 		// ショップ購入ではない強制追加のため、常にTattooカテゴリ・無償(bIsShopPurchase=false)で扱う
 		if (AMyProject1Character* OwnerChar = Cast<AMyProject1Character>(OwnerActor))
 		{
@@ -97,10 +102,26 @@ void UGameplayActionLibrary::ExecuteAction(IRpgCharacterInterface* RpgInterface,
 		break;
 
 	case EDialogActionType::RemoveSkinOverlay:
-		// AddSkinOverlayと対。ActionPayloadに消去対象のRowNameを入れて使う（常にTattooカテゴリ扱い）
+		// AddSkinOverlayと対。ActionPayloadに消去対象のRowNameを入れて使う（Tattooカテゴリ扱い。傷跡はRemoveScarOverlay）
 		if (AMyProject1Character* OwnerChar = Cast<AMyProject1Character>(OwnerActor))
 		{
 			OwnerChar->TryRemoveSkinOverlay(FName(*ActionPayload), false);
+		}
+		break;
+
+	case EDialogActionType::AddScarOverlay:
+		// AddSkinOverlayの傷跡版。ActionPayloadにDT_ScarOverlayの行名を入れる（無償の強制追加）
+		if (AMyProject1Character* OwnerChar = Cast<AMyProject1Character>(OwnerActor))
+		{
+			OwnerChar->TryAddSkinOverlay(FName(*ActionPayload), false, 0, FString(), EShopModeCategory::Scar);
+		}
+		break;
+
+	case EDialogActionType::RemoveScarOverlay:
+		// RemoveSkinOverlayの傷跡版。ActionPayloadにDT_ScarOverlayの行名を入れる
+		if (AMyProject1Character* OwnerChar = Cast<AMyProject1Character>(OwnerActor))
+		{
+			OwnerChar->TryRemoveSkinOverlay(FName(*ActionPayload), false, 0, FString(), EShopModeCategory::Scar);
 		}
 		break;
 
@@ -366,6 +387,16 @@ void UGameplayActionLibrary::ApplyStatChange(IRpgCharacterInterface* RpgInterfac
 		StatName = TEXT("飲酒量");
 		break;
 
+	case ETargetStat::Frustration:
+	{
+		// 欲求不満度は0～100の整数。上限・下限で頭打ちになった場合は、実際に変化した量でログを出す
+		const int32 OldFrustration = Stats.Frustration;
+		Stats.Frustration = FMath::Clamp(OldFrustration + FMath::RoundToInt(ChangeVal), 0, 100);
+		ChangeVal = static_cast<float>(Stats.Frustration - OldFrustration);
+		StatName = TEXT("欲求不満度");
+		break;
+	}
+
 	case ETargetStat::Mental:
 		Stats.Mental += ChangeVal;
 		StatName = TEXT("精神力");
@@ -457,6 +488,7 @@ bool UGameplayActionLibrary::TryGetTargetStatValue(IRpgCharacterInterface* RpgIn
 	case ETargetStat::Fame:                OutValue = Stats.Fame; return true;
 	case ETargetStat::Charm:               OutValue = Stats.Charm; return true;
 	case ETargetStat::Alcohol:             OutValue = Stats.Alcohol; return true;
+	case ETargetStat::Frustration:         OutValue = static_cast<float>(Stats.Frustration); return true;
 	case ETargetStat::Mental:              OutValue = Stats.Mental; return true;
 	case ETargetStat::SP:                  OutValue = Stats.SP; return true;
 	case ETargetStat::FatigueGainRate:     OutValue = Stats.FatigueGainRateBonus; return true;

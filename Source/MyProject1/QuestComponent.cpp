@@ -719,6 +719,27 @@ bool UQuestComponent::ReportQuest(FName QuestID)
 	return false;
 }
 
+bool UQuestComponent::ForceClearQuest(FName QuestID)
+{
+	for (FQuestProgress& Progress : ActiveQuests)
+	{
+		if (Progress.QuestID != QuestID) continue;
+
+		const EQuestStatus PreviousStatus = Progress.Status;
+		Progress.Status = EQuestStatus::ObjectiveCleared;
+		if (ReportQuest(QuestID))
+		{
+			return true;
+		}
+
+		// ReportQuestが失敗した場合は進行中リストに残っているので、状態を元に戻す
+		// （ReportQuest成功時はProgressが削除済みのため、ここで触るのは失敗時のみ）
+		Progress.Status = PreviousStatus;
+		return false;
+	}
+	return false;
+}
+
 bool UQuestComponent::Debug_ForceCompleteQuest(FName QuestID)
 {
 	// Ctrlキーが押されている時だけ有効（通常クリックでは何もしない安全策）

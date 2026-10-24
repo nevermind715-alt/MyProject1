@@ -10,10 +10,21 @@
 #include "Kismet/GameplayStatics.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "Camera/CameraComponent.h"
+#include "GameFramework/CharacterMovementComponent.h"
+#include "Animation/AnimInstance.h"
+#include "Animation/AnimMontage.h"
+#include "Components/StaticMeshComponent.h"
+#include "Engine/StaticMesh.h"
+#include "AIController.h"
+#include "BrainComponent.h"
 
 AQuestNPCBase::AQuestNPCBase()
 {
 	Tags.Add(FName("NPC"));
+
+	// 遠い/小さく映るNPCのアニメ更新・評価を間引く（URO）。NPC多数時のPose Blend（顔表情）等のアニメ評価コスト対策。
+	// 近距離は間引かれない（距離はFAnimUpdateRateParametersの既定しきい値）。プレイヤーには適用しない
+	GetMesh()->bEnableUpdateRateOptimizations = true;
 
 	// AMyAIController自体はACharacter::PossessedByで自動Possessされないため、
 	// AutoPossessAIとAIControllerClassを設定して初めて徘徊AIが動き出す
@@ -61,6 +72,8 @@ void AQuestNPCBase::BeginPlay()
 	// Super::BeginPlay()のApplyJobData()でベース体型（本体メッシュ・髪・武器等）が入った後に、
 	// DT_Equipments側の重ね着（見た目のみ）を適用する
 	ApplyInitialEquipment();
+
+	StartIdleAnimSequence();
 
 	// AMyProject1Character由来のCameraBoom/FollowCameraはNPCでは使わない。
 	// コンストラクタ時点のbVisualizeComponent=falseだけではPIE中の選択時カメラプレビュー（右下の映像）を
@@ -147,6 +160,75 @@ void AQuestNPCBase::ApplyInitialEquipment()
 			if (RowName.IsNone()) continue;
 			SkinOverlayComp->AddOverlay(RowName, -1.0f, EShopModeCategory::Scar);
 		}
+	}
+}
+
+void AQuestNPCBase::StartIdleAnimSequence()
+{
+	if (IdleAnimSequenceRowName.IsNone()) return;
+
+	UMyProject1GameInstance* GameInst = GetGameInstance<UMyProject1GameInstance>();
+	if (!GameInst || !GameInst->AnimSequenceDataTable)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("QuestNPC %s: IdleAnimSequenceRowName is set but AnimSequenceDataTable is not available"), *GetName());
+		return;
+	}
+
+	const FAnimSequenceEntry* Entry = GameInst->AnimSequenceDataTable->FindRow<FAnimSequenceEntry>(IdleAnimSequenceRowName, TEXT("QuestNPC IdleAnimSequence"));
+	if (!Entry || !Entry->Montage)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("QuestNPC %s: IdleAnimSequenceRowName '%s' not found in AnimSequenceDataTable or has no Montage"), *GetName(), *IdleAnimSequenceRowName.ToString());
+		return;
+	}
+
+	USkeletalMeshComponent* MeshComp = GetMesh();
+	UAnimInstance* AnimInst = MeshComp ? MeshComp->GetAnimInstance() : nullptr;
+	if (!AnimInst)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("QuestNPC %s: no AnimInstance, cannot play IdleAnimSequence '%s'"), *GetName(), *IdleAnimSequenceRowName.ToString());
+		return;
+	}
+
+	// RootMotion・重力・徘徊による位置ズレ防止（PlayAnimSequenceRowDirectと同じ理由）
+	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+	{
+		MoveComp->SetMovementMode(MOVE_None);
+	}
+	if (AAIController* AI = Cast<AAIController>(GetController()))
+	{
+		AI->StopMovement();
+		if (UBrainComponent* Brain = AI->GetBrainComponent())
+		{
+			Brain->PauseLogic(TEXT("IdleAnimSequence"));
+		}
+	}
+
+	MeshComp->SetRelativeLocation(MeshComp->GetRelativeLocation() + Entry->MeshLocationOffset);
+	MeshComp->SetRelativeRotation(MeshComp->GetRelativeRotation() + Entry->MeshRotationOffset);
+
+	// PropMesh（椅子等の小道具）。GameInstance::SpawnOrUpdateAnimSequencePropと同じく、Actor基準の相対Transformに置く。
+	// GameInstance側は単一のActorを使い回す作りで複数NPCに使えないため、NPC自身にコンポーネントとして持たせる
+	// （NPCと一緒に移動・表示/非表示・破棄される）
+	if (!Entry->PropMesh.IsNull())
+	{
+		if (UStaticMesh* PropStaticMesh = Entry->PropMesh.LoadSynchronous())
+		{
+			UStaticMeshComponent* PropComp = NewObject<UStaticMeshComponent>(this, TEXT("IdleAnimPropMesh"));
+			PropComp->SetStaticMesh(PropStaticMesh);
+			PropComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+			PropComp->SetupAttachment(GetRootComponent());
+			PropComp->SetRelativeLocationAndRotation(Entry->PropRelativeLocation, Entry->PropRelativeRotation);
+			PropComp->RegisterComponent();
+		}
+	}
+
+	AnimInst->Montage_Play(Entry->Montage);
+
+	// 先頭セクションを自分自身へつなげてシームレスにループさせる
+	if (Entry->Montage->GetNumSections() > 0)
+	{
+		const FName FirstSection = Entry->Montage->GetSectionName(0);
+		AnimInst->Montage_SetNextSection(FirstSection, FirstSection, Entry->Montage);
 	}
 }
 

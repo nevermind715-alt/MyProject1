@@ -157,6 +157,31 @@ AMyProject1Character::AMyProject1Character()
 	Extra5MeshComp->SetLeaderPoseComponent(GetMesh());
 	Extra5MeshComp->bUseBoundsFromLeaderPoseComponent = true;
 
+	Extra6MeshComp = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("Extra6MeshComp"));
+	Extra6MeshComp->SetupAttachment(GetMesh());
+	Extra6MeshComp->SetLeaderPoseComponent(GetMesh());
+	Extra6MeshComp->bUseBoundsFromLeaderPoseComponent = true;
+
+	Extra7MeshComp = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("Extra7MeshComp"));
+	Extra7MeshComp->SetupAttachment(GetMesh());
+	Extra7MeshComp->SetLeaderPoseComponent(GetMesh());
+	Extra7MeshComp->bUseBoundsFromLeaderPoseComponent = true;
+
+	Extra8MeshComp = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("Extra8MeshComp"));
+	Extra8MeshComp->SetupAttachment(GetMesh());
+	Extra8MeshComp->SetLeaderPoseComponent(GetMesh());
+	Extra8MeshComp->bUseBoundsFromLeaderPoseComponent = true;
+
+	Extra9MeshComp = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("Extra9MeshComp"));
+	Extra9MeshComp->SetupAttachment(GetMesh());
+	Extra9MeshComp->SetLeaderPoseComponent(GetMesh());
+	Extra9MeshComp->bUseBoundsFromLeaderPoseComponent = true;
+
+	Extra10MeshComp = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("Extra10MeshComp"));
+	Extra10MeshComp->SetupAttachment(GetMesh());
+	Extra10MeshComp->SetLeaderPoseComponent(GetMesh());
+	Extra10MeshComp->bUseBoundsFromLeaderPoseComponent = true;
+
 
 	// 2. 固いアクセサリー群（StaticMesh）の生成とソケットへのアタッチ
 	// ※ソケット名("hand_r_socket"等)は後でUE5側でVRMの骨に合わせて調整します
@@ -1094,26 +1119,8 @@ void AMyProject1Character::CycleTarget()
 	SetCurrentTarget(ValidTargets[NextIndex]);
 }
 
-void AMyProject1Character::Tick(float DeltaTime)
+void AMyProject1Character::SyncCableDummyLocations()
 {
-	// PlayAnimSequenceEvent/PlayAnimSequenceRowDirectの再生対象（Primary/Secondaryどちらか）になっている間は、
-	// 再生開始時点のTransformへ毎フレーム強制的に固定し直し、以降のTickロジック（ターゲット追従回転、
-	// 移動速度計算等）を一切実行しない。Super::Tick(DeltaTime)より前でreturnすることで、Blueprint側の
-	// Event Tick（ReceiveTick。ACharacter/APawn/AActorのTick経由で呼ばれるため、Super::Tickを呼ぶと
-	// 発火してしまう）も含めて、アニメーション再生中は位置・向きの変更要因をこの一箇所で完全に遮断する
-	if (UMyProject1GameInstance* AnimLockGameInst = GetWorld() ? GetWorld()->GetGameInstance<UMyProject1GameInstance>() : nullptr)
-	{
-		FVector LockedLocation;
-		FRotator LockedRotation;
-		if (AnimLockGameInst->GetAnimSequenceLockedTransform(this, LockedLocation, LockedRotation))
-		{
-			SetActorLocationAndRotation(LockedLocation, LockedRotation);
-			return;
-		}
-	}
-
-	Super::Tick(DeltaTime);
-
 	// 1. 既存の鎖システム（足・その他用）のワールド同期
 	if (EquipmentCableComp && EquipmentCableComp->IsVisible())
 	{
@@ -1143,6 +1150,31 @@ void AMyProject1Character::Tick(float DeltaTime)
 			CableDummyEnd_Hands->SetWorldLocation(TargetLocation);
 		}
 	}
+}
+
+void AMyProject1Character::Tick(float DeltaTime)
+{
+	// PlayAnimSequenceEvent/PlayAnimSequenceRowDirectの再生対象（Primary/Secondaryどちらか）になっている間は、
+	// 再生開始時点のTransformへ毎フレーム強制的に固定し直し、以降のTickロジック（ターゲット追従回転、
+	// 移動速度計算等）を一切実行しない。Super::Tick(DeltaTime)より前でreturnすることで、Blueprint側の
+	// Event Tick（ReceiveTick。ACharacter/APawn/AActorのTick経由で呼ばれるため、Super::Tickを呼ぶと
+	// 発火してしまう）も含めて、アニメーション再生中は位置・向きの変更要因をこの一箇所で完全に遮断する
+	if (UMyProject1GameInstance* AnimLockGameInst = GetWorld() ? GetWorld()->GetGameInstance<UMyProject1GameInstance>() : nullptr)
+	{
+		FVector LockedLocation;
+		FRotator LockedRotation;
+		if (AnimLockGameInst->GetAnimSequenceLockedTransform(this, LockedLocation, LockedRotation))
+		{
+			SetActorLocationAndRotation(LockedLocation, LockedRotation);
+			// このreturnで下の鎖ダミー同期が丸ごと飛ぶと、AnimEvent中に鎖が最後の位置に置き去りになって宙に浮くため、ここでも同期する
+			SyncCableDummyLocations();
+			return;
+		}
+	}
+
+	Super::Tick(DeltaTime);
+
+	SyncCableDummyLocations();
 
 	// --- 周囲の敵のHPバー表示ロジック ---
 	if (!IsPlayerControlled() && !IsDead()) // 自分がNPCで、かつ生きている場合
@@ -1466,13 +1498,39 @@ float AMyProject1Character::TakeDamage(float DamageAmount, FDamageEvent const& D
 					{
 						if (!KillerEventComp->EventPoolID.IsNone())
 						{
+							// EventDistributorStatConditionのステータス条件を満たさない場合はイベントを起動しない。
+							// WarpToRestartIDが無ければ行き先が無いので、EventPoolID未設定の敵に倒された時と同じ通常の敗北復帰へ回す
+							// （WarpToRestartIDがある場合は下の抽選外れと同じ分岐でワープする）
+							const bool bStatConditionMet = KillerEventComp->IsEventDistributorStatConditionMet(this);
+							if (!bStatConditionMet && KillerEventComp->WarpToRestartID.IsNone())
+							{
+								// ANPCSpawnerの敗北時クリーンアップ（クエスト失敗・敵／フラグ用ポイントの削除）を通知する。
+								// 敵に倒れるアニメーション（HandleDefeatWithoutEventの復帰までの待ち時間と同じ）を見せる間は
+								// 敵を残す必要があるため、WarpToRestartID分岐と同じくその待ち時間の後に通知する
+								constexpr float CleanupDelaySeconds = 6.0f + 3.0f;
+								TWeakObjectPtr<UEventDistributorComponent> WeakNoEventComp(KillerEventComp);
+								FTimerHandle NoEventCleanupTimerHandle;
+								GetWorldTimerManager().SetTimer(NoEventCleanupTimerHandle, [WeakNoEventComp]()
+									{
+										if (UEventDistributorComponent* NoEventComp = WeakNoEventComp.Get())
+										{
+											NoEventComp->OnDefeatedPlayer.Broadcast();
+										}
+									}, CleanupDelaySeconds, false);
+
+								HandleDefeatWithoutEvent();
+								return ActualDamage;
+							}
+
 							OnDeath(false);
 
-							// WarpToRestartIDが設定されていれば、EventDistributorChance(%)の抽選でイベント
-							// ディストリビュータを起動するかを決める。外れた場合はイベントを起動せず、
+							// WarpToRestartIDが設定されていれば、EventDistributorStatConditionのステータス条件を満たし、
+							// かつEventDistributorChance(%)の抽選に当たった時だけイベントディストリビュータを起動する。
+							// 条件を満たさない／抽選に外れた場合はイベントを起動せず、
 							// WarpToRestartIDへワープしてリスタートさせる（町の治療院など）
 							if (!KillerEventComp->WarpToRestartID.IsNone() &&
-								FMath::FRandRange(0.0f, 100.0f) > KillerEventComp->EventDistributorChance)
+								(!bStatConditionMet ||
+								FMath::FRandRange(0.0f, 100.0f) > KillerEventComp->EventDistributorChance))
 							{
 								// 全快・ワープを即座に行うと、bIsDead=trueになった直後にfalseへ戻ってしまい、
 								// 敵側（AMyAIController::Tick）がIsDead()を検知してHasWon/攻撃停止する猶予がなくなる
@@ -1549,6 +1607,14 @@ float AMyProject1Character::TakeDamage(float DamageAmount, FDamageEvent const& D
 										AMyProject1Character* Player = WeakPlayer.Get();
 										UEventDistributorComponent* EventComp = WeakEventComp.Get();
 										if (!Player || !EventComp) return;
+
+										// DefeatDialogRowが設定されていれば、抽選より先にその会話（暗転セリフ等）を始める。
+										// 全快とOnDefeatedPlayerの通知は、会話側のTriggerEventでTriggerEventPoolが呼ばれた時点で
+										// EventComp側が行う（敵はそれまで残す必要がある）。会話を始められなかった場合は従来通り下へ進む
+										if (EventComp->TryStartDefeatDialog(Player))
+										{
+											return;
+										}
 
 										// イベントが実際に始まったら、倒れたままリターン先へ戻らないよう即座に全快させる
 										// （WarpToRestartID側と同じ処理。別レベルワープのスナップショットも全快状態で保存される）
@@ -2369,13 +2435,24 @@ void AMyProject1Character::ApplyJobData()
 
 		if (JobData->AnimBlueprintClass)
 		{
-			GetMesh()->SetAnimInstanceClass(JobData->AnimBlueprintClass);
-
-			// 新しく設定されたAnimInstanceのモンタージュ終了イベントを監視する
-			UAnimInstance* AnimInst = GetMesh()->GetAnimInstance();
-			if (AnimInst && !AnimInst->OnMontageEnded.IsAlreadyBound(this, &AMyProject1Character::OnMontageEnded))
+			if (ActiveRestrainedAnimIndex != INDEX_NONE)
 			{
-				AnimInst->OnMontageEnded.AddDynamic(this, &AMyProject1Character::OnMontageEnded);
+				// セーブロード／別マップワープの装備復元（ApplyPendingCharacterLoad）は、BeginPlay内でこのApplyJobDataより先に
+				// 拘束用ABPへ差し替え済み。ここでジョブのABPに戻してしまうと、拘束フラグだけ立ったまま見た目が通常ABPになる。
+				// ジョブのABPは「拘束解除時に戻す元のABP」として記憶するだけにして、拘束用ABPを張り直す
+				DefaultAnimBlueprintClass = JobData->AnimBlueprintClass;
+				ApplyRestrainedAnimBlueprint();
+			}
+			else
+			{
+				GetMesh()->SetAnimInstanceClass(JobData->AnimBlueprintClass);
+
+				// 新しく設定されたAnimInstanceのモンタージュ終了イベントを監視する
+				UAnimInstance* AnimInst = GetMesh()->GetAnimInstance();
+				if (AnimInst && !AnimInst->OnMontageEnded.IsAlreadyBound(this, &AMyProject1Character::OnMontageEnded))
+				{
+					AnimInst->OnMontageEnded.AddDynamic(this, &AMyProject1Character::OnMontageEnded);
+				}
 			}
 		}
 
@@ -2696,6 +2773,12 @@ void AMyProject1Character::TalkToLog(const FString& Message)
 	OnReceiveLogMessage(FormattedMsg, ELogMessageType::Dialogue);
 }
 
+// ゲーム開始からの累計ゲーム内分（時間スキップでも日付の繰り上がりでも単調に増える）
+static double GetInGameElapsedMinutes(const UMyProject1GameInstance& GameInst)
+{
+	return static_cast<double>(GameInst.TotalElapsedDays) * 1440.0 + static_cast<double>(GameInst.CurrentTimeInMinutes);
+}
+
 void AMyProject1Character::ApplyItemBuff(FString ItemName, UTexture2D* Icon, const TArray<FItemEffect>& Effects, float Duration)
 {
 	ApplyItemBuffWithKind(ItemName, Icon, Effects, Duration, EFoodBuffKind::None);
@@ -2709,6 +2792,11 @@ bool AMyProject1Character::HasActiveMealBuff() const
 void AMyProject1Character::ApplyItemBuffWithKind(FString ItemName, UTexture2D* Icon, const TArray<FItemEffect>& Effects, float Duration, EFoodBuffKind FoodKind)
 {
 	if (bIsDead || Duration <= 0.0f) return;
+
+	// 効果時間はゲーム内の分で数える（現実の秒だと待機/睡眠の時間スキップと食い違うため）。
+	// 期限切れはGameInstance::OnInGameTimeChanged（毎分／AdvanceTimeBy後）で判定する
+	UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetGameInstance());
+	if (!GameInst) return;
 
 	// 効果のどれか1つでも「重複可」がチェックされていれば、このアイテムは重ねがけを許可する
 	const bool bAllowStacking = Effects.ContainsByPredicate([](const FItemEffect& Effect) { return Effect.bAllowStacking; });
@@ -2736,7 +2824,8 @@ void AMyProject1Character::ApplyItemBuffWithKind(FString ItemName, UTexture2D* I
 	// 今回の使用分を識別するID（重複可アイテムを連続使用した時、期限切れ処理で
 	// 「今回の使用分」だけを正しく取り除くために使う）
 	const int32 ThisStackID = NextBuffStackID++;
-	const float NewExpirationTime = GetWorld()->GetTimeSeconds() + Duration;
+	const double ExpireAtMinute = GetInGameElapsedMinutes(*GameInst) + Duration;
+	const float NewExpirationTime = static_cast<float>(ExpireAtMinute);
 
 	bool bHasAddedBuffIcon = false;
 
@@ -2858,15 +2947,49 @@ void AMyProject1Character::ApplyItemBuffWithKind(FString ItemName, UTexture2D* I
 	// BaseAttackPower/BaseDefensePowerが変わった可能性があるので、疲労補正込みの表示値を再計算する
 	RecalculateFatigueAdjustedCombatStats();
 
-	// 2. タイマーを1つだけセットする
-	FTimerHandle TimerHandle;
-	FTimerDelegate Delegate;
-	Delegate.BindUObject(this, &AMyProject1Character::ExpireItemBuff, ItemName, Effects, ThisStackID);
-	GetWorldTimerManager().SetTimer(TimerHandle, Delegate, Duration, false);
+	// 2. 期限切れ待ちリストに登録し、ゲーム内時間の通知を購読する（最初の1回だけ）
+	FPendingBuffExpiry& Pending = PendingBuffExpiries.AddDefaulted_GetRef();
+	Pending.ItemName = ItemName;
+	Pending.Effects = Effects;
+	Pending.StackID = ThisStackID;
+	Pending.ExpireAtMinute = ExpireAtMinute;
+
+	if (!GameInst->OnInGameTimeChanged.IsAlreadyBound(this, &AMyProject1Character::HandleInGameTimeChangedForBuffs))
+	{
+		GameInst->OnInGameTimeChanged.AddDynamic(this, &AMyProject1Character::HandleInGameTimeChangedForBuffs);
+	}
 
 	if (OnBuffListChangedDelegate.IsBound())
 	{
 		OnBuffListChangedDelegate.Broadcast();
+	}
+}
+
+void AMyProject1Character::HandleInGameTimeChangedForBuffs(int32 Year, int32 Month, int32 Day, int32 Hour, int32 Minute)
+{
+	const UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetGameInstance());
+	if (!GameInst || PendingBuffExpiries.IsEmpty()) return;
+
+	const double NowMinute = GetInGameElapsedMinutes(*GameInst);
+
+	// ExpireItemBuffはUIへの通知（Broadcast）を伴うので、先に期限切れ分をリストから外してから処理する
+	TArray<FPendingBuffExpiry> Expired;
+	for (int32 i = 0; i < PendingBuffExpiries.Num();)
+	{
+		if (PendingBuffExpiries[i].ExpireAtMinute <= NowMinute)
+		{
+			Expired.Add(MoveTemp(PendingBuffExpiries[i]));
+			PendingBuffExpiries.RemoveAt(i);
+		}
+		else
+		{
+			++i;
+		}
+	}
+
+	for (const FPendingBuffExpiry& Entry : Expired)
+	{
+		ExpireItemBuff(Entry.ItemName, Entry.Effects, Entry.StackID);
 	}
 }
 
@@ -3219,6 +3342,20 @@ void AMyProject1Character::ApplyExStats17DecayForElapsedMinutes(int32 MinutesEla
 	}
 }
 
+// --- ゲーム内で「時」をまたいだ回数に応じて欲求不満度を増加させる（1時間あたりFrustrationIncreasePerHour） ---
+void AMyProject1Character::ApplyFrustrationIncreaseForElapsedHours(int32 HoursElapsed)
+{
+	if (HoursElapsed <= 0 || IsDead() || !IsPlayerControlled()) return;
+
+	const int32 OldValue = MyStats.Frustration;
+	MyStats.Frustration = FMath::Clamp(OldValue + FrustrationIncreasePerHour * HoursElapsed, 0, 100);
+
+	if (MyStats.Frustration != OldValue)
+	{
+		NotifyStatsChanged();
+	}
+}
+
 // --- O・Gaugeを1秒ごとに自然減衰させる（疲労と違い、戦闘中かどうかに関わらず常に減衰する） ---
 void AMyProject1Character::HandleOGaugeTick()
 {
@@ -3259,6 +3396,15 @@ void AMyProject1Character::AddOGauge(float Amount)
 		MyStats.OGauge = OGaugeTriggerDropTo;
 		++OGaugeTriggerCount;
 
+		if (OGaugeTriggerSound)
+		{
+			UGameplayStatics::PlaySound2D(this, OGaugeTriggerSound);
+		}
+		if (!OGaugeTriggerLogText.IsEmpty())
+		{
+			OnReceiveLogMessage(OGaugeTriggerLogText, ELogMessageType::System);
+		}
+
 		UTexture2D* TriggerIcon = nullptr;
 		if (BuffDataTable && !OGaugeTriggerBuffID.IsNone())
 		{
@@ -3294,6 +3440,15 @@ void AMyProject1Character::AddOGauge(float Amount)
 	{
 		NotifyStatsChanged();
 	}
+}
+
+// --- O・Gaugeを0に戻す（AnimEvent終了時用） ---
+void AMyProject1Character::ResetOGauge()
+{
+	if (MyStats.OGauge == 0.0f) return;
+
+	MyStats.OGauge = 0.0f;
+	NotifyStatsChanged();
 }
 
 // --- OGaugeTriggerEffectsのうちEffectDuration<=0（即時・永続）の1要素を適用する。
@@ -3937,6 +4092,46 @@ void AMyProject1Character::EquipItem(FName ItemID, FEquipmentData EquipData)
 		}
 		break;
 
+	case EEquipmentSlot::Extra6:
+		if (Extra6MeshComp)
+		{
+			USkeletalMesh* LoadedMesh = EquipData.EquipSkeletalMesh.IsNull() ? nullptr : EquipData.EquipSkeletalMesh.LoadSynchronous();
+			Extra6MeshComp->SetSkeletalMesh(LoadedMesh);
+		}
+		break;
+
+	case EEquipmentSlot::Extra7:
+		if (Extra7MeshComp)
+		{
+			USkeletalMesh* LoadedMesh = EquipData.EquipSkeletalMesh.IsNull() ? nullptr : EquipData.EquipSkeletalMesh.LoadSynchronous();
+			Extra7MeshComp->SetSkeletalMesh(LoadedMesh);
+		}
+		break;
+
+	case EEquipmentSlot::Extra8:
+		if (Extra8MeshComp)
+		{
+			USkeletalMesh* LoadedMesh = EquipData.EquipSkeletalMesh.IsNull() ? nullptr : EquipData.EquipSkeletalMesh.LoadSynchronous();
+			Extra8MeshComp->SetSkeletalMesh(LoadedMesh);
+		}
+		break;
+
+	case EEquipmentSlot::Extra9:
+		if (Extra9MeshComp)
+		{
+			USkeletalMesh* LoadedMesh = EquipData.EquipSkeletalMesh.IsNull() ? nullptr : EquipData.EquipSkeletalMesh.LoadSynchronous();
+			Extra9MeshComp->SetSkeletalMesh(LoadedMesh);
+		}
+		break;
+
+	case EEquipmentSlot::Extra10:
+		if (Extra10MeshComp)
+		{
+			USkeletalMesh* LoadedMesh = EquipData.EquipSkeletalMesh.IsNull() ? nullptr : EquipData.EquipSkeletalMesh.LoadSynchronous();
+			Extra10MeshComp->SetSkeletalMesh(LoadedMesh);
+		}
+		break;
+
 	default:
 		break;
 	}
@@ -4114,6 +4309,26 @@ void AMyProject1Character::UnequipItem(EEquipmentSlot TargetSlot)
 		if (Extra5MeshComp) Extra5MeshComp->SetSkeletalMesh(nullptr);
 		break;
 
+	case EEquipmentSlot::Extra6:
+		if (Extra6MeshComp) Extra6MeshComp->SetSkeletalMesh(nullptr);
+		break;
+
+	case EEquipmentSlot::Extra7:
+		if (Extra7MeshComp) Extra7MeshComp->SetSkeletalMesh(nullptr);
+		break;
+
+	case EEquipmentSlot::Extra8:
+		if (Extra8MeshComp) Extra8MeshComp->SetSkeletalMesh(nullptr);
+		break;
+
+	case EEquipmentSlot::Extra9:
+		if (Extra9MeshComp) Extra9MeshComp->SetSkeletalMesh(nullptr);
+		break;
+
+	case EEquipmentSlot::Extra10:
+		if (Extra10MeshComp) Extra10MeshComp->SetSkeletalMesh(nullptr);
+		break;
+
 	default:
 		break;
 	}
@@ -4264,7 +4479,9 @@ bool AMyProject1Character::IsPiercingSlot(EEquipmentSlot Slot)
 {
 	return Slot == EEquipmentSlot::Extra1 || Slot == EEquipmentSlot::Extra2
 		|| Slot == EEquipmentSlot::Extra3 || Slot == EEquipmentSlot::Extra4
-		|| Slot == EEquipmentSlot::Extra5;
+		|| Slot == EEquipmentSlot::Extra5 || Slot == EEquipmentSlot::Extra6
+		|| Slot == EEquipmentSlot::Extra7 || Slot == EEquipmentSlot::Extra8
+		|| Slot == EEquipmentSlot::Extra9 || Slot == EEquipmentSlot::Extra10;
 }
 
 TArray<EEquipmentSlot> AMyProject1Character::GetEquippedCursedPiercingSlots()
@@ -4305,7 +4522,7 @@ bool AMyProject1Character::TryDoctorRemovePiercing(FName EquipRowName, int32 Sho
 {
 	if (EquipRowName.IsNone() || !EquipmentDataTable) return false;
 
-	// 装備中の呪われピアス（Extra1〜5 かつ bCannotUnequipManually）から、行名が一致するスロットを探す
+	// 装備中の呪われピアス（Extra1〜10 かつ bCannotUnequipManually）から、行名が一致するスロットを探す
 	EEquipmentSlot TargetSlot = EEquipmentSlot::Max;
 	for (const TPair<EEquipmentSlot, FName>& Pair : CurrentEquippedItems)
 	{
@@ -4494,7 +4711,7 @@ TArray<FOverlayShopItemInfo> AMyProject1Character::BuildRestraintShopList() cons
 	const UDataTable* ItemDT = (InventoryComp ? InventoryComp->ItemDataTable : nullptr);
 
 	// 現在装備中の「自力では外せないロック装備」＝解除対象。
-	// ピアス枠（Extra1〜5）はピアス医者ショップの専任のため、ここでは除外する。
+	// ピアス枠（Extra1〜10）はピアス医者ショップの専任のため、ここでは除外する。
 	for (const TPair<EEquipmentSlot, FName>& Pair : CurrentEquippedItems)
 	{
 		if (Pair.Value.IsNone() || IsPiercingSlot(Pair.Key)) continue;
@@ -4689,57 +4906,76 @@ void AMyProject1Character::RefreshInnerVisibility()
 		}
 	}
 
+	// SetAllEquipmentComponentsVisible/SetEquipmentSlotVisibleで非表示中のスロットは、ここで再表示しない。
+	// EquipItem/UnequipItemが末尾でこの関数を呼ぶため、判定しないと、AnimEvent再生中に装備を隠していても
+	// 一時装備（TemporaryEquipItemIDs）の着脱のたびにインナーだけ表示に戻ってしまう
 	if (InnerUpperMeshComp)
 	{
-		InnerUpperMeshComp->SetVisibility(!bHideUpper);
+		InnerUpperMeshComp->SetVisibility(!bHideUpper && !HiddenOverlaySlots.Contains(EEquipmentSlot::InnerUpper));
 	}
 
 	if (InnerLowerMeshComp)
 	{
-		InnerLowerMeshComp->SetVisibility(!bHideLower);
+		InnerLowerMeshComp->SetVisibility(!bHideLower && !HiddenOverlaySlots.Contains(EEquipmentSlot::InnerLower));
 	}
 }
 
 void AMyProject1Character::SetAllEquipmentComponentsVisible(bool bVisible)
 {
 	// HairMeshComp（髪型）・FaceMeshComp（顔面）は装備ではなくキャラクター本体の見た目のため対象外。
-	// 呪われ装備・拘束具など自力で外せないロック装備（bCannotUnequipManually）は、
-	// 非表示化（bVisible=false）の対象からも除外し、常に表示したままにする
-	// （「外せないはずの物が演出で消える」矛盾を避けるため）
-	auto SlotVisible = [this, bVisible](EEquipmentSlot Slot) -> bool
-	{
-		return bVisible || IsSlotLocked(Slot);
-	};
+	// 呪われ装備・拘束具など自力で外せないロック装備（bCannotUnequipManually）も、他の装備と同じく全て切り替える。
+	// 隠したくない場合は、呼び出し元（FAnimSequenceEntry::bHideAllEquipmentDuringPlay）自体をオフにする運用
+	if (HeadMeshComp) HeadMeshComp->SetVisibility(bVisible);
+	if (TorsoMeshComp) TorsoMeshComp->SetVisibility(bVisible);
+	if (WaistMeshComp) WaistMeshComp->SetVisibility(bVisible);
+	if (HandsMeshComp) HandsMeshComp->SetVisibility(bVisible);
+	if (LegsMeshComp) LegsMeshComp->SetVisibility(bVisible);
+	if (FeetMeshComp) FeetMeshComp->SetVisibility(bVisible);
 
-	if (HeadMeshComp) HeadMeshComp->SetVisibility(SlotVisible(EEquipmentSlot::Head));
-	if (TorsoMeshComp) TorsoMeshComp->SetVisibility(SlotVisible(EEquipmentSlot::Torso));
-	if (WaistMeshComp) WaistMeshComp->SetVisibility(SlotVisible(EEquipmentSlot::Waist));
-	if (HandsMeshComp) HandsMeshComp->SetVisibility(SlotVisible(EEquipmentSlot::Hands));
-	if (LegsMeshComp) LegsMeshComp->SetVisibility(SlotVisible(EEquipmentSlot::Legs));
-	if (FeetMeshComp) FeetMeshComp->SetVisibility(SlotVisible(EEquipmentSlot::Feet));
+	if (NeckSkeletalMeshComp) NeckSkeletalMeshComp->SetVisibility(bVisible);
+	if (NeckMeshComp) NeckMeshComp->SetVisibility(bVisible);
 
-	const bool bNeckVisible = SlotVisible(EEquipmentSlot::Neck);
-	if (NeckSkeletalMeshComp) NeckSkeletalMeshComp->SetVisibility(bNeckVisible);
-	if (NeckMeshComp) NeckMeshComp->SetVisibility(bNeckVisible);
+	if (WristSkeletalMeshComp) WristSkeletalMeshComp->SetVisibility(bVisible);
+	if (WristMeshComp) WristMeshComp->SetVisibility(bVisible);
 
-	const bool bWristVisible = SlotVisible(EEquipmentSlot::Wrist);
-	if (WristSkeletalMeshComp) WristSkeletalMeshComp->SetVisibility(bWristVisible);
-	if (WristMeshComp) WristMeshComp->SetVisibility(bWristVisible);
+	if (AnkleSkeletalMeshComp) AnkleSkeletalMeshComp->SetVisibility(bVisible);
+	if (AnkleMeshComp) AnkleMeshComp->SetVisibility(bVisible);
 
-	const bool bAnkleVisible = SlotVisible(EEquipmentSlot::Ankle);
-	if (AnkleSkeletalMeshComp) AnkleSkeletalMeshComp->SetVisibility(bAnkleVisible);
-	if (AnkleMeshComp) AnkleMeshComp->SetVisibility(bAnkleVisible);
+	if (Extra1MeshComp) Extra1MeshComp->SetVisibility(bVisible);
+	if (Extra2MeshComp) Extra2MeshComp->SetVisibility(bVisible);
+	if (Extra3MeshComp) Extra3MeshComp->SetVisibility(bVisible);
+	if (Extra4MeshComp) Extra4MeshComp->SetVisibility(bVisible);
+	if (Extra5MeshComp) Extra5MeshComp->SetVisibility(bVisible);
+	if (Extra6MeshComp) Extra6MeshComp->SetVisibility(bVisible);
+	if (Extra7MeshComp) Extra7MeshComp->SetVisibility(bVisible);
+	if (Extra8MeshComp) Extra8MeshComp->SetVisibility(bVisible);
+	if (Extra9MeshComp) Extra9MeshComp->SetVisibility(bVisible);
+	if (Extra10MeshComp) Extra10MeshComp->SetVisibility(bVisible);
 
-	if (Extra1MeshComp) Extra1MeshComp->SetVisibility(SlotVisible(EEquipmentSlot::Extra1));
-	if (Extra2MeshComp) Extra2MeshComp->SetVisibility(SlotVisible(EEquipmentSlot::Extra2));
-	if (Extra3MeshComp) Extra3MeshComp->SetVisibility(SlotVisible(EEquipmentSlot::Extra3));
-	if (Extra4MeshComp) Extra4MeshComp->SetVisibility(SlotVisible(EEquipmentSlot::Extra4));
-	if (Extra5MeshComp) Extra5MeshComp->SetVisibility(SlotVisible(EEquipmentSlot::Extra5));
-
-	// 武器はCurrentEquippedItems（EquipItem/UnequipItem）を経由しないため、ロック（bCannotUnequipManually）の
-	// 対象にならない。素直にbVisibleの通り切り替える
 	if (WeaponMeshComp) WeaponMeshComp->SetVisibility(bVisible);
 	if (StaticWeaponMeshComp) StaticWeaponMeshComp->SetVisibility(bVisible);
+
+	// 鎖（ケーブル）は装備メッシュとは別コンポーネントなので、上のSetVisibilityでは隠れず鎖だけ残ってしまう。
+	// 鎖を使っている装備のスロットごとに、メッシュと同じ表示状態へ合わせる。
+	// 配列のコピーを回すのは、切り替え中に装備状態が変わっても安全にするため
+	const TMap<EEquipmentSlot, FName> EquippedSnapshot = CurrentEquippedItems;
+	for (const TPair<EEquipmentSlot, FName>& Pair : EquippedSnapshot)
+	{
+		ApplyCableVisibilityForSlot(Pair.Key, bVisible);
+	}
+
+	// 薄地装備（OverlayTexture方式）はメッシュを持たないため、上のSetVisibilityでは隠れない。
+	// 非表示にするスロットを記録し、体のテクスチャへの描き込み側（USkinOverlayComponent）に反映させる。
+	// 下のインナー処理（RefreshInnerVisibility）もこの記録を見るため、先に更新しておく
+	const TSet<EEquipmentSlot> PreviousHiddenOverlaySlots = HiddenOverlaySlots;
+	HiddenOverlaySlots.Reset();
+	if (!bVisible)
+	{
+		for (const TPair<EEquipmentSlot, FName>& Pair : CurrentEquippedItems)
+		{
+			HiddenOverlaySlots.Add(Pair.Key);
+		}
+	}
 
 	// インナー(InnerUpper/InnerLower)は胴・腰装備のbHideInnerUpper/bHideInnerLower設定によって
 	// 「装備していても常に非表示」のケースがあるため、単純にSetVisibility(true)で戻すと
@@ -4750,25 +4986,10 @@ void AMyProject1Character::SetAllEquipmentComponentsVisible(bool bVisible)
 	}
 	else
 	{
-		if (InnerUpperMeshComp) InnerUpperMeshComp->SetVisibility(IsSlotLocked(EEquipmentSlot::InnerUpper));
-		if (InnerLowerMeshComp) InnerLowerMeshComp->SetVisibility(IsSlotLocked(EEquipmentSlot::InnerLower));
+		if (InnerUpperMeshComp) InnerUpperMeshComp->SetVisibility(false);
+		if (InnerLowerMeshComp) InnerLowerMeshComp->SetVisibility(false);
 	}
 
-	// 薄地装備（OverlayTexture方式）はメッシュを持たないため、上のSetVisibilityでは隠れない。
-	// 非表示にするスロットを記録し、体のテクスチャへの描き込み側（USkinOverlayComponent）に反映させる。
-	// ロック装備は他のパーツと同じく非表示の対象外
-	const TSet<EEquipmentSlot> PreviousHiddenOverlaySlots = HiddenOverlaySlots;
-	HiddenOverlaySlots.Reset();
-	if (!bVisible)
-	{
-		for (const TPair<EEquipmentSlot, FName>& Pair : CurrentEquippedItems)
-		{
-			if (!IsSlotLocked(Pair.Key))
-			{
-				HiddenOverlaySlots.Add(Pair.Key);
-			}
-		}
-	}
 	// 状態が変わった時だけ体のテクスチャを描き直す（アニメ切り替えごとの無駄な再描画を避ける）
 	const bool bOverlayHiddenChanged = HiddenOverlaySlots.Num() != PreviousHiddenOverlaySlots.Num() || !PreviousHiddenOverlaySlots.Includes(HiddenOverlaySlots);
 	if (SkinOverlayComp && bOverlayHiddenChanged)
@@ -4810,10 +5031,18 @@ void AMyProject1Character::SetEquipmentSlotVisible(EEquipmentSlot Slot, bool bVi
 	case EEquipmentSlot::Extra3: if (Extra3MeshComp) Extra3MeshComp->SetVisibility(bVisible); break;
 	case EEquipmentSlot::Extra4: if (Extra4MeshComp) Extra4MeshComp->SetVisibility(bVisible); break;
 	case EEquipmentSlot::Extra5: if (Extra5MeshComp) Extra5MeshComp->SetVisibility(bVisible); break;
+	case EEquipmentSlot::Extra6: if (Extra6MeshComp) Extra6MeshComp->SetVisibility(bVisible); break;
+	case EEquipmentSlot::Extra7: if (Extra7MeshComp) Extra7MeshComp->SetVisibility(bVisible); break;
+	case EEquipmentSlot::Extra8: if (Extra8MeshComp) Extra8MeshComp->SetVisibility(bVisible); break;
+	case EEquipmentSlot::Extra9: if (Extra9MeshComp) Extra9MeshComp->SetVisibility(bVisible); break;
+	case EEquipmentSlot::Extra10: if (Extra10MeshComp) Extra10MeshComp->SetVisibility(bVisible); break;
 
 	default:
 		break;
 	}
+
+	// 鎖もメッシュと同じ表示状態に合わせる（SetAllEquipmentComponentsVisible参照）
+	ApplyCableVisibilityForSlot(Slot, bVisible);
 
 	// 薄地装備（OverlayTexture方式）の非表示状態もメッシュと同じに合わせる（SetAllEquipmentComponentsVisible参照）
 	bool bOverlayHiddenChanged = false;
@@ -4832,6 +5061,29 @@ void AMyProject1Character::SetEquipmentSlotVisible(EEquipmentSlot Slot, bool bVi
 	}
 }
 
+
+void AMyProject1Character::ApplyCableVisibilityForSlot(EEquipmentSlot Slot, bool bVisible)
+{
+	const FName EquippedItemID = GetEquippedItemID(Slot);
+	if (EquippedItemID.IsNone() || !EquipmentDataTable) return;
+
+	// 髪型など鎖を持たない（DT_Equipmentsに行が無いこともある）スロットも通るため、行が無くても警告は出さない
+	const FEquipmentData* EquipData = EquipmentDataTable->FindRow<FEquipmentData>(EquippedItemID, TEXT("ApplyCableVisibilityForSlot"), false);
+	if (!EquipData || EquipData->CableSettings.AttachType == ECableAttachType::None) return;
+
+	const bool bIsHands = (Slot == EEquipmentSlot::Hands || Slot == EEquipmentSlot::Wrist);
+	if (UCableComponent* Cable = bIsHands ? EquipmentCableComp_Hands : EquipmentCableComp)
+	{
+		Cable->SetHiddenInGame(!bVisible);
+	}
+
+	// 武器サブメッシュは、鎖の終点につながる種別（WeaponToSub/ToWorldObject）でだけ使われる
+	const ECableAttachType AttachType = EquipData->CableSettings.AttachType;
+	if (!bIsHands && WeaponSubMeshComp && (AttachType == ECableAttachType::WeaponToSub || AttachType == ECableAttachType::ToWorldObject))
+	{
+		WeaponSubMeshComp->SetHiddenInGame(!bVisible);
+	}
+}
 
 void AMyProject1Character::RefreshEquipmentStats()
 {
@@ -4969,59 +5221,59 @@ void AMyProject1Character::RefreshEquipmentStats()
 	//      ここでは「前回の装備が加算していた分」との差分だけを反映して二重加算を防ぐ
 	for (const auto& NewPair : NewExtraStatBonuses)
 	{
-		const float OldBonus = EquipmentExtraStatBonuses.FindRef(NewPair.Key);
+		const float OldBonus = MyStats.EquipmentExtraStatBonuses.FindRef(NewPair.Key);
 		const float Delta = NewPair.Value - OldBonus;
 		if (Delta != 0.0f)
 		{
 			MyStats.ExtraStats.FindOrAdd(NewPair.Key) += Delta;
 		}
 	}
-	for (const auto& OldPair : EquipmentExtraStatBonuses)
+	for (const auto& OldPair : MyStats.EquipmentExtraStatBonuses)
 	{
 		if (!NewExtraStatBonuses.Contains(OldPair.Key))
 		{
 			MyStats.ExtraStats.FindOrAdd(OldPair.Key) -= OldPair.Value;
 		}
 	}
-	EquipmentExtraStatBonuses = NewExtraStatBonuses;
+	MyStats.EquipmentExtraStatBonuses = NewExtraStatBonuses;
 
 	// 2-d. 病気・ケガ／タトゥー／ピアス分のExtraStatsも、装備分とは別の記録との差分だけを反映する
 	for (const auto& NewPair : NewSkinOverlayExtraStatBonuses)
 	{
-		const float OldBonus = SkinOverlayExtraStatBonuses.FindRef(NewPair.Key);
+		const float OldBonus = MyStats.SkinOverlayExtraStatBonuses.FindRef(NewPair.Key);
 		const float Delta = NewPair.Value - OldBonus;
 		if (Delta != 0.0f)
 		{
 			MyStats.ExtraStats.FindOrAdd(NewPair.Key) += Delta;
 		}
 	}
-	for (const auto& OldPair : SkinOverlayExtraStatBonuses)
+	for (const auto& OldPair : MyStats.SkinOverlayExtraStatBonuses)
 	{
 		if (!NewSkinOverlayExtraStatBonuses.Contains(OldPair.Key))
 		{
 			MyStats.ExtraStats.FindOrAdd(OldPair.Key) -= OldPair.Value;
 		}
 	}
-	SkinOverlayExtraStatBonuses = NewSkinOverlayExtraStatBonuses;
+	MyStats.SkinOverlayExtraStatBonuses = NewSkinOverlayExtraStatBonuses;
 
 	// 2-e. 月齢サイクルのフェーズ分のExtraStatsも、他の記録とは別に差分だけを反映する
 	for (const auto& NewPair : NewCyclePhaseExtraStatBonuses)
 	{
-		const float OldBonus = CyclePhaseExtraStatBonuses.FindRef(NewPair.Key);
+		const float OldBonus = MyStats.CyclePhaseExtraStatBonuses.FindRef(NewPair.Key);
 		const float Delta = NewPair.Value - OldBonus;
 		if (Delta != 0.0f)
 		{
 			MyStats.ExtraStats.FindOrAdd(NewPair.Key) += Delta;
 		}
 	}
-	for (const auto& OldPair : CyclePhaseExtraStatBonuses)
+	for (const auto& OldPair : MyStats.CyclePhaseExtraStatBonuses)
 	{
 		if (!NewCyclePhaseExtraStatBonuses.Contains(OldPair.Key))
 		{
 			MyStats.ExtraStats.FindOrAdd(OldPair.Key) -= OldPair.Value;
 		}
 	}
-	CyclePhaseExtraStatBonuses = NewCyclePhaseExtraStatBonuses;
+	MyStats.CyclePhaseExtraStatBonuses = NewCyclePhaseExtraStatBonuses;
 
 	// 2-f. Fame/Favor/Hostility/Charm/Alcohol/SPはアイテム消費・会話等でも恒久的に増減する値のため、
 	//      ExtraStatsと同様に「前回加算した分」との差分だけを反映する（記録はMyStatsに持たせてセーブ/ロードでも二重加算しない）
@@ -5636,7 +5888,7 @@ void AMyProject1Character::TryAddSkinOverlay(FName RowName, bool bIsShopPurchase
 	else
 	{
 		if (ShopCategory == EShopModeCategory::Disease) OnReceiveLogMessage(FString::Printf(TEXT("【%s】が治癒した。"), *TargetName), ELogMessageType::System);
-		else if (ShopCategory == EShopModeCategory::Scar) OnReceiveLogMessage(FString::Printf(TEXT("【%s】が綺麗に整形された。"), *TargetName), ELogMessageType::System);
+		else if (ShopCategory == EShopModeCategory::Scar) OnReceiveLogMessage(FString::Printf(TEXT("【%s】の痕が身体に残った。"), *TargetName), ELogMessageType::System);
 		else OnReceiveLogMessage(FString::Printf(TEXT("体に新たな刺青【%s】が刻まれた。"), *TargetName), ELogMessageType::System);
 	}
 }
