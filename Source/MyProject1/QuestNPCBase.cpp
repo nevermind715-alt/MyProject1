@@ -73,6 +73,8 @@ void AQuestNPCBase::BeginPlay()
 	// DT_Equipments側の重ね着（見た目のみ）を適用する
 	ApplyInitialEquipment();
 
+	ApplyFaceMorphOverrides();
+
 	StartIdleAnimSequence();
 
 	// AMyProject1Character由来のCameraBoom/FollowCameraはNPCでは使わない。
@@ -87,9 +89,83 @@ void AQuestNPCBase::BeginPlay()
 		Cam->DestroyComponent();
 	}
 
+	InitTimeWindowVisibility();
+
 	if (VisibilityMode == EFlagVisibilityMode::None || VisibilityFlag.IsNone()) return;
 
 	InitFlagVisibilityWhenReady();
+}
+
+void AQuestNPCBase::ApplyFaceMorphOverrides()
+{
+	for (const TPair<FName, float>& Override : FaceMorphOverrides)
+	{
+		ApplyFaceMorph(Override.Key, Override.Value);
+	}
+}
+
+void AQuestNPCBase::ApplyFaceMorph(FName MorphTargetName, float Value)
+{
+	if (MorphTargetName.IsNone()) return;
+
+	// bRemoveZeroWeight=falseにしないと、0指定が「上書きを削除」扱いになり、アニメが出している値を0に抑えられない
+	GetMesh()->SetMorphTarget(MorphTargetName, Value, false);
+
+	// まばたき（UpdateBlink）はBlinkMorphNameを自分の値で書き換え、終了時に0で上書きしてしまうため、
+	// このモーフを上書きする間は次のまばたきが始まらないようにする（途中まで閉じていた場合もここで打ち切る）
+	if (MorphTargetName == BlinkMorphName)
+	{
+		bIsBlinking = false;
+		CurrentBlinkValue = 0.0f;
+		TimeUntilNextBlink = TNumericLimits<float>::Max();
+	}
+}
+
+void AQuestNPCBase::SetFaceMorphOverride(FName MorphTargetName, float Value)
+{
+	if (MorphTargetName.IsNone()) return;
+
+	FaceMorphOverrides.Add(MorphTargetName, Value);
+	ApplyFaceMorph(MorphTargetName, Value);
+}
+
+void AQuestNPCBase::ClearFaceMorphOverrides()
+{
+	for (const TPair<FName, float>& Override : FaceMorphOverrides)
+	{
+		// 0かつ既定のbRemoveZeroWeight=trueで、MorphTargetCurvesからエントリごと取り除く（元のアニメ駆動の値に戻る）
+		GetMesh()->SetMorphTarget(Override.Key, 0.0f);
+	}
+	FaceMorphOverrides.Reset();
+
+	// ApplyFaceMorphで止めていた自動まばたきを再開する
+	if (TimeUntilNextBlink == TNumericLimits<float>::Max())
+	{
+		TimeUntilNextBlink = FMath::RandRange(BlinkIntervalMin, BlinkIntervalMax);
+	}
+}
+
+void AQuestNPCBase::InitTimeWindowVisibility()
+{
+	if (!ActiveTimeWindow.bEnabled) return;
+
+	UMyProject1GameInstance* GameInst = GetGameInstance<UMyProject1GameInstance>();
+	if (!GameInst) return;
+
+	GameInst->OnInGameTimeChanged.AddDynamic(this, &AQuestNPCBase::OnInGameTimeChangedHandler);
+
+	// レベル移動後・ロード後でも、GameInstanceに常駐している現在時刻でそのまま判定できる
+	bTimeAllowsVisible = ActiveTimeWindow.IsActiveAt(GameInst->CurrentTimeInMinutes);
+	ApplyCombinedVisibility();
+}
+
+void AQuestNPCBase::OnInGameTimeChangedHandler(int32 Year, int32 Month, int32 Day, int32 Hour, int32 Minute)
+{
+	const bool bNewAllows = ActiveTimeWindow.IsActiveAt(Hour * 60 + Minute);
+	if (bNewAllows == bTimeAllowsVisible) return;
+
+	bTimeAllowsVisible = bNewAllows;
+	ApplyCombinedVisibility();
 }
 
 void AQuestNPCBase::InitFlagVisibilityWhenReady()
@@ -240,7 +316,13 @@ void AQuestNPCBase::UpdateFlagVisibility(const AMyProject1Character* PlayerChar)
 
 void AQuestNPCBase::ApplyVisibilityForFlagState(bool bHasFlag)
 {
-	const bool bVisible = (VisibilityMode == EFlagVisibilityMode::ShowOnFlag) ? bHasFlag : !bHasFlag;
+	bFlagAllowsVisible = (VisibilityMode == EFlagVisibilityMode::ShowOnFlag) ? bHasFlag : !bHasFlag;
+	ApplyCombinedVisibility();
+}
+
+void AQuestNPCBase::ApplyCombinedVisibility()
+{
+	const bool bVisible = bFlagAllowsVisible && bTimeAllowsVisible;
 	SetActorHiddenInGame(!bVisible);
 	SetActorEnableCollision(bVisible);
 }
@@ -275,6 +357,11 @@ void AQuestNPCBase::EndPlay(const EEndPlayReason::Type EndPlayReason)
 
 	// フラグ表示の初期化待ちタイマーが回っている途中でNPCが消えた場合の後始末
 	GetWorldTimerManager().ClearTimer(FlagVisibilityInitTimerHandle);
+
+	if (UMyProject1GameInstance* GameInst = GetGameInstance<UMyProject1GameInstance>())
+	{
+		GameInst->OnInGameTimeChanged.RemoveDynamic(this, &AQuestNPCBase::OnInGameTimeChangedHandler);
+	}
 
 	Super::EndPlay(EndPlayReason);
 }
@@ -580,6 +667,34 @@ void AQuestNPCBase::TalkToNPC(AMyProject1Character* PlayerChar)
 		if (!SeqRowName.IsNone() && DialogTable->FindRow<FDialogData>(SeqRowName, TEXT("DailyDialogSequence"), false))
 		{
 			StartDialogFacingPlayer(PlayerChar, RpgInterface, SeqRowName, TEXT("日替わりシーケンス行"));
+			return;
+		}
+	}
+
+	// 1日1回だけ話せる会話（FirstMeet・日替わりシーケンスの後、ConditionalDialogsの前）。
+	// 「最後に話した日」(TotalElapsedDays)をMyStats.DailyDialogProgressのLastAdvanceDayに記録し、今日と比べる。
+	// 日付が変わればLastAdvanceDay < CurrentDayになるので、フラグを消す処理なしで自動的にまた話せる。
+	// 記録は会話開始時に行う（途中で会話を閉じても「話した」扱い）。
+	// 対象行が未設定／DialogTableに無い場合は、記録せず通常判定へフォールスルーする
+	if (bEnableOncePerDayDialog && !OncePerDayID.IsNone())
+	{
+		int32 CurrentDay = 0;
+		if (UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetGameInstance()))
+		{
+			CurrentDay = GameInst->TotalElapsedDays;
+		}
+
+		FDailyDialogProgress& OncePerDayProgress = RpgInterface->GetCharacterStats().DailyDialogProgress.FindOrAdd(OncePerDayID);
+		const bool bAlreadyTalkedToday = (OncePerDayProgress.LastAdvanceDay >= 0 && CurrentDay <= OncePerDayProgress.LastAdvanceDay);
+
+		const FName OncePerDayRow = bAlreadyTalkedToday ? DialogRowName_OncePerDayDone : DialogRowName_OncePerDay;
+		if (!OncePerDayRow.IsNone() && DialogTable->FindRow<FDialogData>(OncePerDayRow, TEXT("OncePerDayDialog"), false))
+		{
+			if (!bAlreadyTalkedToday)
+			{
+				OncePerDayProgress.LastAdvanceDay = CurrentDay;
+			}
+			StartDialogFacingPlayer(PlayerChar, RpgInterface, OncePerDayRow, TEXT("1日1回会話行"));
 			return;
 		}
 	}

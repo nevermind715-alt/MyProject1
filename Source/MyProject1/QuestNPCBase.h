@@ -86,6 +86,27 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC|Daily Sequence", meta = (EditCondition = "bEnableDailyDialogSequence"))
 	FName DailyDialogSequenceDoneRow;
 
+	// --- 1日1回だけ話せる会話 ---
+	// チェックを入れると、ゲーム内で1日（日付が変わるまで）に1回だけ DialogRowName_OncePerDay を表示し、
+	// 同じ日にもう一度話しかけた場合は DialogRowName_OncePerDayDone を表示する。日付が変わると自動でまた話せる。
+	// 「最後に話した日」を会話開始時にプレイヤーのセーブデータへ記録するので、フラグの手管理は不要。
+	// 判定はFirstMeetFlagと日替わりシーケンスの後・ConditionalDialogsの前
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC|Once Per Day")
+	bool bEnableOncePerDayDialog = false;
+
+	// 記録を保存するための一意なID（NPCごとに別名にする。DailyDialogSequenceIDとも別名にすること）。
+	// これがセーブ内のキーになるので、後から変更すると記録がリセットされる
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC|Once Per Day", meta = (EditCondition = "bEnableOncePerDayDialog"))
+	FName OncePerDayID;
+
+	// その日の最初の会話で表示する行
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC|Once Per Day", meta = (EditCondition = "bEnableOncePerDayDialog"))
+	FName DialogRowName_OncePerDay;
+
+	// その日すでに話した後に表示する行（空欄／DialogTableに無い場合は通常の会話判定へフォールスルー）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC|Once Per Day", meta = (EditCondition = "bEnableOncePerDayDialog"))
+	FName DialogRowName_OncePerDayDone;
+
 	// 日替わり会話シーケンスを1歩進める（会話行の到達だけでは進めない。DialogのbAdvanceDailySequenceがtrueの
 	// 選択肢／行から呼ばれる）。「はい/いいえ」のような分岐で、実際にステップを完了したと判断できる方にだけ
 	// チェックを入れることで、「いいえ」を選んだ場合は進行が更新されず、次に話しかけた時に同じ行がもう一度出る、
@@ -118,6 +139,11 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC|Flag Visibility")
 	EFlagVisibilityMode VisibilityMode = EFlagVisibilityMode::None;
 
+	/** ゲーム内時間帯による表示切り替え（例：18時〜22時だけ居るNPC）。VisibilityFlagと併用した場合は、
+	    フラグ条件と時間帯の両方を満たしている間だけ表示される */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC|Time Visibility")
+	FActiveTimeWindow ActiveTimeWindow;
+
 	// --- NPC装備（見た目のみ） ---
 	// DT_Equipments（EquipmentDataTable、AMyProject1Character由来）のRowNameを並べるだけで、
 	// BeginPlay時に継承済みのEquipItem()経由でスケルタルメッシュ／スタティックメッシュ／スキンオーバーレイの
@@ -147,6 +173,22 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC|Idle Animation")
 	FName IdleAnimSequenceRowName;
 
+	// --- 表情モーフの上書き（プレイヤーと同じメッシュをNPCに使う場合の表情づくり用） ---
+	// キー＝モーフターゲット名、値＝モーフの強さ（0〜1）。BeginPlay時に一度だけUSkeletalMeshComponent::SetMorphTargetで
+	// セットする。SetMorphTargetの値はアニメ（ABP）が出すモーフカーブより後に適用されて上書きするため、毎フレームの処理は不要。
+	// 0を指定すると「アニメ側が出している値を0に抑える」上書きになる。
+	// BlinkMorphName（まばたきのモーフ）をここに入れた場合は、まばたきが上書きを消してしまわないよう、このNPCの自動まばたきを止める
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "QuestNPC|Face Morph")
+	TMap<FName, float> FaceMorphOverrides;
+
+	/** 表情モーフの上書きを1つ追加／更新して即座に反映する（実行中に表情を変えたい時用。FaceMorphOverridesにも記録される） */
+	UFUNCTION(BlueprintCallable, Category = "QuestNPC|Face Morph")
+	void SetFaceMorphOverride(FName MorphTargetName, float Value);
+
+	/** FaceMorphOverridesで上書きしているモーフを全て0へ戻し、上書きを解除する（止めていた自動まばたきも再開する） */
+	UFUNCTION(BlueprintCallable, Category = "QuestNPC|Face Morph")
+	void ClearFaceMorphOverrides();
+
 	/** 会話終了後の向き戻し（ETurnMode::ReturnAfterTalk）が進行中なら、即座にPreTalkRotationへ確定させて打ち切る。
 	    AnimEvent（NPCとの位置合わせアニメーション）等、このNPCのActor向きを外部から使いたい処理が、
 	    TickTurnによる戻り回転の途中に基準値をキャッシュしてしまい、位置がズレるのを防ぐために呼ぶ */
@@ -158,6 +200,12 @@ protected:
 	virtual bool ShouldApplyEquipmentStatBonuses() const override { return false; }
 
 private:
+	/** FaceMorphOverridesの全エントリをメッシュへ反映する（BeginPlayから呼ぶ） */
+	void ApplyFaceMorphOverrides();
+
+	/** 1エントリ分をメッシュへ反映する共通処理（BlinkMorphNameなら自動まばたきも止める） */
+	void ApplyFaceMorph(FName MorphTargetName, float Value);
+
 	/** InitialEquipmentRowNamesをEquipmentDataTableから引いて、BeginPlay時に見た目だけ反映する */
 	void ApplyInitialEquipment();
 
@@ -175,6 +223,16 @@ private:
 	/** bHasFlag（フラグを持っているか）を基に表示/当たり判定を反映する共通処理
 	    （UpdateFlagVisibility・OnPlayerFlagAdded・OnPlayerFlagRemovedの実体を1箇所にまとめたもの） */
 	void ApplyVisibilityForFlagState(bool bHasFlag);
+
+	/** フラグ条件（bFlagAllowsVisible）と時間帯条件（bTimeAllowsVisible）の両方を満たす時だけ表示/当たり判定ONにする */
+	void ApplyCombinedVisibility();
+
+	/** ActiveTimeWindowが有効なら、OnInGameTimeChangedを購読して現在時刻で表示を更新する（BeginPlayから呼ぶ） */
+	void InitTimeWindowVisibility();
+
+	/** ゲーム内時間が進むたびに呼ばれる（OnInGameTimeChangedの購読先）。時間帯の内外が変わったら表示を更新する */
+	UFUNCTION()
+	void OnInGameTimeChangedHandler(int32 Year, int32 Month, int32 Day, int32 Hour, int32 Minute);
 
 	/** プレイヤーがフラグを獲得した時に呼ばれる（OnFlagAddedの購読先）。VisibilityFlag一致時のみ表示を更新する */
 	UFUNCTION()
@@ -252,4 +310,8 @@ private:
 	FTimerHandle FlagVisibilityInitTimerHandle;
 	int32 FlagVisibilityInitAttempts = 0;
 	bool bFlagVisibilityDelegatesBound = false;
+
+	/** ApplyCombinedVisibilityが使う、フラグ条件／時間帯条件それぞれの現在の判定結果（未設定の条件は常に真） */
+	bool bFlagAllowsVisible = true;
+	bool bTimeAllowsVisible = true;
 };

@@ -15,8 +15,13 @@ public:
 
 protected:
 	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 public:
+	/** ゲーム内時間帯による表示切り替え（例：18時〜22時だけ開いている店）。時間帯の外では店員が消えて、話しかけられなくなる */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ShopNPC|Time Visibility")
+	FActiveTimeWindow ActiveTimeWindow;
+
 	// =========================================================
 	// 見た目（メッシュ・アニメーション）
 	// =========================================================
@@ -112,4 +117,12 @@ public:
 	/** BPI_InteractableからEキーで呼び出す、ショップ開店の共通ネイティブ処理 */
 	UFUNCTION(BlueprintCallable, Category = "ShopNPC|Actions")
 	void OpenShop(class AMyProject1Character* PlayerChar);
+
+private:
+	/** ゲーム内時間が進むたびに呼ばれる（OnInGameTimeChangedの購読先）。時間帯の内外が変わったら表示/当たり判定を更新する */
+	UFUNCTION()
+	void OnInGameTimeChangedHandler(int32 Year, int32 Month, int32 Day, int32 Hour, int32 Minute);
+
+	/** bInWindow（時間帯の中か）に応じて表示/当たり判定を反映する */
+	void ApplyTimeWindowVisibility(bool bInWindow);
 };

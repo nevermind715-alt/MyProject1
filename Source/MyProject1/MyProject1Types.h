@@ -1923,6 +1923,38 @@ enum class EFlagVisibilityMode : uint8
 	HideOnFlag UMETA(DisplayName = "フラグが立ったら消える")
 };
 
+// --- ゲーム内時間帯でアクターの表示/非表示を切り替える設定（「18時〜22時だけ居るNPC」等）。QuestNPC／ShopNPCで共通利用 ---
+USTRUCT(BlueprintType)
+struct FActiveTimeWindow
+{
+	GENERATED_BODY()
+
+	/** ONにすると、下の時間帯の間だけ表示される（時間帯の外では消えて当たり判定もOFFになる）。OFFなら常に表示のまま */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Time Window")
+	bool bEnabled = false;
+
+	/** 居始める時刻（ゲーム内の時、0〜23）。この時刻ちょうどから表示される */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Time Window", meta = (EditCondition = "bEnabled", ClampMin = "0", ClampMax = "23"))
+	int32 StartHour = 18;
+
+	/** 居なくなる時刻（ゲーム内の時、0〜24）。この時刻ちょうどに消える。開始より小さい値にすると日をまたぐ
+	    （例：開始22・終了6 → 22時〜翌6時）。開始と同じ値にすると常に表示になる */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Time Window", meta = (EditCondition = "bEnabled", ClampMin = "0", ClampMax = "24"))
+	int32 EndHour = 22;
+
+	/** MinutesOfDay（0〜1439、GameInstance::CurrentTimeInMinutes）が時間帯の中なら真。bEnabledがfalseなら常に真 */
+	bool IsActiveAt(int32 MinutesOfDay) const
+	{
+		if (!bEnabled) return true;
+
+		const int32 StartMinutes = StartHour * 60;
+		const int32 EndMinutes = EndHour * 60;
+		if (StartMinutes == EndMinutes) return true;
+		if (StartMinutes < EndMinutes) return MinutesOfDay >= StartMinutes && MinutesOfDay < EndMinutes;
+		return MinutesOfDay >= StartMinutes || MinutesOfDay < EndMinutes; // 日またぎ
+	}
+};
+
 // --- ワープ先の基本データ（データテーブル用） ---
 USTRUCT(BlueprintType)
 struct FWarpDestination : public FTableRowBase

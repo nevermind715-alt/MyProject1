@@ -1,6 +1,7 @@
 ﻿#include "ShopNPCBase.h"
 #include "MyProject1Character.h"
 #include "MyProject1HUD.h"
+#include "MyProject1GameInstance.h"
 #include "GameFramework/PlayerController.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Animation/AnimSequence.h"
@@ -38,6 +39,38 @@ void AShopNPCBase::BeginPlay()
 			NPCMesh->PlayAnimation(IdleAnimation, true);
 		}
 	}
+
+	if (ActiveTimeWindow.bEnabled)
+	{
+		if (UMyProject1GameInstance* GameInst = GetGameInstance<UMyProject1GameInstance>())
+		{
+			GameInst->OnInGameTimeChanged.AddDynamic(this, &AShopNPCBase::OnInGameTimeChangedHandler);
+
+			// レベル移動後・ロード後でも、GameInstanceに常駐している現在時刻でそのまま判定できる
+			ApplyTimeWindowVisibility(ActiveTimeWindow.IsActiveAt(GameInst->CurrentTimeInMinutes));
+		}
+	}
+}
+
+void AShopNPCBase::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	if (UMyProject1GameInstance* GameInst = GetGameInstance<UMyProject1GameInstance>())
+	{
+		GameInst->OnInGameTimeChanged.RemoveDynamic(this, &AShopNPCBase::OnInGameTimeChangedHandler);
+	}
+
+	Super::EndPlay(EndPlayReason);
+}
+
+void AShopNPCBase::OnInGameTimeChangedHandler(int32 Year, int32 Month, int32 Day, int32 Hour, int32 Minute)
+{
+	ApplyTimeWindowVisibility(ActiveTimeWindow.IsActiveAt(Hour * 60 + Minute));
+}
+
+void AShopNPCBase::ApplyTimeWindowVisibility(bool bInWindow)
+{
+	SetActorHiddenInGame(!bInWindow);
+	SetActorEnableCollision(bInWindow);
 }
 
 // 新設：列挙型をデータテーブル検索用の正しい「FName（文字）」へ内部変換してBlueprintに返す関数
