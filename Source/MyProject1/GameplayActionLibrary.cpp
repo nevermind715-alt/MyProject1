@@ -299,6 +299,20 @@ void UGameplayActionLibrary::ExecuteAction(IRpgCharacterInterface* RpgInterface,
 		}
 		break;
 
+	case EDialogActionType::SkipTime:
+		// ActionPayloadに進める時間数を入れる（"1"で1時間）。待機メニューと同じ暗転付きの時間スキップ経路に乗せる
+		if (World)
+		{
+			if (UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(World->GetGameInstance()))
+			{
+				if (ACharacter* OwnerChar = Cast<ACharacter>(OwnerActor))
+				{
+					GameInst->RequestFadeThenAdvanceTime(FMath::RoundToInt(FCString::Atof(*ActionPayload) * 60.0f), OwnerChar);
+				}
+			}
+		}
+		break;
+
 	case EDialogActionType::Close:
 		// ダイアログUIを閉じる処理は呼び出し側（DialogComponent）が個別に行う。ここでは何もしない
 		break;

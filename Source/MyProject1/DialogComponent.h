@@ -213,6 +213,21 @@ private:
 	/** ナレーション表示中、クリック/決定入力のたびにAdvanceDialogから呼ばれる */
 	void AdvanceFadeNarrationLine();
 
+	/** ナレーションを終了し、追加アクション実行・ナレーション表示の撤去・明転再開の要求までを行う
+	 *  （全行読了時のAdvanceFadeNarrationLineと、暗転中の選択肢を選んだ時のSelectChoiceが共用する） */
+	void FinishFadeNarration();
+
+	/** 行自身がActionType=ShowTextDuringFadeかつChoicesありの場合に、暗転ナレーションの最終行へ選択肢を重ねて出すための印。
+	 *  ShowCurrentLineが暗転を要求する直前に立て、最終行の表示（ShowFadeNarrationLine）で選択肢を出した時に下ろす。
+	 *  選択肢側のShowTextDuringFade（選んだ後の暗転）では立たないため、その暗転では選択肢を出さない */
+	bool bFadeNarrationOffersChoices = false;
+
+	/** 暗転ナレーションの最終行に選択肢を出していて、選ばれるのを待っている間true（この間はAdvanceDialogを受け付けない） */
+	bool bFadeNarrationChoicesActive = false;
+
+	/** 暗転ナレーション中に出した選択肢が選ばれた時の処理（選択肢のアクションを実行してから明転し、その選択肢のNextDialogIDへ続く） */
+	void SelectChoiceDuringFadeNarration(const FDialogChoice& SelectedChoice);
+
 	// --- 会話UI（旧BP_ThirdPersonCharacterのOnDialogUpdated/OnDialogClosed/OnHideChoicesイベントの移植） ---
 
 	/** 選択肢一覧（会話中は使い回し、会話終了で消す） */

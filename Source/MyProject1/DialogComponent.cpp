@@ -73,6 +73,8 @@ bool UDialogComponent::TryStartDialog(FName RowName, UDataTable* DialogTable, AA
 	// （通常フローではBeginFadeNarration/AdvanceFadeNarrationLineが正しく片付けるため、ここは保険）
 	bIsFadeNarrationPending = false;
 	bIsShowingFadeNarration = false;
+	bFadeNarrationOffersChoices = false;
+	bFadeNarrationChoicesActive = false;
 	bRowActionPending = false;
 
 	FDialogData* Data =DialogTable->FindRow<FDialogData>(RowName, TEXT("DialogContext"));
@@ -88,10 +90,9 @@ bool UDialogComponent::TryStartDialog(FName RowName, UDataTable* DialogTable, AA
 	CurrentDialogData = *Data;
 
 	// このセリフにループ用AnimEventが設定されていれば、セリフの表示と同時に再生を始める（同じIDが再生中なら継続）。
-	// ただし、このセリフ自身が暗転ナレーションを起動する行（選択肢なしのShowTextDuringFade）の場合は、今は画面が見えているため始めない。
-	// 画面が真っ暗になって見えなくなった時（BeginFadeNarration）に始める
-	const bool bRowStartsNarration = CurrentDialogData.Choices.Num() == 0
-		&& CurrentDialogData.ActionType == EDialogActionType::ShowTextDuringFade;
+	// ただし、このセリフ自身が暗転ナレーションを起動する行（ShowTextDuringFade。選択肢ありでも暗転中に選択肢を出す）の場合は、
+	// 今は画面が見えているため始めない。画面が真っ暗になって見えなくなった時（BeginFadeNarration）に始める
+	const bool bRowStartsNarration = CurrentDialogData.ActionType == EDialogActionType::ShowTextDuringFade;
 	if (!bRowStartsNarration)
 	{
 		StartRowLoopAnimEvent(CurrentDialogData.LoopAnimEventID);
@@ -138,6 +139,13 @@ void UDialogComponent::SelectChoice(int32 ChoiceIndex)
 	if (!CurrentDialogData.Choices.IsValidIndex(ChoiceIndex)) return;
 
 	const FDialogChoice& SelectedChoice = CurrentDialogData.Choices[ChoiceIndex];
+
+	// 暗転ナレーションの最終行に重ねて出した選択肢は、通常の選択とは後始末（明転）が違うので専用処理へ回す
+	if (bFadeNarrationChoicesActive)
+	{
+		SelectChoiceDuringFadeNarration(SelectedChoice);
+		return;
+	}
 
 	bool bStartedFadeNarration = ExecuteActionCore(SelectedChoice.ActionType, SelectedChoice.ActionPayload, SelectedChoice.GrantFlag, SelectedChoice.bFadeOnGrantFlag, SelectedChoice.RemoveFlag, SelectedChoice.bFadeOnRemoveFlag, SelectedChoice.StatToChange, SelectedChoice.StatTargetActor, SelectedChoice.ExtraStatName, SelectedChoice.StatChangeAmount, SelectedChoice.ItemID, SelectedChoice.ItemAmount, SelectedChoice.bAdvanceDailySequence, SelectedChoice.AnimSequenceRowPlayTarget, SelectedChoice.AnimSequenceNPCMeshOverride, SelectedChoice.FadeNarrationText, SelectedChoice.NextDialogID, SelectedChoice.bHideTalkingNPCDuringAnimEvent, SelectedChoice.AdditionalActions);
 
@@ -311,6 +319,31 @@ bool UDialogComponent::ExecuteActionCore(EDialogActionType ActionType, const FSt
 
 	ExecuteAdditionalActions(AdditionalActions);
 
+	// 追加アクションにWarpがある場合も、メインActionType=Warpと同じく明転完了後にNextDialogIDから再開する。
+	// 予約しないと呼び出し元が即座にNextDialogIDの行（暗転セリフ等）を始めてしまい、ExecuteWarpProcessが
+	// 先にナレーション予約を処理して、予約済みのワープが実行されないまま会話が終わる
+	if (!bWarpResumeReserved && ActionType != EDialogActionType::Warp)
+	{
+		const FString NextIDStr = NextDialogIDForNarration.ToString().TrimStartAndEnd();
+		const bool bHasNext = !NextDialogIDForNarration.IsNone() && !NextIDStr.IsEmpty() && NextIDStr.ToLower() != TEXT("none");
+		const bool bHasWarpAction = AdditionalActions.ContainsByPredicate([](const FEventAction& Action)
+			{
+				return Action.ActionType == EDialogActionType::Warp;
+			});
+		if (bHasNext && bHasWarpAction)
+		{
+			if (UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetWorld()->GetGameInstance()))
+			{
+				bWarpResumeReserved = GameInst->ReserveDialogResumeAfterWarp(this, NextDialogIDForNarration);
+				if (bWarpResumeReserved)
+				{
+					// 明転中のAdvanceDialog誤動作を防ぐ（ResumeAfterFadeNarrationのTryStartDialog／CloseDialogが解除する）
+					bIsFadeNarrationPending = true;
+				}
+			}
+		}
+	}
+
 	return bWarpResumeReserved;
 }
 
@@ -426,6 +459,8 @@ void UDialogComponent::CloseDialog()
 	// 暗転ナレーション状態が残ったまま会話が閉じることのないよう、念のためここでもリセットする（保険）
 	bIsFadeNarrationPending = false;
 	bIsShowingFadeNarration = false;
+	bFadeNarrationOffersChoices = false;
+	bFadeNarrationChoicesActive = false;
 	bRowActionPending = false;
 	ResumedSpeakerName.Empty();
 	bResumedAcrossLevel = false;
@@ -480,7 +515,11 @@ void UDialogComponent::AdvanceDialog()
 	// bIsFadeNarrationPending中）は、古いCurrentDialogLinesで通常の会話処理が誤って進まないよう何もしない
 	if (bIsShowingFadeNarration)
 	{
-		AdvanceFadeNarrationLine();
+		// 最終行に選択肢を出している間は、選択肢の入力だけで進める（クリック/スペースで読了扱いにしない）
+		if (!bFadeNarrationChoicesActive)
+		{
+			AdvanceFadeNarrationLine();
+		}
 		return;
 	}
 	if (bIsFadeNarrationPending)
@@ -539,6 +578,12 @@ void UDialogComponent::AdvanceDialog()
 
 bool UDialogComponent::AreChoicesActive() const
 {
+	// 暗転ナレーションの最終行に選択肢を出している間は、選択肢の入力待ち（「進む」ウィジェットを隠す）
+	if (bFadeNarrationChoicesActive)
+	{
+		return true;
+	}
+
 	// 暗転ナレーション中/開始待ち中は、暗転前の選択肢データが残っていても入力待ちとみなさない
 	if (bIsShowingFadeNarration || bIsFadeNarrationPending)
 	{
@@ -615,6 +660,17 @@ void UDialogComponent::ShowCurrentLine()
 		DisplayData.bEndDialog = false;
 	}
 
+	// 暗転セリフ（ShowTextDuringFade）と選択肢を同じ行に設定した場合、選択肢は暗転ナレーションの最終行に重ねて出す。
+	// 暗転前のこの時点では選択肢を出さない（出すと暗転演出中に選択肢が見えてしまう）
+	const bool bRowFadeWithChoices = (CurrentLineIndex == CurrentDialogLines.Num() - 1)
+		&& CurrentDialogData.Choices.Num() > 0
+		&& CurrentDialogData.ActionType == EDialogActionType::ShowTextDuringFade;
+	if (bRowFadeWithChoices)
+	{
+		DisplayData.Choices.Empty();
+		DisplayData.bEndDialog = false;
+	}
+
 	// 選択肢なしの最終ページにアクション（クエスト受注・ステータス変化など）が付いている行は、
 	// 最後のセリフのログとアクションのログが同時に出て読みにくくなるため、ここではアクションを実行せず、
 	// もう一度クリック/決定入力されてからAdvanceDialogが実行する。
@@ -648,12 +704,11 @@ void UDialogComponent::ShowCurrentLine()
 		}
 	}
 
-	// ShowTextDuringFadeの最終ページ（選択肢なし）は暗転演出そのものが目的の行で、
+	// ShowTextDuringFadeの最終ページ（選択肢の有無は問わない）は暗転演出そのものが目的の行で、
 	// DialogTextは空欄運用（実際のセリフはFadeNarrationText側）。通常のOnDialogUpdatedを流すと、
 	// UI側のログ機能等に「NPC名だけ・セリフ空」の行が残ってしまうため、この行だけは通常表示を出さない。
 	// ただし、最終ページに本文が入っている場合は通常のセリフとして表示する（例：4行のセリフの最後で暗転セリフへ移る行は、4行目も出す）
 	bool bIsFinalFadeNarrationTrigger = (CurrentLineIndex == CurrentDialogLines.Num() - 1)
-		&& CurrentDialogData.Choices.Num() == 0
 		&& CurrentDialogData.ActionType == EDialogActionType::ShowTextDuringFade
 		&& CurrentDialogLines[CurrentLineIndex].TrimStartAndEnd().IsEmpty();
 
@@ -665,6 +720,15 @@ void UDialogComponent::ShowCurrentLine()
 
 	if (CurrentLineIndex == CurrentDialogLines.Num() - 1)
 	{
+		// 暗転セリフ＋選択肢の行：暗転を要求する。選択肢は暗転ナレーションの最終行（ShowFadeNarrationLine）で出し、
+		// 選ばれた後の継続（明転→選択肢のNextDialogID）はSelectChoiceDuringFadeNarrationが担当するため、ここで抜ける
+		if (bRowFadeWithChoices)
+		{
+			bFadeNarrationOffersChoices = true;
+			ExecuteRowAction();
+			return;
+		}
+
 		// 選択肢がない会話は、このセリフに直接設定されたアクションをここで実行する
 		// （会話終了設定の場合、この下でAdvanceDialogを経由せず直接CloseDialogするため、ここで実行しないと機会を失う）
 		if (CurrentDialogData.Choices.Num() == 0)
@@ -784,7 +848,45 @@ void UDialogComponent::ShowFadeNarrationLine()
 		ApplyDialogInputMode(DialogAdvanceWidget);
 	}
 
+	// 暗転セリフ＋選択肢の行は、最終行で選択肢を重ねて出す。「進む」ウィジェットを隠せるよう、Broadcastの前に待機状態にしておく
+	const bool bShowChoicesOnThisLine = bFadeNarrationOffersChoices
+		&& CurrentLineIndex == CurrentDialogLines.Num() - 1
+		&& CurrentDialogData.Choices.Num() > 0;
+	if (bShowChoicesOnThisLine)
+	{
+		bFadeNarrationOffersChoices = false;
+		bFadeNarrationChoicesActive = true;
+	}
+
 	OnFadeNarrationLine.Broadcast(FText::FromString(CurrentDialogLines[CurrentLineIndex]));
+
+	if (bShowChoicesOnThisLine)
+	{
+		APlayerController* PC = GetOwnerPlayerController();
+		const AMyProject1HUD* HUD = GetOwnerHUD();
+		if (!PC || !HUD || !HUD->DialogChoiceMenuClass)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[Dialog] HUDの DialogChoiceMenuClass が未設定のため、暗転中の選択肢を表示できません。BP_HUDのクラスデフォルトで WBP_ChoiceMenu を指定してください。"));
+			return;
+		}
+
+		// 暗転ナレーション（ZOrder 10）より前面に出すため、ZOrder 11で追加する。
+		// 既に通常の会話でZOrder 0に出ている使い回しのウィジェットは、一度外して付け直す
+		if (!IsValid(ChoiceMenuWidget))
+		{
+			ChoiceMenuWidget = CreateWidget<UWBP_ChoiceMenu>(PC, HUD->DialogChoiceMenuClass);
+		}
+		if (ChoiceMenuWidget)
+		{
+			if (ChoiceMenuWidget->IsInViewport())
+			{
+				ChoiceMenuWidget->RemoveFromParent();
+			}
+			ChoiceMenuWidget->AddToViewport(11);
+			ChoiceMenuWidget->RefreshChoices(CurrentDialogData.Choices);
+			ApplyDialogInputMode(ChoiceMenuWidget);
+		}
+	}
 }
 
 void UDialogComponent::AdvanceFadeNarrationLine()
@@ -796,6 +898,41 @@ void UDialogComponent::AdvanceFadeNarrationLine()
 		return;
 	}
 
+	FinishFadeNarration();
+}
+
+void UDialogComponent::SelectChoiceDuringFadeNarration(const FDialogChoice& SelectedChoice)
+{
+	bFadeNarrationChoicesActive = false;
+
+	HideChoicesUI();
+	OnHideChoices.Broadcast();
+
+	// 既に暗転中なので、選択肢のアクションはその場で実行し、続けて通常のナレーション終了処理（明転→NextDialogID）へ進む。
+	// ただし以下の2つは、暗転中に実行すると明転されないまま固まるため、アクションとしては実行しない：
+	// ・Close：実行すると明転前に会話が閉じて真っ暗なままになる。NextDialogIDを無視し、明転後に会話を閉じる扱いにする
+	// ・ShowTextDuringFade：暗転の入れ子は未対応（暗転中に再び暗転を要求すると、読了後に明転しない）
+	EDialogActionType ActionType = SelectedChoice.ActionType;
+	FName NextDialogID = SelectedChoice.NextDialogID;
+	if (ActionType == EDialogActionType::Close)
+	{
+		ActionType = EDialogActionType::None;
+		NextDialogID = NAME_None;
+	}
+	else if (ActionType == EDialogActionType::ShowTextDuringFade)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Dialog] 暗転中に出した選択肢のActionTypeにShowTextDuringFadeは使えないため無視します（暗転の入れ子は未対応）。"));
+		ActionType = EDialogActionType::None;
+	}
+
+	ExecuteActionCore(ActionType, SelectedChoice.ActionPayload, SelectedChoice.GrantFlag, SelectedChoice.bFadeOnGrantFlag, SelectedChoice.RemoveFlag, SelectedChoice.bFadeOnRemoveFlag, SelectedChoice.StatToChange, SelectedChoice.StatTargetActor, SelectedChoice.ExtraStatName, SelectedChoice.StatChangeAmount, SelectedChoice.ItemID, SelectedChoice.ItemAmount, SelectedChoice.bAdvanceDailySequence, SelectedChoice.AnimSequenceRowPlayTarget, SelectedChoice.AnimSequenceNPCMeshOverride, SelectedChoice.FadeNarrationText, NextDialogID, SelectedChoice.bHideTalkingNPCDuringAnimEvent, SelectedChoice.AdditionalActions);
+
+	PendingNarrationNextDialogID = NextDialogID;
+	FinishFadeNarration();
+}
+
+void UDialogComponent::FinishFadeNarration()
+{
 	// 全行読み終えた：ナレーション表示を終了し、GameInstance側に明転再開を要求する。
 	// 明転が完了した瞬間、GameInstance::HandleWarpFadeInCompleteからResumeAfterFadeNarrationが呼ばれる
 	bIsShowingFadeNarration = false;

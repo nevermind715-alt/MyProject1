@@ -1151,7 +1151,10 @@ enum class EDialogActionType : uint8
 	// ActionPayloadにDT_QuestDataのQuestIDを入れる。進行中（または報告待ち）のクエストを、目的を達成していなくても
 	// その場で強制的にクリアし、報告完了と同じ報酬付与・完了処理まで行う（NPCやItemPointがいない会話・イベントからの脱出成功など用）。
 	// 受注していない・既にクリア済みのクエストには何も起きない
-	ClearQuest         UMETA(DisplayName = "クエストを強制クリアする（ActionPayload=QuestID）")
+	ClearQuest         UMETA(DisplayName = "クエストを強制クリアする（ActionPayload=QuestID）"),
+	// ActionPayloadに進める時間数（ゲーム内の「時間」。例："1"で1時間）を入れる。待機メニューと同じく暗転を挟んで時計を進め、
+	// 疲労・欲求不満などの経過分もまとめて反映する（UMyProject1GameInstance::RequestFadeThenAdvanceTime）
+	SkipTime           UMETA(DisplayName = "時間をスキップする（ActionPayload=進める時間数）")
 };
 
 // イベント成立時／失敗時／会話の追加アクションとして実行する1アクション分のデータ（FDialogChoiceのアクション部分の簡易版）。
@@ -1372,7 +1375,7 @@ struct FDialogData : public FTableRowBase
 	// 空欄なら何もしない（再生中のループはそのまま継続する）。直前の行と同じIDで再生中なら止めずに継続し、別のIDなら切り替える。
 	// 再生中のループは、会話が終了した時・別のAnimEvent（PlayAnimSequenceアクション等）が再生される時に止まる（暗転ナレーションでは止まらない）。
 	// 暗転ナレーションが絡む場合は、画面が真っ暗で見えなくなってから切り替える：
-	// ・このセリフ自身が暗転ナレーションを起動する行（選択肢なしのShowTextDuringFade）なら、暗転に入ってから再生を始める
+	// ・このセリフ自身が暗転ナレーションを起動する行（ShowTextDuringFade。選択肢ありでも同じ）なら、暗転に入ってから再生を始める
 	// ・暗転ナレーションの直後に続く行にこれが設定されていれば、そのIDへ暗転中のうちに切り替える（無ければこの行の指定を使う）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Animation")
 	FName LoopAnimEventID;
@@ -1389,7 +1392,10 @@ struct FDialogData : public FTableRowBase
 	TArray<FDialogChoice> Choices;
 
 	// --- 選択肢を挟まず、このセリフだけで実行するアクション（Choicesが空の時のみ使用） ---
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Action", meta = (EditCondition = "Choices.Num() == 0"))
+	// ただしShowTextDuringFade（暗転セリフ）だけはChoicesと併用でき、その場合は選択肢が暗転ナレーションの最終行に重なって出る。
+	// 選んだ選択肢のアクションを暗転中に実行した後、明転して選択肢のNextDialogIDへ続く
+	// （選択肢のActionTypeにClose/ShowTextDuringFadeは使えない。Closeは明転後に会話を閉じる扱いになる）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Action", meta = (EditCondition = "Choices.Num() == 0 || ActionType == EDialogActionType::ShowTextDuringFade"))
 	EDialogActionType ActionType = EDialogActionType::None;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dialog|Action")
@@ -2078,15 +2084,23 @@ struct FEventDefinition : public FTableRowBase
 
 	// 飛ばす施設のWarpID（DT_WarpDestinationsの行名）。ClearCondition=Instantの場合はワープしないため空欄でよい。
 	// bUseContextActorLocationInsteadOfWarpがtrueの場合はこちらではなくEventContextActorの座標を使うため空欄でよい
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event", meta = (EditCondition = "ClearCondition != EEventClearCondition::Instant && !bUseContextActorLocationInsteadOfWarp"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event", meta = (EditCondition = "ClearCondition != EEventClearCondition::Instant && !bUseContextActorLocationInsteadOfWarp && !bPlayAnimEventInPlace"))
 	FName WarpID;
 
 	// trueの場合、WarpID（DT_WarpDestinations）を使わず、StartEventのEventContextActor（TriggerEventPoolを
 	// 呼んだOwnerActor。例：BP_SleepPoint）自身のActorTransformへ、暗転を挟んでワープする。
 	// このイベントが成立/失敗した後の戻り先は、EventContextActorがASleepPointの場合はReturnWarpIDではなく、
 	// プレイヤーがそのSleepPointにインタラクトした時点の座標へ戻す（ASleepPoint::GetPreSleepInteractTransform参照）
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event", meta = (EditCondition = "ClearCondition != EEventClearCondition::Instant"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event", meta = (EditCondition = "ClearCondition != EEventClearCondition::Instant && !bPlayAnimEventInPlace"))
 	bool bUseContextActorLocationInsteadOfWarp = false;
+
+	// trueの場合、ワープ（WarpID・bUseContextActorLocationInsteadOfWarp）を一切行わず、プレイヤーがいるその場で
+	// AnimEventID（DT_AnimEvents）を再生する（敵に倒された直後にその場で凌辱アニメを流す等）。
+	// 暗転→明転を挟んでからAnimEventが始まり、全Step完了で成立する点は通常のAnimationSequenceと同じ。
+	// ReturnWarpIDが空欄ならAnimEvent終了後もその場に留まり、設定されていればそこへ戻る。
+	// ClearCondition=AnimationSequenceの時のみ有効
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event", meta = (EditCondition = "ClearCondition == EEventClearCondition::AnimationSequence"))
+	bool bPlayAnimEventInPlace = false;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event")
 	EEventClearCondition ClearCondition = EEventClearCondition::Interact;

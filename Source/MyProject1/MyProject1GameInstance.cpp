@@ -1512,14 +1512,19 @@ void UMyProject1GameInstance::StartEvent(FName EventID, ACharacter* PlayerCharac
 		return;
 	}
 
-	if (Definition->bUseContextActorLocationInsteadOfWarp)
+	// bPlayAnimEventInPlaceはワープ先を使わないため、WarpID・EventContextActorの座標のどちらも検証しない
+	const bool bPlayInPlace = Definition->bPlayAnimEventInPlace && Definition->ClearCondition == EEventClearCondition::AnimationSequence;
+	if (!bPlayInPlace)
 	{
-		if (!EventContextActor) { UE_LOG(LogTemp, Warning, TEXT("StartEvent: EventID '%s' has bUseContextActorLocationInsteadOfWarp but no EventContextActor"), *EventID.ToString()); return; }
-	}
-	else if (Definition->WarpID.IsNone())
-	{
-		UE_LOG(LogTemp, Warning, TEXT("StartEvent: EventID '%s' has no WarpID set"), *EventID.ToString());
-		return;
+		if (Definition->bUseContextActorLocationInsteadOfWarp)
+		{
+			if (!EventContextActor) { UE_LOG(LogTemp, Warning, TEXT("StartEvent: EventID '%s' has bUseContextActorLocationInsteadOfWarp but no EventContextActor"), *EventID.ToString()); return; }
+		}
+		else if (Definition->WarpID.IsNone())
+		{
+			UE_LOG(LogTemp, Warning, TEXT("StartEvent: EventID '%s' has no WarpID set"), *EventID.ToString());
+			return;
+		}
 	}
 
 	bHasActiveEvent = true;
@@ -1725,6 +1730,15 @@ void UMyProject1GameInstance::ContinueEventAfterStartNarration()
 			&UMyProject1GameInstance::HandleActiveEventTimeUp, Definition->TimeLimitSeconds, false);
 	}
 
+	if (Definition->bPlayAnimEventInPlace && Definition->ClearCondition == EEventClearCondition::AnimationSequence)
+	{
+		// ワープ先が無いため、移動は行わず暗転→明転だけを挟む。開始ナレーションで既に暗転済みの場合も、
+		// BeginWarpFadeが「既に暗転済み」として二重に暗転せず明転へ進む。ExecuteWarpProcessは予約が無いため何も移動せず、
+		// 明転後のHandleWarpFadeInCompleteがBeginAnimEventSequenceIfNeededでAnimEventを始める
+		BeginWarpFade(PlayerChar);
+		return;
+	}
+
 	if (Definition->bUseContextActorLocationInsteadOfWarp)
 	{
 		AActor* ContextActor = ActiveEventContextActor.Get();
@@ -1865,7 +1879,8 @@ void UMyProject1GameInstance::ResolveActiveEvent(bool bSuccess)
 
 	const FName ReturnID = Definition ? Definition->ReturnWarpID : NAME_None;
 
-	const bool bUsedContextActorLocation = Definition && Definition->bUseContextActorLocationInsteadOfWarp;
+	// bPlayAnimEventInPlaceが優先されワープしていないため、両方trueが残っていてもテレポート時の一時変更の復元対象にはしない
+	const bool bUsedContextActorLocation = Definition && Definition->bUseContextActorLocationInsteadOfWarp && !Definition->bPlayAnimEventInPlace;
 	AActor* UsedContextActor = ActiveEventContextActor.Get();
 
 	// RequestWarpToTransformのテレポート時に変更していたGravityScale・CameraBoomの衝突判定を元に戻す
