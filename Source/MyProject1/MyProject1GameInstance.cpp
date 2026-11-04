@@ -698,6 +698,15 @@ void UMyProject1GameInstance::HandleWarpFadeInComplete()
 	// DialogComponent側にNextDialogIDへの会話継続（またはCloseDialog）を委ねる
 	if (UDialogComponent* NarrationComponent = ReservedNarrationResumeComponent.Get())
 	{
+		// 暗転セリフの追加アクション（TriggerEvent）で始まったAnimationSequenceのイベントが終わるまでは、会話を継続しない。
+		// 継続すると次の行（NextDialogID）が表示されてログが出たまま、AnimEventが始まってしまう。
+		// 予約は保持したままAnimEventだけを開始し、イベント終了後の明転完了（再びここ）でNextDialogIDへ継続する
+		if (IsActiveEventPendingAnimationSequence())
+		{
+			BeginAnimEventSequenceIfNeeded();
+			return;
+		}
+
 		FName NextDialogID = ReservedNarrationResumeNextDialogID;
 		ReservedNarrationResumeComponent.Reset();
 		ReservedNarrationResumeNextDialogID = NAME_None;
@@ -738,6 +747,14 @@ void UMyProject1GameInstance::ResumeDialogAfterCrossLevelWarp()
 		return;
 	}
 
+	// 別マップへ移った先でAnimationSequenceのイベントを行う場合も、イベントが終わるまで会話を再開しない（引き継ぎ情報は保持する）。
+	// イベント終了後の明転完了（HandleWarpFadeInComplete）で再びここを通った時に再開する
+	if (IsActiveEventPendingAnimationSequence())
+	{
+		BeginAnimEventSequenceIfNeeded();
+		return;
+	}
+
 	UDataTable* DialogTable = PendingCrossLevelDialogTable.LoadSynchronous();
 	const FName RowName = PendingCrossLevelDialogRowName;
 	bPendingCrossLevelDialogResume = false;
@@ -765,6 +782,24 @@ void UMyProject1GameInstance::ResumeDialogAfterCrossLevelWarp()
 	// 暗転セリフの追加アクション（TriggerEvent）で始まったイベントが別マップ行きでClearCondition=AnimationSequenceの場合、
 	// 通常のワープ明転後（HandleWarpFadeInComplete）と同じくここでAnimEventを開始する。進行中イベントが無い／開始済みなら何もしない
 	BeginAnimEventSequenceIfNeeded();
+}
+
+void UMyProject1GameInstance::ResumeDialogAfterEventIfNeeded()
+{
+	if (IsActiveEventPendingAnimationSequence()) return;
+
+	if (UDialogComponent* NarrationComponent = ReservedNarrationResumeComponent.Get())
+	{
+		const FName NextDialogID = ReservedNarrationResumeNextDialogID;
+		ReservedNarrationResumeComponent.Reset();
+		ReservedNarrationResumeNextDialogID = NAME_None;
+
+		NarrationComponent->ResumeAfterFadeNarration(NextDialogID);
+	}
+	else if (bPendingCrossLevelDialogResume)
+	{
+		ResumeDialogAfterCrossLevelWarp();
+	}
 }
 
 void UMyProject1GameInstance::StartPendingEventDialogIfNeeded()
@@ -2040,7 +2075,9 @@ void UMyProject1GameInstance::ContinueEventAfterEndNarration()
 		// HandleWarpFadeInComplete側の呼び出しを待たず、ここで保留中の時間経過・疲労反映を確定させる
 		ApplyPendingSleepTimeAdvanceIfNeeded();
 
-		// 暗転も戻り先ワープも無く、HandleWarpFadeInCompleteが呼ばれないため、予約された会話もここで始める
+		// 暗転も戻り先ワープも無く、HandleWarpFadeInCompleteが呼ばれないため、イベント終了待ちで保留していた会話の継続と
+		// 予約された会話もここで始める
+		ResumeDialogAfterEventIfNeeded();
 		StartPendingEventDialogIfNeeded();
 	}
 }

@@ -867,6 +867,12 @@ private:
 	 *  PendingCrossLevelDialogRowNameから再開する。新しいプレイヤーがまだ生成されていなければ少し待って再試行する */
 	void ResumeDialogAfterCrossLevelWarp();
 
+	/** 暗転セリフの追加アクション（TriggerEvent）で始まったAnimationSequenceのイベントが終わるまで保留していた
+	 *  会話の継続（NextDialogID）を、イベント終了後に再開する。保留する会話が無い、またはイベントがまだ進行中なら何もしない。
+	 *  明転を伴わずにイベントが終わるタイミング（ContinueEventAfterEndNarrationの保険経路）から呼ぶ。
+	 *  明転を伴う通常の経路はHandleWarpFadeInCompleteが同じ予約を再開する */
+	void ResumeDialogAfterEventIfNeeded();
+
 	/** ExecuteEventActionListがActionType=StartDialogで予約した会話（PendingEventDialogRowName）を、
 	 *  今のプレイヤーの会話として始める。予約が無ければ何もしない。戻り先への移動・明転が終わるタイミング
 	 *  （HandleWarpFadeInComplete）と、暗転を伴わずにイベントが終わるタイミングから呼ぶ。

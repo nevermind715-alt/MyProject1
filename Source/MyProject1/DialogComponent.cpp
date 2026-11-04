@@ -527,6 +527,18 @@ void UDialogComponent::AdvanceDialog()
 		return;
 	}
 
+	// 暗転セリフの追加アクション（TriggerEvent）などで始まったイベントのAnimEvent再生中は、会話を進めない。
+	// 暗転明けに次の行（NextDialogID）が表示されたまま同じ呼び出しでAnimEventが始まるため、ここで止めないと
+	// 再生中のクリック/スペースで会話が先へ進み、次の暗転セリフやイベント抽選が重複して発動してしまう。
+	// 行のLoopAnimEventID（会話中に再生し続ける）はイベント進行中ではないので、この判定の対象外
+	if (const UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetWorld()->GetGameInstance()))
+	{
+		if (GameInst->IsActiveEventPendingAnimationSequence())
+		{
+			return;
+		}
+	}
+
 	if (CurrentLineIndex < CurrentDialogLines.Num() - 1)
 	{
 		CurrentLineIndex++;

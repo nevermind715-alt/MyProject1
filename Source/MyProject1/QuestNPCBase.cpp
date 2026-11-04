@@ -586,6 +586,10 @@ void AQuestNPCBase::TalkToNPC(AMyProject1Character* PlayerChar)
 {
 	if (!PlayerChar || !DialogTable) return;
 
+	// 会話中・AnimEvent再生中などの入力ロック中は会話を開始しない（TryStartDialogは排他用フラグを無条件にリセットするため、
+	// 呼び出し側がロックを見ていないEキー等のBP経路でも、ここで止めないとAnimEvent中に会話が最初の行からやり直しになる）
+	if (PlayerChar->bIsInputLocked || PlayerChar->bAnimEventInputLocked) return;
+
 	IRpgCharacterInterface* RpgInterface = Cast<IRpgCharacterInterface>(PlayerChar);
 	if (!RpgInterface) return;
 
