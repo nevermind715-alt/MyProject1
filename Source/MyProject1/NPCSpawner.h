@@ -81,12 +81,48 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Settings")
 	FName RequiredFlag;
 
+	/** RequiredFlag運用時のみ有効。フラグを獲得（または別レベルからの復元で検知）してから、敵がスポーンするまでの
+	    待機秒数。0なら即時スポーン（従来動作）。ワープで入る闘技場など、入場の数秒後に敵を出したい時に使う */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Settings", meta = (ClampMin = "0.0"))
+	float FlagSpawnDelaySeconds = 0.0f;
+
 	/** 空欄でなければ、このスポナーが湧かせた個体が討伐された時にプレイヤーへ付与するフラグ。
 	    お使い・会話（Delivery）クエストなど TargetID で討伐を追えないクエストで、
 	    「悪党を倒したか」を依頼主への報告選択肢の RequiredFlag でゲートするために使う。
 	    RequiredFlag 運用時は、そのフラグが外れる（＝次の周回が始まる）タイミングでこのフラグも自動で外れる */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Settings")
 	FName GrantFlagOnEnemyDeath;
+
+	/** このスポナーが湧かせた個体を討伐した時に、プレイヤーへ渡す賞金（￥）。0なら何も渡さない（従来動作）。
+	    討伐の瞬間に所持金へ加算し、ログに「賞金として ○○￥ 手に入れた。」と表示する（闘技場の賞金など） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Settings", meta = (ClampMin = "0"))
+	int32 GilRewardOnEnemyDeath = 0;
+
+	/** 空欄でなければ、このスポナーが湧かせた個体を討伐した時にプレイヤーへ付与するフラグ。
+	    GrantFlagOnEnemyDeathと違い、次の周回（RequiredFlagの消去）でも外さない永続フラグ。
+	    すでに持っているフラグは再付与されない（AddFlagの仕様）ので、実質「最初に勝った1回だけ」付与される。
+	    「初勝利で上位の試合の選択肢が出る」といった会話側のRequiredFlag等に使う。
+	    複数のスポナーで同じ名前にすると「どの相手でも初勝利」、別々の名前にすると「その相手への初勝利」になる */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Settings")
+	FName FirstVictoryFlag;
+
+	/** 空欄でなければ、このスポナーが湧かせた個体をプレイヤーが討伐した時、VictoryWarpDelaySeconds秒後に
+	    このWarpID（DT_WarpDestinationsの行名）へプレイヤーをワープさせる（闘技場の勝利後の退場など）。
+	    RequiredFlag運用時は、ワープの暗転に相乗りしてRequiredFlagも消去する（敗北時と同じく、次の周回の再武装と
+	    RequiredFlag連動の表示切替が元に戻る）。待つ間にプレイヤーが倒れた場合は何もしない（敗北側の処理に任せる） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Settings")
+	FName VictoryWarpID;
+
+	/** 空欄でなければ、プレイヤーがこのスポナーの試合から退場する時（勝利のVictoryWarpIDへのワープ、または敗北）に、
+	    RequiredFlagと一緒にこのフラグも外す。通常／高額など複数のスポナーが同じリングを共有し、RequiredFlagは試合ごとに
+	    別にしつつ、見せ用NPCのVisibilityFlag（1つしか持てない）だけ共通にしたい時に使う（共通フラグをここへ指定する）。
+	    勝利時は、RequiredFlagを先に（暗転なしで）外し、こちらをワープの暗転に相乗りして外す（見せ用の再表示が暗転の裏になる） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Settings")
+	FName FlagToRemoveOnExit;
+
+	/** 討伐してからVictoryWarpIDへワープを始めるまでの待機秒数（勝利の余韻用）。0なら討伐の瞬間に開始する */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Settings", meta = (ClampMin = "0.0"))
+	float VictoryWarpDelaySeconds = 3.0f;
 
 	// --- 上書き用ステータス（ここで設定した値が敵にコピーされます） ---
 
@@ -116,6 +152,19 @@ public:
 	/** スポーンする敵のレベル */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Overrides|Base Stats")
 	int32 SpawnerLevel = 1;
+
+	/** trueなら、スポーンする敵のレベルをSpawnerLevelの代わりに「プレイヤーのレベル＋PlayerLevelOffsetMin〜Max（両端を含む）の
+	    乱数」にする。スポーンのたびに抽選する。プレイヤーがまだ取得できない時（ゲーム開始直後の自動スポーン等）はSpawnerLevelを使う */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Overrides|Base Stats")
+	bool bScaleLevelToPlayer = false;
+
+	/** bScaleLevelToPlayer時の、プレイヤーレベルに足す値の下限（負の値も可） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Overrides|Base Stats", meta = (EditCondition = "bScaleLevelToPlayer"))
+	int32 PlayerLevelOffsetMin = 2;
+
+	/** bScaleLevelToPlayer時の、プレイヤーレベルに足す値の上限。下限より小さい場合は入れ替えて扱う */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Overrides|Base Stats", meta = (EditCondition = "bScaleLevelToPlayer"))
+	int32 PlayerLevelOffsetMax = 7;
 
 	//FName から FString に変更しました！
 	/** スポーンする敵の名前 */
@@ -255,8 +304,18 @@ protected:
 	UFUNCTION()
 	void OnEnemyDeath(AActor* DeadActor);
 
-	/** RequiredFlag運用時、今のフラグ周回で既にスポーン済みかどうか */
+	/** RequiredFlag運用時、今のフラグ周回で既にスポーン済み（FlagSpawnDelaySeconds待機中も含む）かどうか */
 	bool bSpawnedForCurrentFlag = false;
+
+	/** RequiredFlag運用時のスポーン開始。FlagSpawnDelaySecondsが0より大きければその秒数後にSpawnEnemyする */
+	void StartFlagSpawn();
+
+	/** FlagSpawnDelaySeconds待機中のタイマー。待機中にフラグが外れたらキャンセルする */
+	FTimerHandle FlagSpawnTimerHandle;
+
+	/** 討伐後、VictoryWarpDelaySeconds秒待ってから呼ばれる。VictoryWarpIDへワープし、RequiredFlagも消去する */
+	void ExecuteVictoryWarp();
+	FTimerHandle VictoryWarpTimerHandle;
 
 	/** この敵のUEventDistributorComponent::OnDefeatedPlayerの購読先。bRemoveOnPlayerDefeat等に従って
 	    クエスト失敗・RequiredFlag解除・指定Actor／敵の削除を行う（UFUNCTION不要のC++専用デリゲート） */

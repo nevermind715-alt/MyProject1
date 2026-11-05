@@ -73,6 +73,7 @@ public:
 
 	/** 空欄でなければ、戦闘敗北時にEventDistributorChance(%)の抽選に外れた場合、イベントディストリビュータを
 	 *  起動せずこのWarpID（DT_WarpDestinationsの行名。町の治療院など）へワープしてリスタートさせる。
+	 *  EventPoolIDが空の場合は抽選するプールが無いため、EventDistributorChanceに関係なく必ずワープする。
 	 *  ANPCSpawner::WarpToRestartID / SpawnerOverrides|Eventから上書きされる想定 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event")
 	FName WarpToRestartID;

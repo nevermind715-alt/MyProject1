@@ -90,7 +90,20 @@ void ANPCSpawner::SpawnEnemy()
 
 		SpawnedEnemy->JobRow = FinalJobRow;
 		SpawnedEnemy->MyStats.NPCName = FinalNPCName;
-		SpawnedEnemy->MyStats.Level = this->SpawnerLevel;
+		// レベル。FinishSpawning/ApplyJobDataより前に決めるため、HP・各ステータスはこのレベルから計算される。
+		// プレイヤーが取れない場合（ゲーム開始直後の自動スポーン等）はSpawnerLevelのままにする
+		int32 FinalLevel = this->SpawnerLevel;
+		if (bScaleLevelToPlayer)
+		{
+			if (const AMyProject1Character* LevelPlayer = Cast<AMyProject1Character>(UGameplayStatics::GetPlayerCharacter(this, 0)))
+			{
+				const int32 OffsetMin = FMath::Min(PlayerLevelOffsetMin, PlayerLevelOffsetMax);
+				const int32 OffsetMax = FMath::Max(PlayerLevelOffsetMin, PlayerLevelOffsetMax);
+				FinalLevel = FMath::Max(1, LevelPlayer->MyStats.Level + FMath::RandRange(OffsetMin, OffsetMax));
+			}
+		}
+
+		SpawnedEnemy->MyStats.Level = FinalLevel;
 		SpawnedEnemy->SetActorScale3D(FinalScale);
 
 		// 遠い/小さく映る敵のアニメ更新・評価を間引く（URO）。AQuestNPCBaseと同じ理由
@@ -165,7 +178,7 @@ void ANPCSpawner::SpawnEnemy()
 		}
 
 		// 敗北時クリーンアップが有効なら、プレイヤーを倒した後の通知を購読する
-		if (bRemoveOnPlayerDefeat || !FailQuestIDOnPlayerDefeat.IsNone() || ActorsToRemoveOnPlayerDefeat.Num() > 0)
+		if (bRemoveOnPlayerDefeat || !FailQuestIDOnPlayerDefeat.IsNone() || ActorsToRemoveOnPlayerDefeat.Num() > 0 || !FlagToRemoveOnExit.IsNone())
 		{
 			if (UEventDistributorComponent* EventComp = SpawnedEnemy->FindComponentByClass<UEventDistributorComponent>())
 			{
@@ -255,8 +268,7 @@ void ANPCSpawner::InitFlagSpawnWhenReady()
 	{
 		if (!bSpawnedForCurrentFlag && !SpawnedEnemy)
 		{
-			SpawnEnemy();
-			bSpawnedForCurrentFlag = true;
+			StartFlagSpawn();
 		}
 		return; // 確定。リトライ終了
 	}
@@ -284,6 +296,41 @@ void ANPCSpawner::OnEnemyDeath(AActor* DeadActor)
 			}
 		}
 
+		// 賞金の付与（闘技場など）。ワープ待ちの間にプレイヤーが倒れても勝った分は受け取れるよう、討伐の瞬間に渡す
+		if (GilRewardOnEnemyDeath > 0)
+		{
+			if (AMyProject1Character* PlayerChar = Cast<AMyProject1Character>(UGameplayStatics::GetPlayerCharacter(this, 0)))
+			{
+				if (UInventoryComponent* InvComp = PlayerChar->FindComponentByClass<UInventoryComponent>())
+				{
+					InvComp->AddGil(GilRewardOnEnemyDeath);
+					PlayerChar->OnReceiveLogMessage(FString::Printf(TEXT("賞金として %d￥ 手に入れた。"), GilRewardOnEnemyDeath), ELogMessageType::System);
+				}
+			}
+		}
+
+		// 初勝利フラグ（永続）。持っていれば何も起きないので、勝つたびに呼んでも付与されるのは最初の1回だけ
+		if (!FirstVictoryFlag.IsNone())
+		{
+			if (AMyProject1Character* PlayerChar = Cast<AMyProject1Character>(UGameplayStatics::GetPlayerCharacter(this, 0)))
+			{
+				PlayerChar->AddFlag(FirstVictoryFlag);
+			}
+		}
+
+		// 勝利時の退場（闘技場など）。VictoryWarpDelaySeconds秒の余韻を置いてからワープする
+		if (!VictoryWarpID.IsNone())
+		{
+			if (VictoryWarpDelaySeconds > 0.0f)
+			{
+				GetWorldTimerManager().SetTimer(VictoryWarpTimerHandle, this, &ANPCSpawner::ExecuteVictoryWarp, VictoryWarpDelaySeconds, false);
+			}
+			else
+			{
+				ExecuteVictoryWarp();
+			}
+		}
+
 		// RequiredFlag運用時は「1周1体」。フラグが外れて再度立つまでは自動リスポーンしない
 		if (!RequiredFlag.IsNone())
 		{
@@ -295,6 +342,38 @@ void ANPCSpawner::OnEnemyDeath(AActor* DeadActor)
 		{
 			GetWorldTimerManager().SetTimer(RespawnTimerHandle, this, &ANPCSpawner::SpawnEnemy, RespawnTime, false);
 		}
+	}
+}
+
+void ANPCSpawner::ExecuteVictoryWarp()
+{
+	AMyProject1Character* PlayerChar = Cast<AMyProject1Character>(UGameplayStatics::GetPlayerCharacter(this, 0));
+	UMyProject1GameInstance* GameInst = Cast<UMyProject1GameInstance>(GetGameInstance());
+	if (!PlayerChar || !GameInst) return;
+
+	// 余韻の待機中に相打ち等でプレイヤーが倒れていたら、敗北側の処理（HandleDefeatWithoutEvent等）に任せる。
+	// ここでワープすると、敗北側のワープ・復帰と二重に走ってしまう
+	if (PlayerChar->IsDead()) return;
+
+	// RequestFadeThenRemoveFlagは、先に予約されたWarpの暗転に相乗りする仕様のため、必ずRequestWarpの後に呼ぶ
+	// （消去はExecuteWarpProcessの先頭＝画面が真っ暗な間、かつ別レベルへ移動する前に反映される）
+	GameInst->RequestWarp(VictoryWarpID, PlayerChar);
+
+	// RequiredFlagを残したままだと、別レベルから戻った時に再びスポーンしてしまう（敗北側OnEnemyDefeatedPlayerと同じ理由）。
+	// 外すとOnPlayerFlagRemovedが呼ばれ、次の周回に向けた再武装と、RequiredFlag連動の表示切替の復帰が行われる
+	// RequestFadeThenRemoveFlagの予約枠は1つだけなので、FlagToRemoveOnExitがある時は、見た目に影響する側
+	// （見せ用NPCの再表示）を暗転に相乗りさせ、RequiredFlagは暗転なしで先に外す（外してもスポナーの再武装等だけで見た目は変わらない）
+	if (!FlagToRemoveOnExit.IsNone())
+	{
+		if (!RequiredFlag.IsNone())
+		{
+			PlayerChar->RemoveFlag(RequiredFlag);
+		}
+		GameInst->RequestFadeThenRemoveFlag(FlagToRemoveOnExit, PlayerChar);
+	}
+	else if (!RequiredFlag.IsNone())
+	{
+		GameInst->RequestFadeThenRemoveFlag(RequiredFlag, PlayerChar);
 	}
 }
 
@@ -327,6 +406,12 @@ void ANPCSpawner::OnEnemyDefeatedPlayer()
 		if (!RequiredFlag.IsNone())
 		{
 			PlayerChar->RemoveFlag(RequiredFlag);
+		}
+
+		// 複数スポナーで共有している見せ用NPC等のフラグ（勝利時の退場と同じく、ここで外して元の表示へ戻す）
+		if (!FlagToRemoveOnExit.IsNone())
+		{
+			PlayerChar->RemoveFlag(FlagToRemoveOnExit);
 		}
 	}
 
@@ -375,6 +460,19 @@ void ANPCSpawner::OnPlayerFlagAdded(FName FlagName)
 	AMyProject1Character* PlayerChar = Cast<AMyProject1Character>(UGameplayStatics::GetPlayerCharacter(this, 0));
 	if (!ShouldSpawnForFlagState(PlayerChar)) return;
 
+	StartFlagSpawn();
+}
+
+void ANPCSpawner::StartFlagSpawn()
+{
+	if (FlagSpawnDelaySeconds > 0.0f)
+	{
+		// 待機中にOnPlayerFlagAddedやInitFlagSpawnWhenReadyが再度呼ばれても二重にスポーンしないよう、先に印を付ける
+		bSpawnedForCurrentFlag = true;
+		GetWorldTimerManager().SetTimer(FlagSpawnTimerHandle, this, &ANPCSpawner::SpawnEnemy, FlagSpawnDelaySeconds, false);
+		return;
+	}
+
 	SpawnEnemy();
 	bSpawnedForCurrentFlag = true;
 }
@@ -385,6 +483,9 @@ void ANPCSpawner::OnPlayerFlagRemoved(FName FlagName)
 
 	// 次にフラグが立った時、再び1体スポーンできるようにする
 	bSpawnedForCurrentFlag = false;
+
+	// スポーン待機中（FlagSpawnDelaySeconds）にフラグが外れたら、湧かせずにキャンセルする
+	GetWorldTimerManager().ClearTimer(FlagSpawnTimerHandle);
 
 	// 周回リセット：前周に立てた討伐フラグも一緒に外し、依頼主への報告ゲートを再ロックする
 	if (!GrantFlagOnEnemyDeath.IsNone())

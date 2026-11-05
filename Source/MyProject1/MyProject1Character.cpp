@@ -1496,7 +1496,9 @@ float AMyProject1Character::TakeDamage(float DamageAmount, FDamageEvent const& D
 
 					if (UEventDistributorComponent* KillerEventComp = Killer->FindComponentByClass<UEventDistributorComponent>())
 					{
-						if (!KillerEventComp->EventPoolID.IsNone())
+						// EventPoolIDが空でも、WarpToRestartIDだけ設定されていれば（抽選するプールが無い闘技場の敗北など）
+						// この分岐に入り、必ずWarpToRestartIDへワープする（下のワープ判定参照）
+						if (!KillerEventComp->EventPoolID.IsNone() || !KillerEventComp->WarpToRestartID.IsNone())
 						{
 							// EventDistributorStatConditionのステータス条件を満たさない場合はイベントを起動しない。
 							// WarpToRestartIDが無ければ行き先が無いので、EventPoolID未設定の敵に倒された時と同じ通常の敗北復帰へ回す
@@ -1528,8 +1530,10 @@ float AMyProject1Character::TakeDamage(float DamageAmount, FDamageEvent const& D
 							// かつEventDistributorChance(%)の抽選に当たった時だけイベントディストリビュータを起動する。
 							// 条件を満たさない／抽選に外れた場合はイベントを起動せず、
 							// WarpToRestartIDへワープしてリスタートさせる（町の治療院など）
+							// EventPoolIDが空なら抽選するプール自体が無いので、確率に関係なく必ずワープする
 							if (!KillerEventComp->WarpToRestartID.IsNone() &&
-								(!bStatConditionMet ||
+								(KillerEventComp->EventPoolID.IsNone() ||
+								!bStatConditionMet ||
 								FMath::FRandRange(0.0f, 100.0f) > KillerEventComp->EventDistributorChance))
 							{
 								// 全快・ワープを即座に行うと、bIsDead=trueになった直後にfalseへ戻ってしまい、
@@ -1638,7 +1642,7 @@ float AMyProject1Character::TakeDamage(float DamageAmount, FDamageEvent const& D
 						}
 					}
 
-					// 敵側にUEventDistributorComponentが無い／EventPoolIDが未設定の場合は、
+					// 敵側にUEventDistributorComponentが無い／EventPoolIDもWarpToRestartIDも未設定の場合は、
 					// 倒れたまま止まらないようPlayerStartへ復帰させる
 					HandleDefeatWithoutEvent();
 					return ActualDamage;
