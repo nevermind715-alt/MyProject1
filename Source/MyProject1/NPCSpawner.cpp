@@ -336,6 +336,22 @@ void ANPCSpawner::OnEnemyDeath(AActor* DeadActor)
 			}
 		}
 
+		// 討伐でも敗北時と同じくフラグ類を外す。RequiredFlagを外すとOnPlayerFlagRemovedが呼ばれ、再武装とGrantFlagOnEnemyDeathの解除が行われる
+		if (bClearFlagsOnEnemyDeath)
+		{
+			if (AMyProject1Character* PlayerChar = Cast<AMyProject1Character>(UGameplayStatics::GetPlayerCharacter(this, 0)))
+			{
+				if (!RequiredFlag.IsNone())
+				{
+					PlayerChar->RemoveFlag(RequiredFlag);
+				}
+				if (!FlagToRemoveOnExit.IsNone())
+				{
+					PlayerChar->RemoveFlag(FlagToRemoveOnExit);
+				}
+			}
+		}
+
 		// RequiredFlag運用時は「1周1体」。フラグが外れて再度立つまでは自動リスポーンしない
 		if (!RequiredFlag.IsNone())
 		{

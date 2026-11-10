@@ -502,6 +502,13 @@ struct FCharacterStats
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats|Dialog")
 	TMap<FName, FDailyDialogProgress> DailyDialogProgress;
 
+	// --- NPCごとの敵対心の記録（セーブ用） ---
+	// NPC個体のMyStatsはレベルを跨ぐと失われるため、AQuestNPCBase::HostileFlagを設定したNPCの敵対心だけをここへ控える。
+	// キー：そのNPCのHostileFlag（NPCごとに別名なので、そのままNPCの識別子になる）。値：その時点のHostility。
+	// AQuestNPCBase::OnHostilityChangedが書き込み、同フラグがRemoveFlagされるとAMyProject1Character::RemoveFlagが記録ごと消す
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats|Dialog")
+	TMap<FName, float> NPCHostilityRecords;
+
 	// 名前指定でステータス数値を取り出す（クエストの受注条件判定などで使う汎用ルックアップ）
 	// 既知のステータス名で見つからなければExtraStatsにフォールバックする
 	bool TryGetStatValue(FName StatName, float& OutValue) const

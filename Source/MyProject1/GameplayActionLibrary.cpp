@@ -5,6 +5,7 @@
 #include "ConfiscationComponent.h"
 #include "MyProject1GameInstance.h"
 #include "MyProject1Character.h"
+#include "QuestNPCBase.h"
 #include "WarpPortal.h"
 #include "GameFramework/Character.h"
 
@@ -386,6 +387,15 @@ void UGameplayActionLibrary::ApplyStatChange(IRpgCharacterInterface* RpgInterfac
 	case ETargetStat::Hostility:
 		Stats.Hostility += ChangeVal;
 		StatName = TEXT("敵対度");
+
+		// 対象がHostileFlag設定済みのQuestNPCなら、敵対心の記録と閾値判定を行わせる（RpgInterface＝敵対心を加算した側＝プレイヤー）
+		if (StatTargetActor == EStatTargetActor::NPC)
+		{
+			if (AQuestNPCBase* HostileNPC = Cast<AQuestNPCBase>(ContextActor))
+			{
+				HostileNPC->OnHostilityChanged(Cast<AMyProject1Character>(RpgInterface));
+			}
+		}
 		break;
 	case ETargetStat::Fame:
 		Stats.Fame += ChangeVal;

@@ -52,6 +52,12 @@ void AQuestItemPoint::BeginPlay()
 {
 	Super::BeginPlay();
 
+	// コンストラクタで付けた"NPC"タグを外し、プレイヤーのターゲット／インタラクト対象にならないようにする
+	if (bApproachTriggerOnly)
+	{
+		Tags.Remove(FName("NPC"));
+	}
+
 	InitFlagVisibilityWhenReady();
 }
 
@@ -384,10 +390,21 @@ void AQuestItemPoint::ApplyUsedState()
 
 void AQuestItemPoint::OnApproachTriggerBeginOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
 {
-	if (!ApproachSound) return;
+	if (!ApproachSound && ApproachGrantFlag.IsNone()) return;
 
 	// 徘徊中のNPCなどが触れても誤発火しないよう、「Player」タグを持つアクターだけを対象にする（WallWarpLinkと同じ判定方式）
 	if (!OtherActor || !OtherActor->ActorHasTag(TEXT("Player"))) return;
+
+	// 接近でフラグを付与（既に持っていればAddFlagは何もしない）
+	if (!ApproachGrantFlag.IsNone())
+	{
+		if (AMyProject1Character* PlayerChar = Cast<AMyProject1Character>(OtherActor))
+		{
+			PlayerChar->AddFlag(ApproachGrantFlag);
+		}
+	}
+
+	if (!ApproachSound) return;
 
 	if (bApproachSoundOnce && bApproachSoundPlayed) return;
 

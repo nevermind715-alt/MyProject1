@@ -195,6 +195,22 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "QuestNPC")
 	void StopReturnTurnImmediately();
 
+	// --- 敵対心の閾値イベント ---
+	// 空欄なら使わない。設定すると、会話の「Stats to Change」（対象=NPC、ステータス=敵対度）でこのNPCの敵対心が
+	// HostilityThreshold以上になった時、プレイヤーにこのフラグを付与する（以後、このフラグをRequiredFlagにした
+	// QuestItemPoint等が有効になる）。NPCごとに別名にすること（敵対心の記録のセーブ内キーを兼ねるため。後から変更すると記録がリセットされる）。
+	// このフラグがRemoveFlagされると（ANPCSpawnerのFlagToRemoveOnExit等）、敵対心は初期値の1に戻り、セーブ内の記録も消える
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC|Hostility")
+	FName HostileFlag;
+
+	// 敵対心がこの値以上になるとHostileFlagを付与する
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC|Hostility")
+	float HostilityThreshold = 10.0f;
+
+	/** このNPCの敵対心が会話等で変化した直後に呼ぶ（UGameplayActionLibrary::ApplyStatChangeから）。
+	    HostileFlag設定時のみ、現在の敵対心をPlayerCharのセーブ内記録へ控え、閾値以上ならHostileFlagを付与する */
+	void OnHostilityChanged(class AMyProject1Character* PlayerChar);
+
 protected:
 	// 装備によるステータス補正（StatModifiers）を無効化し、NPCの装備を見た目だけの変化にする
 	virtual bool ShouldApplyEquipmentStatBonuses() const override { return false; }
@@ -310,6 +326,21 @@ private:
 	FTimerHandle FlagVisibilityInitTimerHandle;
 	int32 FlagVisibilityInitAttempts = 0;
 	bool bFlagVisibilityDelegatesBound = false;
+
+	/** HostileFlag設定時、プレイヤー生成と別レベルからのステータス復元(ApplyPendingCharacterLoad)を待ってから、
+	    セーブ内に控えた敵対心(NPCHostilityRecords)をこのNPCのMyStats.Hostilityへ反映する。
+	    記録が無い間は復元の遅れを拾うため数回だけ再チェックする（InitFlagVisibilityWhenReadyと同じ方式） */
+	void InitHostilityWhenReady();
+
+	/** プレイヤーがフラグを失った時に呼ばれる（OnFlagRemovedの購読先）。HostileFlag一致時、敵対心を初期値の1へ戻す。
+	    セーブ内の記録の削除はAMyProject1Character::RemoveFlagが行う */
+	UFUNCTION()
+	void OnPlayerFlagRemovedResetHostility(FName FlagName);
+
+	/** InitHostilityWhenReadyの再試行タイマー／試行回数／OnFlagRemoved購読済みフラグ */
+	FTimerHandle HostilityInitTimerHandle;
+	int32 HostilityInitAttempts = 0;
+	bool bHostilityDelegateBound = false;
 
 	/** ApplyCombinedVisibilityが使う、フラグ条件／時間帯条件それぞれの現在の判定結果（未設定の条件は常に真） */
 	bool bFlagAllowsVisible = true;

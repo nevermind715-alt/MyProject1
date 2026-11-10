@@ -182,6 +182,19 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item Interact|Animation")
 	bool bAlignPlayerToPointOnAnimEvent = false;
 
+	// --- 接近でフラグを立てる（見えない踏み込みトリガーとして使う） ---
+	/** 空欄でなければ、プレイヤー（Playerタグ）がApproachTrigger（球。半径はApproachTriggerのSphere Radiusで調整）に
+	    入った時に、プレイヤーへこのフラグを付与する。ANPCSpawnerのRequiredFlagにこのフラグを指定すれば、
+	    「範囲に踏み込むと敵が湧く」になる。RequiredFlagが未達の間はActorごと当たり判定がOFFなので、
+	    RequiredFlag（例：QuestNPCのHostileFlag）を持つまでは踏み込んでも発動しない */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item Interact|Approach Trigger")
+	FName ApproachGrantFlag;
+
+	/** trueなら、このポイントをインタラクト対象（ターゲットカーソル）から外す（"NPC"タグを外す）。
+	    メッシュ等を空にして見えなくしたトリガー専用ポイント向け。外さないと、見えないのに近づくとターゲットされてしまう */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item Interact|Approach Trigger")
+	bool bApproachTriggerOnly = false;
+
 	// --- 演出 ---
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item Interact|Audio")
 	class USoundBase* InteractSound = nullptr;

@@ -3653,6 +3653,11 @@ void AMyProject1Character::RemoveFlag(FName FlagName)
 	if (!FlagName.IsNone() && MyStats.UnlockedFlags.Contains(FlagName))
 	{
 		MyStats.UnlockedFlags.Remove(FlagName);
+
+		// このフラグをHostileFlagにしているNPCの敵対心の記録（NPCHostilityRecords）も消す（敵対心リセット）。
+		// NPCが別レベルにいてロードされていなくても、記録側が消えるので次にNPCが生成された時は初期値に戻る
+		MyStats.NPCHostilityRecords.Remove(FlagName);
+
 		OnFlagRemoved.Broadcast(FlagName);
 	}
 }

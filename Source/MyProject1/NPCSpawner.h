@@ -120,6 +120,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Settings")
 	FName FlagToRemoveOnExit;
 
+	/** trueなら、このスポナーが湧かせた個体をプレイヤーが討伐した瞬間に、敗北時（OnEnemyDefeatedPlayer）と同じく
+	    RequiredFlagとFlagToRemoveOnExitを外す（VictoryWarpIDによる退場を使わない、その場での決着用）。
+	    次の周回に向けた再武装が行われ、GrantFlagOnEnemyDeathも自動で外れる（RequiredFlagの消去に連動）。
+	    「敵対心が閾値を超えると湧く特殊敵」のように、倒しても敗北しても同じ状態（フラグ類のリセット）へ戻したい時に使う。
+	    falseなら従来どおり討伐ではフラグを外さない（お使いクエストの討伐→報告の流れを変えないため） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Settings")
+	bool bClearFlagsOnEnemyDeath = false;
+
 	/** 討伐してからVictoryWarpIDへワープを始めるまでの待機秒数（勝利の余韻用）。0なら討伐の瞬間に開始する */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Settings", meta = (ClampMin = "0.0"))
 	float VictoryWarpDelaySeconds = 3.0f;

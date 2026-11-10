@@ -91,6 +91,9 @@ void AQuestNPCBase::BeginPlay()
 
 	InitTimeWindowVisibility();
 
+	// 下のVisibilityFlag未設定時のreturnより前に呼ぶ（敵対心の記録は表示条件と無関係に復元する）
+	InitHostilityWhenReady();
+
 	if (VisibilityMode == EFlagVisibilityMode::None || VisibilityFlag.IsNone()) return;
 
 	InitFlagVisibilityWhenReady();
@@ -201,6 +204,68 @@ void AQuestNPCBase::InitFlagVisibilityWhenReady()
 	{
 		GetWorldTimerManager().SetTimer(FlagVisibilityInitTimerHandle, this, &AQuestNPCBase::InitFlagVisibilityWhenReady, 0.25f, false);
 	}
+}
+
+void AQuestNPCBase::InitHostilityWhenReady()
+{
+	if (HostileFlag.IsNone()) return;
+
+	AMyProject1Character* PlayerChar = Cast<AMyProject1Character>(UGameplayStatics::GetPlayerCharacter(this, 0));
+
+	// プレイヤーがまだ生成されていない（レベル遷移直後・ローディング画面中など）。少し待って再試行
+	if (!PlayerChar)
+	{
+		if (HostilityInitAttempts++ < 240) // 0.25秒 * 240 = 最大60秒粘る
+		{
+			GetWorldTimerManager().SetTimer(HostilityInitTimerHandle, this, &AQuestNPCBase::InitHostilityWhenReady, 0.25f, false);
+		}
+		return;
+	}
+
+	// 同一マップで敵対フラグが外れた時に、その場で敵対心を戻すための購読（一度だけ）
+	if (!bHostilityDelegateBound)
+	{
+		PlayerChar->OnFlagRemoved.AddDynamic(this, &AQuestNPCBase::OnPlayerFlagRemovedResetHostility);
+		bHostilityDelegateBound = true;
+		HostilityInitAttempts = 0; // ここから記録復元待ちの試行回数を数え直す
+	}
+
+	// セーブ内に記録があれば、このNPCの敵対心へ反映して確定（記録はHostileFlagがRemoveFlagされた時に消えるので、
+	// 記録がある＝リセットされていない敵対心）
+	if (const float* SavedHostility = PlayerChar->MyStats.NPCHostilityRecords.Find(HostileFlag))
+	{
+		MyStats.Hostility = *SavedHostility;
+		return;
+	}
+
+	// 記録がまだ無い。別レベルからのステータス復元(ApplyPendingCharacterLoad)がこのNPCの初期化より後にずれ込む
+	// ケースを拾うため、数回だけ再チェックしてから諦める（本当に記録が無ければ初期値のまま）
+	if (HostilityInitAttempts++ < 20) // 0.25秒 * 20 = 5秒
+	{
+		GetWorldTimerManager().SetTimer(HostilityInitTimerHandle, this, &AQuestNPCBase::InitHostilityWhenReady, 0.25f, false);
+	}
+}
+
+void AQuestNPCBase::OnHostilityChanged(AMyProject1Character* PlayerChar)
+{
+	if (HostileFlag.IsNone() || !PlayerChar) return;
+
+	// レベルを跨いでも失われないよう、プレイヤーのセーブ対象（MyStats）へ現在値を控える
+	PlayerChar->MyStats.NPCHostilityRecords.Add(HostileFlag, MyStats.Hostility);
+
+	// 既に持っていればAddFlagは何もしない（通知も飛ばない）ので、毎回呼んでよい
+	if (MyStats.Hostility >= HostilityThreshold)
+	{
+		PlayerChar->AddFlag(HostileFlag);
+	}
+}
+
+void AQuestNPCBase::OnPlayerFlagRemovedResetHostility(FName FlagName)
+{
+	if (HostileFlag.IsNone() || FlagName != HostileFlag) return;
+
+	// FCharacterStats::Hostilityの初期値（1.0f）に戻す
+	MyStats.Hostility = 1.0f;
 }
 
 void AQuestNPCBase::ApplyInitialEquipment()
@@ -357,6 +422,7 @@ void AQuestNPCBase::EndPlay(const EEndPlayReason::Type EndPlayReason)
 
 	// フラグ表示の初期化待ちタイマーが回っている途中でNPCが消えた場合の後始末
 	GetWorldTimerManager().ClearTimer(FlagVisibilityInitTimerHandle);
+	GetWorldTimerManager().ClearTimer(HostilityInitTimerHandle);
 
 	if (UMyProject1GameInstance* GameInst = GetGameInstance<UMyProject1GameInstance>())
 	{
