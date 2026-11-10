@@ -86,6 +86,12 @@ FName AShopNPCBase::GetShopModeCategoryAsName() const
 	}
 }
 
+int32 AShopNPCBase::GetShopLevelForCategory(EShopModeCategory Category) const
+{
+	const int32* Override = CategoryLevelOverrides.Find(Category);
+	return Override ? *Override : ShopLevel;
+}
+
 TArray<FName> AShopNPCBase::GetAvailableShopItems() const
 {
 	TArray<FName> AvailableItems;
@@ -135,7 +141,7 @@ TArray<FName> AShopNPCBase::GetAvailableShopItems() const
 			// 条件1：アイテムのジャンルがショップと一致しているか
 			// 条件2：アイテムのレベルがNPCの技術レベル以下か
 			// 条件3：非合法アイテムは、非合法販売を許可した店だけが店頭に並べる
-			if (ItemData->ItemType == TargetType && ItemData->ItemLevel <= ShopLevel
+			if (ItemData->ItemType == TargetType && ItemData->ItemLevel <= GetShopLevelForCategory(ShopModeCategory)
 				&& (!ItemData->bIsIllegal || bSellsIllegalItems))
 			{
 				AvailableItems.Add(RowName);

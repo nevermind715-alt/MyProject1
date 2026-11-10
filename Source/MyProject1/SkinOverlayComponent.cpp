@@ -513,7 +513,7 @@ TArray<FOverlayShopItemInfo> USkinOverlayComponent::GetGenerateShopItemList(ESho
 	int32 CurrentShopLevel = 99;
 	if (OwnerCharacter && OwnerCharacter->ActiveShopNPC)
 	{
-		CurrentShopLevel = OwnerCharacter->ActiveShopNPC->ShopLevel;
+		CurrentShopLevel = OwnerCharacter->ActiveShopNPC->GetShopLevelForCategory(ShopCategory);
 	}
 
 	TArray<FName> TargetRowNames;
@@ -573,7 +573,7 @@ bool USkinOverlayComponent::GetShopItemInfoByRowName(FName RowName, EShopModeCat
 	int32 CurrentShopLevel = 99;
 	if (OwnerCharacter && OwnerCharacter->ActiveShopNPC)
 	{
-		CurrentShopLevel = OwnerCharacter->ActiveShopNPC->ShopLevel;
+		CurrentShopLevel = OwnerCharacter->ActiveShopNPC->GetShopLevelForCategory(ShopCategory);
 	}
 
 	return PopulateShopItemInfo(TargetDT, RowName, ShopCategory, CurrentShopLevel, OutInfo);

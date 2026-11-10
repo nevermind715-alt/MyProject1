@@ -270,8 +270,8 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Overrides|Event")
 	FEventStatCondition EventDistributorStatCondition;
 
-	/** イベントディストリビュータを起動する確率（%）。WarpToRestartIDが空欄でない場合のみ使用され、
-	 *  抽選に外れると代わりにWarpToRestartIDへワープしてリスタートする。初期値100＝常にイベントディストリビュータを
+	/** イベントディストリビュータを起動する確率（%）。抽選に外れると、WarpToRestartIDが設定されていればそこへワープして
+	 *  リスタートし、空欄なら通常の敗北復帰（PlayerStartへ復帰）になる。初期値100＝常にイベントディストリビュータを
 	 *  起動する（従来動作のまま）。スポーンした敵のUEventDistributorComponent::EventDistributorChanceへ上書きされる */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Overrides|Event", meta = (ClampMin = "0.0", ClampMax = "100.0"))
 	float EventDistributorChance = 100.0f;

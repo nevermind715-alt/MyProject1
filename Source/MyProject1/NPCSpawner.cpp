@@ -136,7 +136,7 @@ void ANPCSpawner::SpawnEnemy()
 		// 空欄でなければEventPoolIDを、bOverrideExtraParticipantMeshWithOwnMeshが有効なら敵自身のジョブメッシュを、
 		// 空欄でなければWarpToRestartID（とEventDistributorChance）を、
 		// この敵のEventDistributorComponent（設定されていれば）へ上書きする
-		if (!SpawnerEventPoolID.IsNone() || bOverrideExtraParticipantMeshWithOwnMesh || !WarpToRestartID.IsNone() || bHideEnemyDuringAnimEvent || (DefeatDialogRow.DataTable && !DefeatDialogRow.RowName.IsNone()) || EventDistributorStatCondition.bUseStatCondition)
+		if (!SpawnerEventPoolID.IsNone() || bOverrideExtraParticipantMeshWithOwnMesh || !WarpToRestartID.IsNone() || EventDistributorChance < 100.0f || bHideEnemyDuringAnimEvent || (DefeatDialogRow.DataTable && !DefeatDialogRow.RowName.IsNone()) || EventDistributorStatCondition.bUseStatCondition)
 		{
 			if (UEventDistributorComponent* EventComp = SpawnedEnemy->FindComponentByClass<UEventDistributorComponent>())
 			{
@@ -161,6 +161,11 @@ void ANPCSpawner::SpawnEnemy()
 				if (!WarpToRestartID.IsNone())
 				{
 					EventComp->WarpToRestartID = WarpToRestartID;
+				}
+
+				// 確率はWarpToRestartIDの有無に関係なく使われる（100未満の時だけ上書きし、100ならコンポーネント側の値を残す）
+				if (!WarpToRestartID.IsNone() || EventDistributorChance < 100.0f)
+				{
 					EventComp->EventDistributorChance = EventDistributorChance;
 				}
 

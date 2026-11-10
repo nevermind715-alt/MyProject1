@@ -1504,7 +1504,11 @@ float AMyProject1Character::TakeDamage(float DamageAmount, FDamageEvent const& D
 							// WarpToRestartIDが無ければ行き先が無いので、EventPoolID未設定の敵に倒された時と同じ通常の敗北復帰へ回す
 							// （WarpToRestartIDがある場合は下の抽選外れと同じ分岐でワープする）
 							const bool bStatConditionMet = KillerEventComp->IsEventDistributorStatConditionMet(this);
-							if (!bStatConditionMet && KillerEventComp->WarpToRestartID.IsNone())
+							// EventDistributorChance(%)の抽選。WarpToRestartIDの有無に関係なく行う
+							// （FRand()は0以上1未満なので、100なら必ず当たり、0なら必ず外れる）
+							const bool bChanceRollPassed = FMath::FRand() * 100.0f < KillerEventComp->EventDistributorChance;
+							const bool bEventAllowed = bStatConditionMet && bChanceRollPassed;
+							if (!bEventAllowed && KillerEventComp->WarpToRestartID.IsNone())
 							{
 								// ANPCSpawnerの敗北時クリーンアップ（クエスト失敗・敵／フラグ用ポイントの削除）を通知する。
 								// 敵に倒れるアニメーション（HandleDefeatWithoutEventの復帰までの待ち時間と同じ）を見せる間は
@@ -1526,15 +1530,14 @@ float AMyProject1Character::TakeDamage(float DamageAmount, FDamageEvent const& D
 
 							OnDeath(false);
 
-							// WarpToRestartIDが設定されていれば、EventDistributorStatConditionのステータス条件を満たし、
+							// EventDistributorStatConditionのステータス条件を満たし、
 							// かつEventDistributorChance(%)の抽選に当たった時だけイベントディストリビュータを起動する。
-							// 条件を満たさない／抽選に外れた場合はイベントを起動せず、
-							// WarpToRestartIDへワープしてリスタートさせる（町の治療院など）
+							// 条件を満たさない／抽選に外れた場合はイベントを起動せず、WarpToRestartIDが設定されていれば
+							// そこへワープしてリスタートさせる（町の治療院など）。空欄なら上の通常の敗北復帰になる
 							// EventPoolIDが空なら抽選するプール自体が無いので、確率に関係なく必ずワープする
 							if (!KillerEventComp->WarpToRestartID.IsNone() &&
 								(KillerEventComp->EventPoolID.IsNone() ||
-								!bStatConditionMet ||
-								FMath::FRandRange(0.0f, 100.0f) > KillerEventComp->EventDistributorChance))
+								!bEventAllowed))
 							{
 								// 全快・ワープを即座に行うと、bIsDead=trueになった直後にfalseへ戻ってしまい、
 								// 敵側（AMyAIController::Tick）がIsDead()を検知してHasWon/攻撃停止する猶予がなくなる
@@ -4638,7 +4641,7 @@ TArray<FOverlayShopItemInfo> AMyProject1Character::BuildPiercingShopList() const
 	int32 AddMarkup = 10000;
 	if (ActiveShopNPC)
 	{
-		ShopLevel = ActiveShopNPC->ShopLevel;
+		ShopLevel = ActiveShopNPC->GetShopLevelForCategory(EShopModeCategory::Piercing);
 		AddMarkup = ActiveShopNPC->PiercingAddMarkup;
 	}
 
@@ -4678,9 +4681,6 @@ TArray<FOverlayShopItemInfo> AMyProject1Character::BuildPiercingShopList() const
 		// そのスロットが既に埋まっているカタログ品は出さない（買っても装着できないため）
 		if (CurrentEquippedItems.Contains(EquipData->TargetSlot)) continue;
 
-		// 店の技術レベルが足りないものは並べない（他の施術ショップと同じ挙動）
-		if (EquipData->UnlockLevel > ShopLevel) continue;
-
 		int32 BasePrice = 0;
 		FString ItemName;
 		FText ItemDesc = FText::GetEmpty();
@@ -4688,6 +4688,10 @@ TArray<FOverlayShopItemInfo> AMyProject1Character::BuildPiercingShopList() const
 		{
 			if (const FItemData* ItemData = ItemDT->FindRow<FItemData>(RowName, TEXT("BuildPiercingShopList_AddName")))
 			{
+				// 店の技術レベルが足りないものは並べない（他の施術ショップと同じく DT_Items の ItemLevel で判定する。
+				// FEquipmentData::UnlockLevel は「除去」用の別項目なのでここでは使わない）
+				if (ItemData->ItemLevel > ShopLevel) continue;
+
 				BasePrice = ItemData->Price;
 				ItemName = ItemData->Name;
 				ItemDesc = ItemData->Description;
@@ -5904,7 +5908,7 @@ void AMyProject1Character::TryRemoveSkinOverlay(FName RowName, bool bIsShopPurch
 	// ピアスはDT_Equipments（装備）へ統合済み。呪われピアスの除去は装備側で処理する。
 	if (ShopCategory == EShopModeCategory::Piercing)
 	{
-		const int32 ShopLevel = ActiveShopNPC ? ActiveShopNPC->ShopLevel : 99;
+		const int32 ShopLevel = ActiveShopNPC ? ActiveShopNPC->GetShopLevelForCategory(EShopModeCategory::Piercing) : 99;
 		TryDoctorRemovePiercing(RowName, ShopLevel);
 		return;
 	}
@@ -5913,7 +5917,7 @@ void AMyProject1Character::TryRemoveSkinOverlay(FName RowName, bool bIsShopPurch
 	// レベル判定・ギル支払い・インベントリへの返却・ログは TryShopUnlockRestraint がすべて行う。
 	if (ShopCategory == EShopModeCategory::Restraint)
 	{
-		const int32 ShopLevel = ActiveShopNPC ? ActiveShopNPC->ShopLevel : 99;
+		const int32 ShopLevel = ActiveShopNPC ? ActiveShopNPC->GetShopLevelForCategory(EShopModeCategory::Restraint) : 99;
 		for (const TPair<EEquipmentSlot, FName>& Pair : CurrentEquippedItems)
 		{
 			if (Pair.Value == RowName && !IsPiercingSlot(Pair.Key))

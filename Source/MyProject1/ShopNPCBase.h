@@ -54,6 +54,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ShopNPC|Data", meta = (ClampMin = "1"))
 	int32 ShopLevel;
 
+	/** カテゴリごとの技術レベルの上書き。登録したカテゴリだけShopLevelの代わりにこの値を使う（例：病気治療は一流だがピアスは専門外、なら Disease=5 / Piercing=1）。未登録のカテゴリはShopLevelを使う */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ShopNPC|Data")
+	TMap<EShopModeCategory, int32> CategoryLevelOverrides;
+
+	/** 指定カテゴリでの技術レベルを返す（CategoryLevelOverridesに登録があればその値、なければShopLevel） */
+	UFUNCTION(BlueprintPure, Category = "ShopNPC|Data")
+	int32 GetShopLevelForCategory(EShopModeCategory Category) const;
+
 	/** ピアス医者ショップ（ShopModeCategory=Piercing）の装着タブで、DT_Itemsの価格に上乗せする施術料。店ごとに調整可 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ShopNPC|Data", meta = (ClampMin = "0"))
 	int32 PiercingAddMarkup = 10000;

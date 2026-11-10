@@ -62,10 +62,10 @@ public:
 	 *  条件オンで、ステータスが取得できない設定（None、未登録のExtraStat名など）の場合は安全側でfalse（C++専用） */
 	bool IsEventDistributorStatConditionMet(class AMyProject1Character* PlayerCharacter) const;
 
-	/** 戦闘敗北によるTriggerEventPool呼び出し時のみ使用。WarpToRestartIDが空欄でない場合、この確率（%）の
-	 *  抽選でイベントディストリビュータを起動するかどうかを決める（AMyProject1Character::TakeDamage参照）。
-	 *  抽選に外れた場合はイベント抽選を行わず、代わりにWarpToRestartIDへワープする。
-	 *  WarpToRestartIDが空欄ならこの値は使われず、常に従来通りイベントディストリビュータを起動する。
+	/** 戦闘敗北によるTriggerEventPool呼び出し時のみ使用。この確率（%）の抽選で
+	 *  イベントディストリビュータを起動するかどうかを決める（AMyProject1Character::TakeDamage参照）。
+	 *  抽選に外れた場合はイベント抽選を行わず、WarpToRestartIDが設定されていればそこへワープし、
+	 *  空欄ならEventPoolID未設定の敵に倒された時と同じ通常の敗北復帰（PlayerStartへ復帰）になる。
 	 *  初期値100＝常にイベントディストリビュータを起動（従来動作のまま）。
 	 *  ANPCSpawner::EventDistributorChance / SpawnerOverrides|Eventから上書きされる想定 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event", meta = (ClampMin = "0.0", ClampMax = "100.0"))
