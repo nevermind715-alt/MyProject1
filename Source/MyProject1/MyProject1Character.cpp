@@ -3141,14 +3141,23 @@ void AMyProject1Character::HandleAutoRecovery()
 	// 3. HPが満タンなら何もしない
 	if (MyStats.HP >= MyStats.MaxHP) return;
 
+	// 敵は戦闘解除状態（ターゲットなし）になったらすぐ、5秒で最大HPの10%のペースで回復する。
+	// （ナビメッシュ外へ逃げられてターゲットを失った敵が、LastCombatTimeの更新やAutoRecoveryStartDelay待ちで
+	//  いつまでも回復しない問題への対応。プレイヤー等は従来どおりAutoRecoveryRate/AutoRecoveryStartDelayを使う）
+	constexpr float EnemyRegenRatePer5Sec = 0.10f;
+	const bool bIsEnemy = ActorHasTag(FName("Enemy"));
+
 	double CurrentTime = GetWorld()->GetTimeSeconds();
-	if (CurrentTime - LastCombatTime < AutoRecoveryStartDelay)
+	if (!bIsEnemy && CurrentTime - LastCombatTime < AutoRecoveryStartDelay)
 	{
 		return;
 	}
 
 	// 4. 回復量を計算（最大HP × ％）
-	float RecoverAmount = MyStats.MaxHP * AutoRecoveryRate;
+	// 敵はタイマー間隔(AutoRecoveryInterval)が5秒でなくても「5秒で10%」のペースになるよう間隔で比例させる
+	float RecoverAmount = bIsEnemy
+		? MyStats.MaxHP * EnemyRegenRatePer5Sec * (AutoRecoveryInterval / 5.0f)
+		: MyStats.MaxHP * AutoRecoveryRate;
 
 	// 少なくとも1は回復させる
 	if (RecoverAmount < 1.0f) RecoverAmount = 1.0f;
