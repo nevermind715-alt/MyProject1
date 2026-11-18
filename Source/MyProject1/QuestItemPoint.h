@@ -67,6 +67,18 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item Interact|Display")
 	float TargetRangeOverride = 0.0f;
 
+	// --- 会話（インタラクトで会話を開く） ---
+	/** 会話データテーブル（DT_Dialogs）。DialogRowNameとセットで設定する */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item Interact|Dialog")
+	class UDataTable* DialogTable = nullptr;
+
+	/** 空欄でなければ、インタラクトした時にDialogTableのこの行から会話を開始する。
+	    会話を開始した場合、このアクタ自身のアイテム授受・クエスト連携・成功ログ・使用済み化などは一切実行しない
+	    （お金・フラグ・ワープなどは会話の選択肢側のアクションで行う）。話者名は、会話行のSpeakerNameがあればそれ、無ければPointNameを使う。
+	    宿屋のドア等で「泊まりますか？」の選択肢（PayGil＋GrantFlag/Warp）を出す用途を想定 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item Interact|Dialog")
+	FName DialogRowName;
+
 	// --- アイテム設定 ---
 	/** 取得させるか、回収するか、アイテムなしのインタラクトのみか */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item Interact")
@@ -92,11 +104,26 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item Interact|Log")
 	ELogMessageType SuccessLogType = ELogMessageType::System;
 
+	/** trueなら、SuccessLogTextをログではなく暗転セリフ（会話の「暗転中にセリフを表示する」と同じ演出：暗転→クリックで読み進め→明転）で出す。
+	    改行で複数ページに分かれる。成功ログ以外の成功後処理（クエスト連携・イベント分岐・効果音・使用済み化）は、
+	    暗転セリフを読み終えた直後（まだ画面が真っ暗な間。明転が始まる前）に行う。SuccessLogTextが空欄、または暗転を始められない場合は通常のログ表示になる。
+	    AnimEventIDとの併用は未検証（アニメーション再生完了後に暗転セリフが始まる） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item Interact|Log")
+	bool bShowSuccessLogAsFadeNarration = false;
+
 	/** 失敗時（Absorbでアイテム不足/カバンが満杯/使用済み）に流す台詞。空欄なら既定の文言を使う */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item Interact|Log")
 	FString FailureLogText;
 
 	// --- クエスト連携 ---
+	/** 空欄でなければ、インタラクト成功時にこのQuestIDのクエストを受注する（UQuestComponent::AcceptQuest。
+	    会話のEDialogActionType::AcceptQuestと同じ処理なので、受注ログ・AcceptFlag付与・受注音も同様に発生する）。
+	    受注できない状態（受注済み/クリア済み/クールダウン中/受注条件未達）の時は、アイテムの授受や使用済み化を行う前に
+	    その理由をシステムログに出してインタラクト自体を失敗扱いにする（FailureLogText・FailureRemoveFlagは使わない）。
+	    InteractOnlyモードと組み合わせれば「掲示物や依頼人の置き手紙を調べると受注できる」ポイントになる */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item Interact|Quest")
+	FName AcceptQuestID;
+
 	/** 空欄でなければ、成功時にこのQuestIDのUpdateTalkObjectiveを呼ぶ（Delivery型クエストの「話した」扱いにする）。
 	    このアクタのTagsに、そのクエストのRequiredTalkNPCIDsと同じ名前を1つ追加しておくこと */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item Interact|Quest")
@@ -106,6 +133,13 @@ public:
 	    （NPCと会話してAddFlagされるまでこの供物台/回収ポイントの存在自体を隠したい時に使う） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item Interact|Quest")
 	FName RequiredFlag;
+
+	/** 空欄でなければ、プレイヤーがこのフラグを持っている間はインタラクトできなくする（ターゲット対象から外れる）。
+	    見た目と当たり判定はそのままなので、ドアのメッシュ等は消えない。フラグが外れると再びインタラクトできる。
+	    宿屋の会話で支払い後にフラグを立て、泊まっている間は再度話しかけられないようにする用途を想定
+	    （AWarpPortalのRequiredFlag/bAutoClearFlagと同じフラグ名を指定する） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item Interact|Quest")
+	FName InteractDisabledWhileFlag;
 
 	/** 空欄でなければ、インタラクト成功時にプレイヤーからこのフラグを消去する。
 	    AnimEventID再生ありの場合は、他の成功後処理と同じくアニメーション再生完了後に消去する */
@@ -222,6 +256,10 @@ private:
 	/** RequiredFlag / UsedFlag の所持状況に応じて、表示/当たり判定のON・OFFを切り替える */
 	void UpdateFlagVisibility(const class AMyProject1Character* PlayerChar);
 
+	/** InteractDisabledWhileFlagの所持状況に応じて、ターゲット対象（"NPC"タグ）のON・OFFを切り替える。
+	    bApproachTriggerOnlyの場合は、もともと対象外なので常にタグ無しのまま */
+	void UpdateInteractableByFlag(const class AMyProject1Character* PlayerChar);
+
 	/** bOneTimeUse使用済みの見た目（メッシュ非表示・当たり判定OFF）を適用する。
 	    ライブ消費時と、UsedFlag復元による「戻ってきたら既に使用済み」時の両方から呼ぶ */
 	void ApplyUsedState();
@@ -250,6 +288,19 @@ private:
 	/** インタラクト成功時（アニメーションなし）はTryInteractから直接、AnimEventID再生ありの場合は
 	    OnInteractAnimEventFinishedから呼ぶ、成功後処理（ログ・クエスト連携・イベント分岐・効果音・使用済み化）の本体 */
 	void FinalizeInteractSuccess(class AMyProject1Character* Interactor);
+
+	/** FinalizeInteractSuccessの、成功ログ以外の成功後処理（クエスト連携・イベント分岐・効果音・使用済み化）。
+	    暗転セリフで成功ログを出す場合は、読了直後・明転前（OnSuccessNarrationClosed）から呼ぶ */
+	void FinalizeInteractSuccessAfterLog(class AMyProject1Character* Interactor);
+
+	/** 成功ログを暗転セリフで出している間だけ、そのUDialogComponent::OnDialogClosedを購読する先。
+	    暗転セリフの全行読了（OnFadeNarrationClosed。まだ真っ暗で、この直後に明転が始まる）の時に、残りの成功後処理を進めて購読を解除する */
+	UFUNCTION()
+	void OnSuccessNarrationClosed();
+
+	/** 暗転セリフの完了待ち中のプレイヤーと、購読中のDialogComponent（OnSuccessNarrationClosedで解除するため保持） */
+	TWeakObjectPtr<class AMyProject1Character> NarrationInteractor;
+	TWeakObjectPtr<class UDialogComponent> NarrationDialogComp;
 
 	/** AnimEventID再生完了後にFinalizeInteractSuccessへ渡すためのInteractorの記憶 */
 	TWeakObjectPtr<class AMyProject1Character> PendingAnimEventInteractor;

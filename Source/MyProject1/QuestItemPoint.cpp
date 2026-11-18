@@ -11,6 +11,7 @@
 #include "GameplayActionLibrary.h"
 #include "RpgCharacterInterface.h"
 #include "MyProject1GameInstance.h"
+#include "DialogComponent.h"
 
 // 日本語文字化け・コンパイルエラー対策
 #pragma execution_character_set("utf-8")
@@ -95,16 +96,18 @@ void AQuestItemPoint::InitFlagVisibilityWhenReady()
 	}
 
 	UpdateFlagVisibility(PlayerChar);
+	UpdateInteractableByFlag(PlayerChar);
 
-	// RequiredFlagもUsedFlagも空欄なら常時表示で確定。以降のリトライは不要
-	if (RequiredFlag.IsNone() && UsedFlag.IsNone()) return;
+	// RequiredFlag・UsedFlag・InteractDisabledWhileFlagのどれも空欄なら常時表示で確定。以降のリトライは不要
+	if (RequiredFlag.IsNone() && UsedFlag.IsNone() && InteractDisabledWhileFlag.IsNone()) return;
 
 	// プレイヤーは取れたが、判定に使うフラグがまだ復元されていない可能性がある。別レベルからのステータス復元
 	// (ApplyPendingCharacterLoad)がこのアクタの初期化より後にずれ込むケースを拾うため、数回だけ再チェックしてから
 	// 諦める（以降はOnFlagAdded待ち）
 	const bool bAwaitingRequired = !RequiredFlag.IsNone() && !PlayerChar->HasFlag(RequiredFlag);
 	const bool bAwaitingUsed     = !UsedFlag.IsNone()     && !PlayerChar->HasFlag(UsedFlag);
-	if ((bAwaitingRequired || bAwaitingUsed) && FlagInitAttempts++ < 20) // 0.25秒 * 20 = 5秒
+	const bool bAwaitingDisable  = !InteractDisabledWhileFlag.IsNone() && !PlayerChar->HasFlag(InteractDisabledWhileFlag);
+	if ((bAwaitingRequired || bAwaitingUsed || bAwaitingDisable) && FlagInitAttempts++ < 20) // 0.25秒 * 20 = 5秒
 	{
 		GetWorldTimerManager().SetTimer(FlagInitTimerHandle, this, &AQuestItemPoint::InitFlagVisibilityWhenReady, 0.25f, false);
 	}
@@ -126,8 +129,28 @@ void AQuestItemPoint::UpdateFlagVisibility(const AMyProject1Character* PlayerCha
 	SetActorEnableCollision(bUnlocked);
 }
 
+void AQuestItemPoint::UpdateInteractableByFlag(const AMyProject1Character* PlayerChar)
+{
+	if (InteractDisabledWhileFlag.IsNone()) return;
+
+	const bool bDisabled = PlayerChar && PlayerChar->HasFlag(InteractDisabledWhileFlag);
+	if (bDisabled || bApproachTriggerOnly)
+	{
+		Tags.Remove(FName("NPC"));
+	}
+	else
+	{
+		Tags.AddUnique(FName("NPC"));
+	}
+}
+
 void AQuestItemPoint::OnPlayerFlagAdded(FName FlagName)
 {
+	if (!InteractDisabledWhileFlag.IsNone() && FlagName == InteractDisabledWhileFlag)
+	{
+		Tags.Remove(FName("NPC"));
+	}
+
 	// 使用済みフラグが立った（＝このポイントを消費した）なら、以後は消費済みの見た目で固定
 	if (!UsedFlag.IsNone() && FlagName == UsedFlag)
 	{
@@ -143,6 +166,11 @@ void AQuestItemPoint::OnPlayerFlagAdded(FName FlagName)
 
 void AQuestItemPoint::OnPlayerFlagRemoved(FName FlagName)
 {
+	if (!InteractDisabledWhileFlag.IsNone() && FlagName == InteractDisabledWhileFlag && !bApproachTriggerOnly)
+	{
+		Tags.AddUnique(FName("NPC"));
+	}
+
 	if (RequiredFlag.IsNone() || FlagName != RequiredFlag) return;
 
 	SetActorHiddenInGame(true);
@@ -155,6 +183,28 @@ void AQuestItemPoint::TryInteract(AMyProject1Character* Interactor)
 
 	// 成功・失敗を問わず、インタラクトした時点でターゲットカーソルを消す
 	Interactor->CancelTarget();
+
+	// InteractDisabledWhileFlagを持っている間は、BP等からTryInteractが直接呼ばれても何もしない
+	if (!InteractDisabledWhileFlag.IsNone() && Interactor->HasFlag(InteractDisabledWhileFlag)) return;
+
+	// 会話が設定されていれば、アイテム授受等は行わず会話だけを開始する
+	if (!DialogRowName.IsNone())
+	{
+		// 会話中・AnimEvent再生中などの入力ロック中は会話を開始しない（QuestNPCBase::TalkToNPCと同じ）
+		if (Interactor->bIsInputLocked || Interactor->bAnimEventInputLocked) return;
+
+		UDialogComponent* DialogComp = Interactor->FindComponentByClass<UDialogComponent>();
+		if (DialogComp && DialogComp->TryStartDialog(DialogRowName, DialogTable, this))
+		{
+			Interactor->SetInputLocked(true);
+		}
+		else
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[QuestItemPoint] %s: DialogTable(%s)の行 '%s' から会話を開始できませんでした。"),
+				*GetName(), *GetNameSafe(DialogTable), *DialogRowName.ToString());
+		}
+		return;
+	}
 
 	if (bOneTimeUse && bUsed)
 	{
@@ -171,6 +221,21 @@ void AQuestItemPoint::TryInteract(AMyProject1Character* Interactor)
 			Interactor->RemoveFlag(FailureRemoveFlag);
 		}
 		return;
+	}
+
+	// クエスト受注ポイントの場合、受注できない状態ならアイテムの授受・使用済み化の前に弾く
+	// （弾かないと、受注できないのにAbsorbでアイテムだけ徴収される/bOneTimeUseだけ消費される）
+	if (!AcceptQuestID.IsNone())
+	{
+		if (UQuestComponent* QuestComp = Interactor->FindComponentByClass<UQuestComponent>())
+		{
+			FString FailReason;
+			if (!QuestComp->CanAcceptQuest(AcceptQuestID, FailReason))
+			{
+				Interactor->OnReceiveLogMessage(FailReason.IsEmpty() ? TEXT("受注条件が未達です。") : FailReason, ELogMessageType::System);
+				return;
+			}
+		}
 	}
 
 	// ItemIDが空欄なら「アイテムのやり取りはしない」の意味として扱う（お金だけのポイントを作れるようにするため）
@@ -333,7 +398,54 @@ void AQuestItemPoint::FinalizeInteractSuccess(AMyProject1Character* Interactor)
 {
 	if (!SuccessLogText.IsEmpty())
 	{
+		if (bShowSuccessLogAsFadeNarration)
+		{
+			// 会話の暗転セリフと同じ表示。全行を読み終えた瞬間（まだ画面が真っ暗。FinishFadeNarrationがOnFadeNarrationClosedを
+			// Broadcastし、その直後に明転を始める）に残りの成功後処理を行う。明転が開ける前にクエストクリア等のログが出る
+			if (UDialogComponent* DialogComp = Interactor->FindComponentByClass<UDialogComponent>())
+			{
+				DialogComp->OnFadeNarrationClosed.AddUniqueDynamic(this, &AQuestItemPoint::OnSuccessNarrationClosed);
+				if (DialogComp->StartStandaloneFadeNarration(FText::FromString(SuccessLogText)))
+				{
+					NarrationInteractor = Interactor;
+					NarrationDialogComp = DialogComp;
+					return;
+				}
+				DialogComp->OnFadeNarrationClosed.RemoveDynamic(this, &AQuestItemPoint::OnSuccessNarrationClosed);
+			}
+			UE_LOG(LogTemp, Warning, TEXT("[QuestItemPoint] %s: 暗転セリフを開始できなかったため、通常のログとして表示します。"), *GetName());
+		}
+
 		Interactor->OnReceiveLogMessage(SuccessLogText, SuccessLogType);
+	}
+
+	FinalizeInteractSuccessAfterLog(Interactor);
+}
+
+void AQuestItemPoint::OnSuccessNarrationClosed()
+{
+	UDialogComponent* DialogComp = NarrationDialogComp.Get();
+	AMyProject1Character* Interactor = NarrationInteractor.Get();
+	if (!DialogComp || !Interactor) return;
+
+	// 1回きりの通知。購読を解除してから残りの成功後処理へ進む
+	DialogComp->OnFadeNarrationClosed.RemoveDynamic(this, &AQuestItemPoint::OnSuccessNarrationClosed);
+	NarrationDialogComp = nullptr;
+	NarrationInteractor = nullptr;
+
+	FinalizeInteractSuccessAfterLog(Interactor);
+}
+
+void AQuestItemPoint::FinalizeInteractSuccessAfterLog(AMyProject1Character* Interactor)
+{
+	// クエスト受注（TryInteract冒頭でCanAcceptQuest確認済み。アニメ/暗転セリフ待ちの間に状態が変わった場合は
+	// AcceptQuest自身が理由をログに出して弾く）
+	if (!AcceptQuestID.IsNone())
+	{
+		if (UQuestComponent* QuestComp = Interactor->FindComponentByClass<UQuestComponent>())
+		{
+			QuestComp->AcceptQuest(AcceptQuestID);
+		}
 	}
 
 	// 会話クエスト(Delivery型)の「話した」扱いと同じ経路に乗せる。UpdateTalkObjectiveはAActor*とTagsの一致しか見ないため、

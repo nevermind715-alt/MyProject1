@@ -26,7 +26,8 @@ public:
 	 *  UEventDistributorComponentの抽選を発生させる（金品を盗まれる等）。falseなら何も起きない。
 	 *  EventDistributorComponent自体はエディタでこのActor（BP_SleepPoint）にコンポーネントとして追加し、
 	 *  EventPoolID等を設定しておくこと。
-	 *  コンポーネントのEventDistributorStatCondition（ステータス条件）をオンにすると、その条件を満たした時だけ抽選する */
+	 *  コンポーネントのEventDistributorStatCondition（ステータス条件）をオンにすると、その条件を満たした時だけ抽選する。
+	 *  さらにEventDistributorChance(%)が100未満なら、その確率に当たった時だけ抽選する */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Event")
 	bool bTriggerEventPoolOnSleep = false;
 

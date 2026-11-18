@@ -56,6 +56,10 @@ bool ASleepPoint::TriggerSleepEventPoolIfEnabled(AMyProject1Character* PlayerCha
 	// EventDistributorStatConditionを満たさない場合は抽選自体を行わない（何も起きずに通常通り睡眠が終わる）
 	if (!Distributor->IsEventDistributorStatConditionMet(PlayerCharacter)) return false;
 
+	// EventDistributorChance(%)の抽選に外れた場合も、プール抽選を行わず通常通り睡眠が終わる
+	// （FRand()は0以上1未満なので、100なら必ず当たり＝従来動作のまま）
+	if (!(FMath::FRand() * 100.0f < Distributor->EventDistributorChance)) return false;
+
 	PendingSleepEventID = Distributor->RollEventPool(PlayerCharacter);
 	return !PendingSleepEventID.IsNone();
 }

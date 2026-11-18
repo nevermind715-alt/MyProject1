@@ -694,9 +694,10 @@ void AQuestNPCBase::TalkToNPC(AMyProject1Character* PlayerChar)
 			// 全行を表示し終えている
 			SeqRowName = DailyDialogSequenceDoneRow;
 		}
-		else if (Progress.LastAdvanceDay >= 0 && CurrentDay <= Progress.LastAdvanceDay)
+		else if (!bDailyDialogSequenceAdvanceByActionOnly && Progress.LastAdvanceDay >= 0 && CurrentDay <= Progress.LastAdvanceDay)
 		{
 			// 最後に進めた日から日付が変わっていない＝今日はもう進めた
+			// （bDailyDialogSequenceAdvanceByActionOnlyの時は日付を見ず、常に現在のステップを表示する）
 			SeqRowName = DailyDialogSequenceWaitRow;
 		}
 		else

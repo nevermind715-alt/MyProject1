@@ -674,7 +674,8 @@ enum class ETargetStat : uint8
 	CriticalRate    UMETA(DisplayName = "クリティカル発生率％ (CriticalRate)"),
 	AttackSpeedRate UMETA(DisplayName = "攻撃速度％ (AttackSpeedRate)"),
 	StaminaRecoveryRate UMETA(DisplayName = "スタミナ回復速度％ (StaminaRecoveryRate)"),
-	Frustration UMETA(DisplayName = "欲求不満度 (Frustration)")
+	Frustration UMETA(DisplayName = "欲求不満度 (Frustration)"),
+	Karma       UMETA(DisplayName = "カルマ (Karma)")
 };
 
 // Stats to Changeで変化させる対象。NPCを選ぶと、会話相手であるそのNPC自身のMyStats（個体ごとのFavor/Hostility等）を書き換える
@@ -1161,7 +1162,15 @@ enum class EDialogActionType : uint8
 	ClearQuest         UMETA(DisplayName = "クエストを強制クリアする（ActionPayload=QuestID）"),
 	// ActionPayloadに進める時間数（ゲーム内の「時間」。例："1"で1時間）を入れる。待機メニューと同じく暗転を挟んで時計を進め、
 	// 疲労・欲求不満などの経過分もまとめて反映する（UMyProject1GameInstance::RequestFadeThenAdvanceTime）
-	SkipTime           UMETA(DisplayName = "時間をスキップする（ActionPayload=進める時間数）")
+	SkipTime           UMETA(DisplayName = "時間をスキップする（ActionPayload=進める時間数）"),
+	// ActionPayloadに獲得させる経験値を数値の文字列で入れる（例："100"）。プレイヤー自身（OwnerActor）に
+	// AMyProject1Character::AddExperienceで加算する（ログ表示とレベルアップ処理もそちらが行う）。
+	// 選択肢（FDialogChoice）のActionTypeや追加アクションに指定すれば、選んだ内容に応じた経験値を渡せる
+	AddExperience      UMETA(DisplayName = "経験値を渡す（ActionPayload=経験値）"),
+	// ActionPayloadにAQuestNPCBase::DailyDialogSequenceIDを入れる。そのIDの日替わり会話シーケンスを1歩進める（Step++のみ。
+	// 日付は記録しない）。他のNPCの会話・イベント・ItemPointなど、どこからでも進められる。
+	// 対象NPCのbDailyDialogSequenceAdvanceByActionOnlyをtrueにして使う想定（日付で進むNPCに使うと日付に関係なく1歩進む）
+	AdvanceDailySequence UMETA(DisplayName = "日替わり会話シーケンスを進める（ActionPayload=DailyDialogSequenceID）")
 };
 
 // イベント成立時／失敗時／会話の追加アクションとして実行する1アクション分のデータ（FDialogChoiceのアクション部分の簡易版）。

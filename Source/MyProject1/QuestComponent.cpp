@@ -1146,6 +1146,7 @@ bool UQuestComponent::ApplyFailurePenaltyStat(ETargetStat Stat, FName ExtraStatN
 	switch (Stat)
 	{
 	case ETargetStat::Fame:      Stats.Fame += Amount;      StatName = TEXT("名声");   break;
+	case ETargetStat::Karma:     Stats.Karma += Amount;     StatName = TEXT("カルマ"); break;
 	case ETargetStat::Favor:     Stats.Favor += Amount;     StatName = TEXT("好感度"); break;
 	case ETargetStat::Hostility: Stats.Hostility += Amount; StatName = TEXT("敵対度"); break;
 	case ETargetStat::Charm:     Stats.Charm += Amount;     StatName = TEXT("魅力");   break;
@@ -1177,7 +1178,7 @@ bool UQuestComponent::ApplyFailurePenaltyStat(ETargetStat Stat, FName ExtraStatN
 	default:
 		// AttackPower/DefensePower等の自動再計算されるステータスや未対応の値が指定された場合は
 		// 黙って書き換えず、設定ミスとして警告だけ出す
-		UE_LOG(LogTemp, Warning, TEXT("【Quest】強制失敗ペナルティに未対応のステータス指定 (%d) があります。名声・好感度・敵対度・魅力・精神力・飲酒量・STR/VIT/DEX/AGI・カスタムステータス のいずれかを指定してください。"), (int32)Stat);
+		UE_LOG(LogTemp, Warning, TEXT("【Quest】強制失敗ペナルティに未対応のステータス指定 (%d) があります。名声・カルマ・好感度・敵対度・魅力・精神力・飲酒量・STR/VIT/DEX/AGI・カスタムステータス のいずれかを指定してください。"), (int32)Stat);
 		return false;
 	}
 

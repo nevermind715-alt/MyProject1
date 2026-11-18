@@ -292,6 +292,30 @@ void UGameplayActionLibrary::ExecuteAction(IRpgCharacterInterface* RpgInterface,
 		}
 		break;
 
+	case EDialogActionType::AddExperience:
+		// ActionPayloadに入れた経験値の数値文字列をプレイヤーに加算する。
+		// 「○○ポイントの経験値を獲得！」のログとレベルアップ判定はAddExperience側が行う
+		{
+			const int32 ExpAmount = FCString::Atoi(*ActionPayload);
+			if (ExpAmount > 0)
+			{
+				if (AMyProject1Character* PlayerChar = Cast<AMyProject1Character>(OwnerActor))
+				{
+					PlayerChar->AddExperience(ExpAmount);
+				}
+			}
+		}
+		break;
+
+	case EDialogActionType::AdvanceDailySequence:
+		// ActionPayloadに日替わり会話シーケンスのID（AQuestNPCBase::DailyDialogSequenceID）を入れる。
+		// NPCを経由せずStepだけを進める（LastAdvanceDayは触らない）。上限はTalkToNPC側のStep >= Rows.Num()判定でDone扱いになる
+		if (!ActionPayload.IsEmpty())
+		{
+			RpgInterface->GetCharacterStats().DailyDialogProgress.FindOrAdd(FName(*ActionPayload)).Step++;
+		}
+		break;
+
 	case EDialogActionType::Shower:
 		// 疲労回復の実処理とログはAMyProject1Character側。ActionPayloadが空欄なら0が渡り、既定の回復量が使われる
 		if (AMyProject1Character* PlayerChar = Cast<AMyProject1Character>(OwnerActor))
@@ -400,6 +424,10 @@ void UGameplayActionLibrary::ApplyStatChange(IRpgCharacterInterface* RpgInterfac
 	case ETargetStat::Fame:
 		Stats.Fame += ChangeVal;
 		StatName = TEXT("名声");
+		break;
+	case ETargetStat::Karma:
+		Stats.Karma += ChangeVal;
+		StatName = TEXT("カルマ");
 		break;
 	case ETargetStat::Charm:
 		Stats.Charm += ChangeVal;
@@ -510,6 +538,7 @@ bool UGameplayActionLibrary::TryGetTargetStatValue(IRpgCharacterInterface* RpgIn
 	case ETargetStat::Favor:               OutValue = Stats.Favor; return true;
 	case ETargetStat::Hostility:           OutValue = Stats.Hostility; return true;
 	case ETargetStat::Fame:                OutValue = Stats.Fame; return true;
+	case ETargetStat::Karma:               OutValue = Stats.Karma; return true;
 	case ETargetStat::Charm:               OutValue = Stats.Charm; return true;
 	case ETargetStat::Alcohol:             OutValue = Stats.Alcohol; return true;
 	case ETargetStat::Frustration:         OutValue = static_cast<float>(Stats.Frustration); return true;

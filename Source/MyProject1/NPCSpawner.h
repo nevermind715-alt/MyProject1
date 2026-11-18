@@ -67,7 +67,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Settings")
 	float InitialSpawnDelay = 5.0f;
 
-	/** スポーンできる回数の上限（初回スポーン＋リスポーンの合計）。0にすると無制限にリスポーンします。 */
+	/** スポーンできる回数の上限（初回スポーン＋リスポーンの合計）。0にすると無制限にリスポーンします。
+	    RequiredFlag運用時は「フラグ1周あたりの体数」になり、2以上なら周回中に倒すたびにRespawnTime秒後に次の1体が湧く
+	    （上限まで。フラグが外れると数え直す）。この場合、討伐フラグ付与・勝利ワープ・フラグ解除は最後の1体を倒した時に行う */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawner Settings", meta = (ClampMin = "0", UIMin = "0"))
 	int32 MaxSpawnCount = 0;
 

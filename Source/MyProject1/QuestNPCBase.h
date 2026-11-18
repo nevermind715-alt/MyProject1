@@ -66,6 +66,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC|Daily Sequence")
 	bool bEnableDailyDialogSequence = false;
 
+	// チェックを入れると、日付が変わっても次の行へ進まず、「アクションで進めた時だけ」進む（日付は一切見ない）。
+	// 進める方法は、①この NPC 自身の会話行／選択肢の bAdvanceDailySequence、②他の会話の追加アクション・イベント・ItemPoint等の
+	// ActionType=AdvanceDailySequence（ActionPayload=DailyDialogSequenceID）。常に現在のステップの行を表示するので、
+	// DailyDialogSequenceWaitRow は使われない
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC|Daily Sequence", meta = (EditCondition = "bEnableDailyDialogSequence"))
+	bool bDailyDialogSequenceAdvanceByActionOnly = false;
+
 	// 進行記録を保存するための一意なID（NPCごとに別名にする。例 "NPC_A"）。
 	// これがセーブ内のキーになるので、後から変更すると進行がリセットされる
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "QuestNPC|Daily Sequence", meta = (EditCondition = "bEnableDailyDialogSequence"))

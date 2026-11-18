@@ -11,6 +11,7 @@
 #include "MyProject1HUD.h"
 #include "RpgCharacterInterface.h"
 #include "QuestNPCBase.h"
+#include "QuestItemPoint.h"
 #include "GameplayActionLibrary.h"
 #include "EventDistributorComponent.h"
 #include "WBP_ChoiceMenu.h"
@@ -847,6 +848,18 @@ void UDialogComponent::BeginFadeNarration()
 	ShowFadeNarrationLine();
 }
 
+bool UDialogComponent::StartStandaloneFadeNarration(const FText& NarrationText)
+{
+	// 会話行を経由しないため、前回の会話の行データが残っているとBeginFadeNarrationがその
+	// LoopAnimEventIDを暗転中に再生してしまう。ここで空の行データにしておく
+	CurrentDialogData = FDialogData();
+
+	// NextDialogIDなし＝読了・明転後にResumeAfterFadeNarrationがCloseDialogを呼ぶ
+	return ExecuteActionCore(EDialogActionType::ShowTextDuringFade, FString(), NAME_None, false, NAME_None, false,
+		ETargetStat::None, EStatTargetActor::Player, NAME_None, 0.0f, NAME_None, 0, false,
+		EStatTargetActor::Player, TSoftObjectPtr<USkeletalMesh>(), NarrationText, NAME_None, false, TArray<FEventAction>());
+}
+
 void UDialogComponent::ShowFadeNarrationLine()
 {
 	if (!CurrentDialogLines.IsValidIndex(CurrentLineIndex)) return;
@@ -1073,13 +1086,19 @@ void UDialogComponent::UpdateDialogUI(const FDialogData& DisplayData, AActor* NP
 	// （話しかけた相手とは別人が喋る行用）、空欄ならNPCのNPCName。
 	// 別マップのワープ後に再開した会話はNPCが存在しないため、引き継いだ話者名（ResumedSpeakerName）で代わりに出す
 	const AQuestNPCBase* QuestNPC = Cast<AQuestNPCBase>(NPC);
-	if (QuestNPC || bResumedAcrossLevel)
+	// AQuestItemPoint（インタラクトで会話を開くギミック）も同様にログへ出す。話者名はSpeakerName→PointNameの順
+	const AQuestItemPoint* ItemPoint = Cast<AQuestItemPoint>(NPC);
+	if (QuestNPC || ItemPoint || bResumedAcrossLevel)
 	{
 		if (RpgInterface)
 		{
 			const FString& SpeakerName = !DisplayData.SpeakerName.IsEmpty() ? DisplayData.SpeakerName
-				: (QuestNPC ? QuestNPC->NPCName : ResumedSpeakerName);
-			RpgInterface->OnReceiveLogMessage(SpeakerName + TEXT("：") + DisplayData.DialogText.ToString(), ELogMessageType::Default);
+				: (QuestNPC ? QuestNPC->NPCName : (ItemPoint ? ItemPoint->PointName : ResumedSpeakerName));
+			// 話者名が空のQuestItemPointは「：」だけが先頭に付かないよう、セリフのみを出す（QuestNPCは従来どおり）
+			const FString LogText = (ItemPoint && SpeakerName.IsEmpty())
+				? DisplayData.DialogText.ToString()
+				: SpeakerName + TEXT("：") + DisplayData.DialogText.ToString();
+			RpgInterface->OnReceiveLogMessage(LogText, ELogMessageType::Default);
 		}
 
 		// このセリフで会話を終える指定なら、選択肢・「進む」ウィジェットは出さずにUIを片付ける

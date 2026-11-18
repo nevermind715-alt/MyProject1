@@ -105,6 +105,10 @@ public:
 	// GameInstance側から、ナレーション読了後の明転が完了した瞬間に呼ばれ、NextDialogIDへ会話を継続する
 	void ResumeAfterFadeNarration(FName NextDialogID);
 
+	// 会話行（DT_Dialog）を経由せず、指定テキストだけを暗転セリフ（ActionType=ShowTextDuringFadeと同じ表示・クリックで読み進め）で出す。
+	// 読了後は明転し、会話終了と同じ後片付け（CloseDialog→OnDialogClosed）が走る。暗転を要求できた場合のみtrue（C++専用）
+	bool StartStandaloneFadeNarration(const FText& NarrationText);
+
 protected:
 	virtual void BeginPlay() override;
 

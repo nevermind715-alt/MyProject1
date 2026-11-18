@@ -292,8 +292,13 @@ void ANPCSpawner::OnEnemyDeath(AActor* DeadActor)
 	{
 		SpawnedEnemy = nullptr;
 
+		// RequiredFlag運用で、この周回にまだスポーンすべき個体が残っている（MaxSpawnCountが2以上で、上限に未達）か。
+		// 残っている間は「周回の途中」なので、討伐フラグ付与・勝利ワープ・フラグ解除（周回の終了処理）は行わず、
+		// 最後の1体を倒した時にまとめて行う。MaxSpawnCountが0か1なら常にfalseで、従来動作（1周1体）と完全に同じ
+		const bool bMoreSpawnsInThisFlagCycle = !RequiredFlag.IsNone() && MaxSpawnCount > 1 && CurrentSpawnCount < MaxSpawnCount;
+
 		// 討伐フラグの付与（Delivery型お使いクエスト等、TargetIDで討伐を追えないクエストの報告ゲート用）
-		if (!GrantFlagOnEnemyDeath.IsNone())
+		if (!bMoreSpawnsInThisFlagCycle && !GrantFlagOnEnemyDeath.IsNone())
 		{
 			if (AMyProject1Character* PlayerChar = Cast<AMyProject1Character>(UGameplayStatics::GetPlayerCharacter(this, 0)))
 			{
@@ -324,7 +329,7 @@ void ANPCSpawner::OnEnemyDeath(AActor* DeadActor)
 		}
 
 		// 勝利時の退場（闘技場など）。VictoryWarpDelaySeconds秒の余韻を置いてからワープする
-		if (!VictoryWarpID.IsNone())
+		if (!bMoreSpawnsInThisFlagCycle && !VictoryWarpID.IsNone())
 		{
 			if (VictoryWarpDelaySeconds > 0.0f)
 			{
@@ -337,7 +342,7 @@ void ANPCSpawner::OnEnemyDeath(AActor* DeadActor)
 		}
 
 		// 討伐でも敗北時と同じくフラグ類を外す。RequiredFlagを外すとOnPlayerFlagRemovedが呼ばれ、再武装とGrantFlagOnEnemyDeathの解除が行われる
-		if (bClearFlagsOnEnemyDeath)
+		if (!bMoreSpawnsInThisFlagCycle && bClearFlagsOnEnemyDeath)
 		{
 			if (AMyProject1Character* PlayerChar = Cast<AMyProject1Character>(UGameplayStatics::GetPlayerCharacter(this, 0)))
 			{
@@ -352,9 +357,15 @@ void ANPCSpawner::OnEnemyDeath(AActor* DeadActor)
 			}
 		}
 
-		// RequiredFlag運用時は「1周1体」。フラグが外れて再度立つまでは自動リスポーンしない
+		// RequiredFlag運用時は、フラグが外れて再度立つまで次の周回は始まらない。
+		// ただしMaxSpawnCountが2以上なら、この周回の中で上限までRespawnTime秒おきに次の1体を湧かせる
+		// （フラグが外れた場合はOnPlayerFlagRemovedでこのタイマーを止める）
 		if (!RequiredFlag.IsNone())
 		{
+			if (bMoreSpawnsInThisFlagCycle)
+			{
+				GetWorldTimerManager().SetTimer(RespawnTimerHandle, this, &ANPCSpawner::SpawnEnemy, RespawnTime, false);
+			}
 			return;
 		}
 
@@ -507,6 +518,10 @@ void ANPCSpawner::OnPlayerFlagRemoved(FName FlagName)
 
 	// スポーン待機中（FlagSpawnDelaySeconds）にフラグが外れたら、湧かせずにキャンセルする
 	GetWorldTimerManager().ClearTimer(FlagSpawnTimerHandle);
+
+	// 周回内の複数体スポーン（MaxSpawnCount≥2）：次の湧き待ちをキャンセルし、次の周回のためにスポーン回数を数え直す
+	GetWorldTimerManager().ClearTimer(RespawnTimerHandle);
+	CurrentSpawnCount = 0;
 
 	// 周回リセット：前周に立てた討伐フラグも一緒に外し、依頼主への報告ゲートを再ロックする
 	if (!GrantFlagOnEnemyDeath.IsNone())

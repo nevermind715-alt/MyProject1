@@ -62,8 +62,9 @@ public:
 	 *  条件オンで、ステータスが取得できない設定（None、未登録のExtraStat名など）の場合は安全側でfalse（C++専用） */
 	bool IsEventDistributorStatConditionMet(class AMyProject1Character* PlayerCharacter) const;
 
-	/** 戦闘敗北によるTriggerEventPool呼び出し時のみ使用。この確率（%）の抽選で
-	 *  イベントディストリビュータを起動するかどうかを決める（AMyProject1Character::TakeDamage参照）。
+	/** 戦闘敗北によるTriggerEventPool呼び出し時とASleepPoint（bTriggerEventPoolOnSleep）でのみ使用。この確率（%）の抽選で
+	 *  イベントディストリビュータを起動するかどうかを決める（AMyProject1Character::TakeDamage / ASleepPoint::TriggerSleepEventPoolIfEnabled参照）。
+	 *  ASleepPointで外れた場合は、何も起きずに通常通り睡眠が終わる（WarpToRestartIDは使われない）。
 	 *  抽選に外れた場合はイベント抽選を行わず、WarpToRestartIDが設定されていればそこへワープし、
 	 *  空欄ならEventPoolID未設定の敵に倒された時と同じ通常の敗北復帰（PlayerStartへ復帰）になる。
 	 *  初期値100＝常にイベントディストリビュータを起動（従来動作のまま）。
